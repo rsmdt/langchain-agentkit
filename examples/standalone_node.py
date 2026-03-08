@@ -1,5 +1,5 @@
 # ruff: noqa: N801, N805
-"""Standalone node — the simplest way to use langchain-skillkit.
+"""Standalone node — the simplest way to use langchain-agentkit.
 
 Declare a class with the node metaclass and get a complete ReAct agent
 with skill support. The result is a StateGraph — call .compile() to run it.

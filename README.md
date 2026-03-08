@@ -1,83 +1,80 @@
-# langchain-skillkit
+# langchain-agentkit
 
-Skill-driven agent toolkit for LangGraph with semantic skill discovery.
+Composable middleware framework for LangGraph agents.
 
-[![PyPI version](https://img.shields.io/pypi/v/langchain-skillkit.svg)](https://pypi.org/project/langchain-skillkit/)
-[![Python](https://img.shields.io/pypi/pyversions/langchain-skillkit.svg)](https://pypi.org/project/langchain-skillkit/)
+[![Python](https://img.shields.io/pypi/pyversions/langchain-agentkit.svg)](https://pypi.org/project/langchain-agentkit/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Give your LangGraph agents reusable, discoverable skills defined as markdown files. Two paths to use: `SkillKit` as a standalone toolkit you wire yourself, or the `node` metaclass that gives you a complete ReAct subgraph with dependency injection.
+Build LangGraph agents with reusable middleware that composes tools and prompts. Two layers to choose from:
 
-## Table of Contents
+- **`agent` metaclass** — declare a class, get a complete ReAct agent with middleware-composed tools and prompts
+- **`AgentKit`** — primitive composition engine for full control over graph topology
 
-- [Installation & Quick Start](#installation--quick-start)
-- [Examples](#examples)
-- [API Reference](#api-reference)
-- [Security](#security)
-- [Why This Toolkit?](#why-this-toolkit)
-- [Contributing](#contributing)
-
-## Installation & Quick Start
+## Installation
 
 Requires **Python 3.11+**, `langchain-core>=0.3`, `langgraph>=0.4`.
 
 ```bash
-pip install langchain-skillkit
+pip install langchain-agentkit
 ```
 
-Skills follow the [AgentSkills.io specification](https://agentskills.io/specification) — each skill is a directory with a `SKILL.md` and optional reference files:
+## Quick Start
 
-```
-skills/
-  market-sizing/
-    SKILL.md                # Instructions + frontmatter (name, description)
-    calculator.py           # Template — loaded on demand via SkillRead
-  competitive-analysis/
-    SKILL.md
-    swot-template.md        # Reference doc — loaded on demand via SkillRead
-    examples/
-      output.json           # Example output
-```
+### The `agent` metaclass (recommended)
+
+Declare a class that inherits from `agent` to get a `StateGraph` with an automatic ReAct loop:
 
 ```python
-from langchain_core.tools import tool
 from langchain_core.messages import HumanMessage
 from langchain_openai import ChatOpenAI
-from langgraph.graph import StateGraph, START, END
-from langchain_skillkit import node, AgentState
+from langchain_agentkit import agent, SkillsMiddleware, TasksMiddleware
 
-# --- Define tools ---
-
-@tool
-def web_search(query: str) -> str:
-    """Search the web for information."""
-    return f"Results for: {query}"
-
-# --- Declare an agent ---
-# Subclassing `node` produces a StateGraph, not a class.
-# Call .compile() to get a runnable graph.
-
-class researcher(node):
+class researcher(agent):
     llm = ChatOpenAI(model="gpt-4o")
     tools = [web_search]
-    skills = "skills/"
+    middleware = [SkillsMiddleware("skills/"), TasksMiddleware()]
+    prompt = "You are a research assistant."
 
-    async def handler(state, *, llm):
-        response = await llm.ainvoke(state["messages"])
+    async def handler(state, *, llm, prompt):
+        messages = [SystemMessage(content=prompt)] + state["messages"]
+        response = await llm.ainvoke(messages)
         return {"messages": [response], "sender": "researcher"}
 
-# --- Compile and use standalone ---
-
+# Compile and use
 graph = researcher.compile()
 result = graph.invoke({"messages": [HumanMessage("Size the B2B SaaS market")]})
 
-# --- Or compose into a parent graph ---
+# With checkpointer for interrupt() support
+from langgraph.checkpoint.memory import InMemorySaver
+graph = researcher.compile(checkpointer=InMemorySaver())
+```
 
-workflow = StateGraph(AgentState)
-workflow.add_node("researcher", researcher.compile())
-workflow.add_edge(START, "researcher")
-workflow.add_edge("researcher", END)
-graph = workflow.compile()
+### `AgentKit` for manual graph wiring
+
+Use `AgentKit` when you need full control over graph topology — multi-node graphs, shared `ToolNode`, custom routing:
+
+```python
+from langchain_agentkit import AgentKit, SkillsMiddleware, TasksMiddleware
+
+kit = AgentKit([
+    SkillsMiddleware("skills/"),
+    TasksMiddleware(task_tools=[task_create, task_update]),
+])
+
+# In any graph node:
+all_tools = my_tools + kit.tools
+system_prompt = kit.prompt(state, config)
+```
+
+### Standalone `SkillKit`
+
+Use `SkillKit` directly for skill discovery without the middleware layer:
+
+```python
+from langchain_agentkit import SkillKit
+
+kit = SkillKit("skills/")
+tools = kit.tools  # [Skill, SkillRead]
 ```
 
 ## Examples
@@ -93,53 +90,9 @@ See [`examples/`](examples/) for complete working code:
 
 ## API Reference
 
-### `SkillKit(skills_dirs)`
-
-Toolkit that provides `Skill` and `SkillRead` tools.
-
-```python
-from langchain_skillkit import SkillKit
-
-kit = SkillKit("skills/")
-all_tools = [web_search] + kit.tools  # [web_search, Skill, SkillRead]
-```
-
-**Parameters:**
-- `skills_dirs` (str | list[str]): Directory or list of directories containing skill subdirectories
-
-**Properties:**
-
-| Property | Type | Description |
-|----------|------|-------------|
-| `tools` | `list[BaseTool]` | `[Skill, SkillRead]` — built once, cached |
-
-### `node`
+### `agent`
 
 Declarative agent builder. Subclassing produces a `StateGraph`. Call `.compile()` to get a runnable graph.
-
-```python
-from langchain_skillkit import node
-
-class my_agent(node):
-    llm = ChatOpenAI(model="gpt-4o")    # Required
-    tools = [web_search]                  # Optional
-    skills = "skills/"                    # Optional
-
-    async def handler(state, *, llm):
-        response = await llm.ainvoke(state["messages"])
-        return {"messages": [response], "sender": "my_agent"}
-
-graph = my_agent.compile()
-graph.invoke({"messages": [HumanMessage("...")]})
-```
-
-**Compile with a checkpointer** for `interrupt()` support:
-
-```python
-from langgraph.checkpoint.memory import InMemorySaver
-
-graph = my_agent.compile(checkpointer=InMemorySaver())
-```
 
 **Class attributes:**
 
@@ -147,12 +100,13 @@ graph = my_agent.compile(checkpointer=InMemorySaver())
 |-----------|----------|-------------|
 | `llm` | Yes | Language model instance |
 | `tools` | No | List of LangChain tools |
-| `skills` | No | Path(s) to skill directories, or a `SkillKit` instance |
+| `middleware` | No | Ordered list of `Middleware` instances |
+| `prompt` | No | System prompt — inline string, file path, or list of either |
 
 **Handler signature:**
 
 ```python
-async def handler(state, *, llm, tools, runtime): ...
+async def handler(state, *, llm, tools, prompt, config, runtime): ...
 ```
 
 `state` is positional. Everything after `*` is keyword-only and injected by name — declare only what you need:
@@ -161,48 +115,76 @@ async def handler(state, *, llm, tools, runtime): ...
 |-----------|------|-------------|
 | `state` | `dict` | LangGraph state (positional, required) |
 | `llm` | `BaseChatModel` | LLM pre-bound with all tools via `bind_tools()` |
-| `tools` | `list[BaseTool]` | All tools available to the agent |
-| `runtime` | `Any` | LangGraph runtime context (passed through from config) |
+| `tools` | `list[BaseTool]` | All tools (user tools + middleware tools) |
+| `prompt` | `str` | Fully composed prompt (template + middleware sections) |
+| `config` | `RunnableConfig` | LangGraph config for the current invocation |
+| `runtime` | `Any` | LangGraph runtime context (from `kwargs`) |
 
 **Custom state types** — annotate the handler's `state` parameter:
 
 ```python
-from typing import Annotated, TypedDict
-from langgraph.graph.message import add_messages
-
-class WorkflowState(TypedDict, total=False):
+class MyState(TypedDict, total=False):
     messages: Annotated[list, add_messages]
     draft: dict | None
 
-class my_agent(node):
+class my_agent(agent):
     llm = ChatOpenAI(model="gpt-4o")
 
-    async def handler(state: WorkflowState, *, llm):
-        response = await llm.ainvoke(state["messages"])
-        return {"messages": [response]}
+    async def handler(state: MyState, *, llm):
+        ...
 ```
 
 Without an annotation, `AgentState` is used by default.
 
+### `Middleware` protocol
+
+Any class with `tools` (property) and `prompt(state, config)` (method) satisfies the protocol:
+
+```python
+class MyMiddleware:
+    @property
+    def tools(self) -> list[BaseTool]:
+        return [my_tool]
+
+    def prompt(self, state: dict, config: RunnableConfig) -> str | None:
+        return "You have access to my_tool."
+```
+
+Built-in middleware:
+
+- **`SkillsMiddleware(skills_dirs)`** — Progressive disclosure skill system with `Skill` and `SkillRead` tools
+- **`TasksMiddleware(task_tools=[])`** — Task management tools with base agent behavior prompt
+
+### `AgentKit(middleware, prompt=None)`
+
+Composition engine that merges tools and prompts from middleware.
+
+- **`tools`** — All tools from all middleware, deduplicated by name (first middleware wins, cached)
+- **`prompt(state, config)`** — Template + middleware sections, joined with double newline (dynamic per call)
+
+Prompt templates can be inline strings, file paths, or a list of either:
+
+```python
+kit = AgentKit(middleware, prompt="You are helpful.")
+kit = AgentKit(middleware, prompt=Path("prompts/system.txt"))
+kit = AgentKit(middleware, prompt=["prompts/base.txt", "Extra instructions"])
+```
+
+### `node` (legacy)
+
+The original skill-aware metaclass. Uses `skills` attribute instead of `middleware`. Consider migrating to `agent` for the full middleware composition model.
+
+```python
+class my_agent(node):
+    llm = ChatOpenAI(model="gpt-4o")
+    skills = "skills/"  # str, list[str], or SkillKit instance
+
+    async def handler(state, *, llm, tools, runtime): ...
+```
+
 ### `AgentState`
 
-Minimal LangGraph state type for composing nodes in a parent graph:
-
-```python
-from langchain_skillkit import AgentState
-from langgraph.graph import StateGraph
-
-workflow = StateGraph(AgentState)
-workflow.add_node("researcher", researcher)
-```
-
-Extend it with your own fields:
-
-```python
-class MyState(AgentState):
-    current_project: str
-    iteration_count: int
-```
+Minimal LangGraph state type:
 
 | Field | Type | Description |
 |-------|------|-------------|
@@ -211,39 +193,18 @@ class MyState(AgentState):
 
 ## Security
 
-- **Path traversal prevention**: File paths resolved to absolute and checked against skill directories.
-- **Name validation**: Skill names validated per [AgentSkills.io spec](https://agentskills.io/specification) — lowercase alphanumeric + hyphens, 1-64 chars, must match directory name.
-- **Tool scoping**: Each `node` subclass only has access to the tools declared in its `tools` attribute.
-
-## Why This Toolkit?
-
-Developers building multi-agent LangGraph systems face these problems:
-
-1. **Prompt reuse is manual.** The same domain instructions get copy-pasted across agents with no versioning or structure.
-2. **Agents lack discoverability.** There's no standard way for an LLM to find and select relevant instructions at runtime.
-3. **Agent wiring is repetitive.** Every ReAct agent needs the same graph boilerplate: handler node, tool node, conditional edges.
-4. **Reference files are inaccessible.** Templates, scripts, and examples referenced in prompts can't be loaded on demand.
-
-This toolkit solves all four with:
-
-- Skill-as-markdown: reusable instructions with structured frontmatter
-- Semantic discovery: the LLM matches user intent to skill descriptions at runtime
-- Declarative agents: `class my_agent(node)` gives you a complete ReAct subgraph
-- On-demand file loading: `SkillRead` lets the LLM pull reference files when needed
-- AgentSkills.io spec compliance: portable skills that work across toolkits
-- Full type safety: mypy strict mode support
+- **Path traversal prevention**: Skill file paths resolved to absolute and checked against skill directories. Reference file names reject `.` and `..` patterns.
+- **Name validation**: Skill names validated per [AgentSkills.io spec](https://agentskills.io/specification) — lowercase alphanumeric + hyphens, 1-64 chars.
+- **Tool scoping**: Each agent only has access to the tools declared in its `tools` attribute plus middleware-provided tools.
+- **Prompt trust boundary**: Prompt templates and middleware prompt sections are set by the developer at construction time, not by end-user input.
 
 ## Contributing
 
-This toolkit is extracted from a production codebase and is actively maintained. Issues, feature requests, and pull requests are welcome.
-
 ```bash
-git clone https://github.com/rsmdt/langchain-skillkit.git
-cd langchain-skillkit
+git clone https://github.com/rsmdt/langchain-agentkit.git
+cd langchain-agentkit
 uv sync --extra dev
 uv run pytest --tb=short -q
 uv run ruff check src/ tests/
 uv run mypy src/
 ```
-
-GitHub: https://github.com/rsmdt/langchain-skillkit

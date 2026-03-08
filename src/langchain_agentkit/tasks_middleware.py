@@ -4,16 +4,25 @@ Usage::
 
     from langchain_agentkit import TasksMiddleware
 
-    mw = TasksMiddleware(task_tools=[task_create, task_update])
-    mw.tools   # [task_create, task_update]
+    # Default — auto-creates Command-based task tools
+    mw = TasksMiddleware()
+    mw.tools   # [TaskCreate, TaskUpdate, TaskList, TaskGet]
     mw.prompt(state, config)  # Base agent prompt + task context
+
+    # Custom tools
+    mw = TasksMiddleware(task_tools=[my_task_create, my_task_update])
+
+    # Custom formatter
+    mw = TasksMiddleware(formatter=my_format_function)
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
 
@@ -55,39 +64,94 @@ objective directly and NOT use these tools.
   that need to be done, or old tasks that are irrelevant.
 - Never mark `completed` if work is partial or errors are unresolved."""
 
+_STATUS_ICONS = {
+    "completed": "x",
+    "in_progress": ">",
+    "deleted": "-",
+}
 
-def format_task_context(tasks: list[dict]) -> str:
-    """Format active tasks into a prompt section.
+
+def format_task_context(tasks: list[dict[str, Any]]) -> str:
+    """Format active tasks into a rich prompt section.
+
+    Features:
+        - Status icons: ``[x]`` completed, ``[>]`` in-progress, ``[-]`` deleted, ``[ ]`` pending
+        - Filters out deleted tasks
+        - Shows active form text for in-progress tasks
+        - Shows blocked-by dependencies for pending tasks
+        - Numbered list with XML wrapping
+
+    Returns ``TASK_MANAGEMENT_PROMPT`` when no visible tasks remain.
 
     Args:
         tasks: List of task dicts with at least 'subject' and 'status' keys.
     """
-    if not tasks:
-        return ""
-    lines = ["## Current Tasks", ""]
-    for task in tasks:
+    visible = [t for t in tasks if t.get("status") != "deleted"]
+    if not visible:
+        return TASK_MANAGEMENT_PROMPT
+
+    lines = []
+    for i, task in enumerate(visible, 1):
         status = task.get("status", "pending")
-        subject = task.get("subject", "Untitled")
-        marker = "x" if status == "completed" else " "
-        lines.append(f"- [{marker}] {subject} ({status})")
-    return "\n".join(lines)
+        icon = _STATUS_ICONS.get(status, " ")
+        subject = task.get("subject", "")
+        suffix = ""
+        if status == "in_progress" and task.get("active_form"):
+            suffix = f' -- "{task["active_form"]}"'
+        blocked_by = task.get("blocked_by", [])
+        if blocked_by and status == "pending":
+            dep_str = ", ".join(blocked_by)
+            suffix = f" (pending, blocked by: {dep_str})"
+        lines.append(f"{i}. [{icon}] {subject}{suffix}")
+
+    body = "\n".join(lines)
+    return (
+        f"## Current Tasks\n\n<tasks>\n{body}\n</tasks>\n\n"
+        "Review your current tasks before proceeding. Update task status as you work."
+    )
 
 
 class TasksMiddleware:
     """Middleware providing task management tools and system prompt guidance.
 
-    Tools: Accepts task tools via constructor (injectable dependency).
-    Prompt: Base agent behavior + task context or task guidance.
+    Tools: Uses Command-based task tools by default. Accepts custom tools
+    via constructor for override.
+
+    Prompt: Base agent behavior + task context (rich formatting with status
+    icons, dependency tracking, and XML wrapping) or task management
+    guidance when no tasks exist.
+
+    Args:
+        task_tools: Optional custom task tools. If ``None``, creates
+            default Command-based tools via ``create_task_tools()``.
+        formatter: Optional custom function to format tasks into a prompt
+            section. Receives ``list[dict]`` and returns ``str``.
+            Defaults to ``format_task_context``.
 
     Example::
 
-        mw = TasksMiddleware(task_tools=[task_create, task_update, task_list])
-        mw.tools   # [task_create, task_update, task_list]
-        mw.prompt(state, config)  # Task management prompt
+        # Default — auto-creates Command-based task tools
+        mw = TasksMiddleware()
+
+        # Custom tools
+        mw = TasksMiddleware(task_tools=[my_create, my_update])
+
+        # Custom formatter
+        mw = TasksMiddleware(formatter=my_format_function)
     """
 
-    def __init__(self, task_tools: list[BaseTool] | None = None) -> None:
-        self._tools = list(task_tools) if task_tools else []
+    def __init__(
+        self,
+        task_tools: list[BaseTool] | None = None,
+        formatter: Callable[[list[dict[str, Any]]], str] | None = None,
+    ) -> None:
+        if task_tools is not None:
+            self._tools = list(task_tools)
+        else:
+            from langchain_agentkit.task_tools import create_task_tools
+
+            self._tools = create_task_tools()
+        self._formatter = formatter or format_task_context
 
     @property
     def tools(self) -> list[BaseTool]:
@@ -96,8 +160,5 @@ class TasksMiddleware:
     def prompt(self, state: dict, config: RunnableConfig) -> str:
         sections = [BASE_AGENT_PROMPT]
         tasks = state.get("tasks") or []
-        if tasks:
-            sections.append(format_task_context(tasks))
-        else:
-            sections.append(TASK_MANAGEMENT_PROMPT)
+        sections.append(self._formatter(tasks))
         return "\n\n".join(sections)

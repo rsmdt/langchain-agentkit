@@ -97,7 +97,13 @@ class AgentKit:
 
 
 def _load_template(source: str | Path) -> str:
-    """Load a single prompt template from file path or return inline string."""
+    """Load a single prompt template from file path or return inline string.
+
+    Security note: Template sources are set at construction time by the
+    developer, not by end-user input. If the source string happens to
+    match an existing file path, it will be read. This is by design —
+    callers control what is passed to ``AgentKit(prompt=...)``.
+    """
     path = Path(source)
     if path.exists() and path.is_file():
         return path.read_text()

@@ -100,6 +100,23 @@ class TestAgentKitTools:
 
         assert kit.tools == []
 
+    def test_deduplicates_preserves_order_first_wins(self):
+        """First middleware's tool wins on name collision, order preserved."""
+        tool_a = _make_tool("a")
+        tool_b_first = _make_tool("b", description="first_b")
+        tool_c = _make_tool("c")
+        tool_b_second = _make_tool("b", description="second_b")
+
+        mw1 = StubMiddleware(tools=[tool_a, tool_b_first])
+        mw2 = StubMiddleware(tools=[tool_b_second, tool_c])
+
+        kit = AgentKit([mw1, mw2])
+
+        assert len(kit.tools) == 3
+        names = [t.name for t in kit.tools]
+        assert names == ["a", "b", "c"]
+        assert kit.tools[1].description == "first_b"
+
 
 class TestAgentKitPrompt:
     def test_composes_sections_with_double_newline(self):
@@ -164,6 +181,13 @@ class TestAgentKitPrompt:
         result = kit.prompt({}, {})
 
         assert result == "Part one\n\nPart two"
+
+    def test_nonexistent_path_treated_as_inline_string(self):
+        """A string that looks like a path but doesn't exist is treated as inline."""
+        kit = AgentKit([], prompt="nonexistent/path/prompt.md")
+        result = kit.prompt({}, {})
+
+        assert result == "nonexistent/path/prompt.md"
 
 
 class TestAgentKitIntegration:

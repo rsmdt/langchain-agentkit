@@ -40,6 +40,7 @@ from langchain_agentkit.node import node
 from langchain_agentkit.skill_kit import SkillKit
 from langchain_agentkit.skills_middleware import SkillsMiddleware
 from langchain_agentkit.state import AgentState
+from langchain_agentkit.task_tools import create_task_tools
 from langchain_agentkit.tasks_middleware import TasksMiddleware
 
 __all__ = [
@@ -54,6 +55,8 @@ __all__ = [
     # Middleware implementations
     "SkillsMiddleware",
     "TasksMiddleware",
+    # Task tools
+    "create_task_tools",
     # State
     "AgentState",
 ]

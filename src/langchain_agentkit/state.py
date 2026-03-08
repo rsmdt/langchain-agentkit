@@ -18,7 +18,9 @@ class AgentState(TypedDict, total=False):
     Fields:
         messages: Conversation history with LangGraph message aggregation.
         sender: Name of the last node that called tools (for routing back).
+        tasks: Task list managed by TasksMiddleware tools.
     """
 
     messages: Annotated[list[Any], add_messages]
     sender: str
+    tasks: list[dict[str, Any]]

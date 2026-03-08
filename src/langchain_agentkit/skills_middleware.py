@@ -82,7 +82,7 @@ class SkillsMiddleware:
         )
 
     def _format_skills_list(self) -> str:
-        skills = self._kit._build_skill_index()
+        skills = self._kit.skill_index
         if not skills:
             return "(No skills available)"
 

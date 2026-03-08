@@ -34,7 +34,7 @@ from langchain_agentkit.types import SkillConfig
 
 # AgentSkills.io: 1-64 chars, lowercase + digits + hyphens, no leading/trailing/consecutive hyphens
 SKILL_NAME_PATTERN = re.compile(r"^[a-z](?:[a-z0-9]|-(?!-)){0,62}[a-z0-9]$|^[a-z]$")
-REFERENCE_NAME_PATTERN = re.compile(r"^[a-zA-Z0-9_.-]{1,255}$")
+REFERENCE_NAME_PATTERN = re.compile(r"^(?!\.\.?$)[a-zA-Z0-9_.-]{1,255}$")
 
 
 class SkillInput(BaseModel):
@@ -94,6 +94,11 @@ class SkillKit:
         if self._tools_cache is None:
             self._tools_cache = [self._build_skill_tool(), self._build_skill_read_tool()]
         return self._tools_cache
+
+    @property
+    def skill_index(self) -> dict[str, Path]:
+        """Mapping from frontmatter skill name to skill directory path."""
+        return self._build_skill_index()
 
     def _resolve_skills_dirs(self) -> list[Path]:
         return [Path(d).resolve() for d in self.skills_dirs if d]
