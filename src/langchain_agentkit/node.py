@@ -2,7 +2,7 @@
 
 Usage::
 
-    from langchain_skillkit import node
+    from langchain_agentkit import node
 
     class researcher(node):
         llm = ChatOpenAI(model="gpt-4o")
@@ -26,8 +26,8 @@ from typing import TYPE_CHECKING, Any
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from langchain_skillkit.skill_kit import SkillKit
-from langchain_skillkit.state import AgentState
+from langchain_agentkit.skill_kit import SkillKit
+from langchain_agentkit.state import AgentState
 
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
@@ -272,7 +272,7 @@ class node(metaclass=_NodeMeta):  # noqa: N801
 
     Example::
 
-        from langchain_skillkit import node
+        from langchain_agentkit import node
 
         class researcher(node):
             llm = ChatOpenAI(model="gpt-4o")

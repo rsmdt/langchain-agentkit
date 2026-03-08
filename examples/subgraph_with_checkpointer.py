@@ -14,7 +14,7 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
-from langchain_skillkit import AgentState, node
+from langchain_agentkit import AgentState, node
 
 
 class researcher(node):

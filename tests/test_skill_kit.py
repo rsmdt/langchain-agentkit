@@ -2,7 +2,7 @@
 
 from pathlib import Path
 
-from langchain_skillkit.skill_kit import SkillKit
+from langchain_agentkit.skill_kit import SkillKit
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

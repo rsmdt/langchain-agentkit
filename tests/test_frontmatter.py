@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from langchain_skillkit.frontmatter import parse_frontmatter
+from langchain_agentkit.frontmatter import parse_frontmatter
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

@@ -2,8 +2,8 @@
 
 from pathlib import Path
 
-from langchain_skillkit.types import SkillConfig
-from langchain_skillkit.validate import validate_skill_config
+from langchain_agentkit.types import SkillConfig
+from langchain_agentkit.validate import validate_skill_config
 
 
 class TestValidateSkillConfig:

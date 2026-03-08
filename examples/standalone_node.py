@@ -9,7 +9,7 @@ from langchain_core.messages import HumanMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from langchain_skillkit import node
+from langchain_agentkit import node
 
 
 @tool

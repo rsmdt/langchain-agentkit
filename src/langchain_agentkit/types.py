@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from pathlib import Path
 
-from langchain_skillkit.frontmatter import parse_frontmatter
+from langchain_agentkit.frontmatter import parse_frontmatter
 
 
 @dataclass(frozen=True)

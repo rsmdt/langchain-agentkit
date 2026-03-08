@@ -12,7 +12,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command, interrupt
 
-from langchain_skillkit import node
+from langchain_agentkit import node
 
 
 class advisor(node):

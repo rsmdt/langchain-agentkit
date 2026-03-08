@@ -1,7 +1,7 @@
 [project]
-name = "langchain-skillkit"
+name = "langchain-agentkit"
 version = "0.3.0"
-description = "Skill-driven agent toolkit for LangGraph with semantic skill discovery"
+description = "Composable middleware framework for LangGraph agents"
 readme = "README.md"
 requires-python = ">=3.11"
 license = "MIT"
@@ -26,7 +26,7 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/langchain_skillkit"]
+packages = ["src/langchain_agentkit"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]
@@ -43,5 +43,5 @@ select = ["E", "F", "I", "B", "C90", "N", "UP", "PIE", "SIM", "TCH"]
 [tool.mypy]
 python_version = "3.11"
 strict = true
-packages = ["langchain_skillkit"]
+packages = ["langchain_agentkit"]
 mypy_path = "src"

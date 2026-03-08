@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from langchain_skillkit.types import SkillConfig
+from langchain_agentkit.types import SkillConfig
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

@@ -9,12 +9,12 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langgraph.graph.message import add_messages
 
-from langchain_skillkit.node import (
+from langchain_agentkit.node import (
     _normalize_skills,
     _validate_handler_signature,
 )
-from langchain_skillkit.skill_kit import SkillKit
-from langchain_skillkit.state import AgentState
+from langchain_agentkit.skill_kit import SkillKit
+from langchain_agentkit.state import AgentState
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -127,7 +127,7 @@ class TestNodeMetaclass:
     def test_returns_uncompiled_state_graph(self):
         from langgraph.graph import StateGraph
 
-        from langchain_skillkit import node
+        from langchain_agentkit import node
 
         mock_llm = MagicMock()
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
@@ -148,7 +148,7 @@ class TestNodeMetaclass:
         assert not hasattr(test_agent, "invoke")
 
     def test_requires_handler(self):
-        from langchain_skillkit import node
+        from langchain_agentkit import node
 
         with pytest.raises(ValueError, match="must define.*handler"):
 
@@ -156,7 +156,7 @@ class TestNodeMetaclass:
                 llm = MagicMock()
 
     def test_requires_llm(self):
-        from langchain_skillkit import node
+        from langchain_agentkit import node
 
         with pytest.raises(ValueError, match="must define.*llm"):
 
@@ -165,7 +165,7 @@ class TestNodeMetaclass:
                     return {"messages": [], "sender": "bad"}
 
     def test_handler_must_be_callable(self):
-        from langchain_skillkit import node
+        from langchain_agentkit import node
 
         with pytest.raises(ValueError, match="callable"):
 
@@ -174,7 +174,7 @@ class TestNodeMetaclass:
                 handler = "not a function"
 
     def test_tools_must_be_list(self):
-        from langchain_skillkit import node
+        from langchain_agentkit import node
 
         with pytest.raises(ValueError, match="tools must be a list"):
 
@@ -188,7 +188,7 @@ class TestNodeMetaclass:
     def test_node_with_skills(self):
         from langgraph.graph import StateGraph
 
-        from langchain_skillkit import node
+        from langchain_agentkit import node
 
         mock_llm = MagicMock()
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
@@ -207,7 +207,7 @@ class TestNodeMetaclass:
 
     @pytest.mark.asyncio
     async def test_custom_state_type_from_handler_annotation(self):
-        from langchain_skillkit import node
+        from langchain_agentkit import node
 
         class WorkflowState(TypedDict, total=False):
             messages: Annotated[list[Any], add_messages]
@@ -235,7 +235,7 @@ class TestNodeMetaclass:
 
     @pytest.mark.asyncio
     async def test_default_state_type_without_annotation(self):
-        from langchain_skillkit import node
+        from langchain_agentkit import node
 
         mock_llm = MagicMock()
 
@@ -255,7 +255,7 @@ class TestNodeMetaclass:
 class TestNodeInvocation:
     @pytest.mark.asyncio
     async def test_no_tools_node_invokes_handler(self):
-        from langchain_skillkit import node
+        from langchain_agentkit import node
 
         mock_llm = MagicMock()
 

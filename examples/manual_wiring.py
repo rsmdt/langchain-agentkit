@@ -10,7 +10,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from langchain_skillkit import AgentState, SkillKit
+from langchain_agentkit import AgentState, SkillKit
 
 
 @tool

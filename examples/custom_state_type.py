@@ -14,7 +14,7 @@ from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.graph.message import add_messages
 
-from langchain_skillkit import node
+from langchain_agentkit import node
 
 # --- Define a custom state with domain-specific fields ---
 

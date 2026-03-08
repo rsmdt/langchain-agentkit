@@ -2,7 +2,7 @@
 
 Usage::
 
-    from langchain_skillkit import SkillKit
+    from langchain_agentkit import SkillKit
 
     # Single directory
     kit = SkillKit("skills/")
@@ -30,7 +30,7 @@ from langchain_core.tools import (
 )
 from pydantic import BaseModel, Field
 
-from langchain_skillkit.types import SkillConfig
+from langchain_agentkit.types import SkillConfig
 
 # AgentSkills.io: 1-64 chars, lowercase + digits + hyphens, no leading/trailing/consecutive hyphens
 SKILL_NAME_PATTERN = re.compile(r"^[a-z](?:[a-z0-9]|-(?!-)){0,62}[a-z0-9]$|^[a-z]$")
@@ -62,7 +62,7 @@ class SkillKit:
 
     Example::
 
-        from langchain_skillkit import SkillKit
+        from langchain_agentkit import SkillKit
 
         kit = SkillKit("skills/")
 

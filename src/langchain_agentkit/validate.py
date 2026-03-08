@@ -9,7 +9,7 @@ import re
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from langchain_skillkit.types import SkillConfig
+    from langchain_agentkit.types import SkillConfig
 
 # AgentSkills.io name constraints:
 # 1-64 chars, lowercase alphanumeric + hyphens, no leading/trailing/consecutive hyphens
