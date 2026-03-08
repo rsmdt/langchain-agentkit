@@ -130,7 +130,7 @@ class TasksMiddleware:
     def tools(self) -> list[BaseTool]:
         return list(self._tools)
 
-    def prompt(self, state: dict, config: RunnableConfig) -> str:
+    def prompt(self, state: dict[str, Any], config: RunnableConfig) -> str:
         sections = [BASE_AGENT_PROMPT]
         tasks = state.get("tasks") or []
         sections.append(self._formatter(tasks))

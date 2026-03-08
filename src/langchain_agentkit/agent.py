@@ -110,7 +110,7 @@ def _build_graph(
     _agent_node.__qualname__ = f"agent.<locals>.{node_name}"
 
     workflow: StateGraph[Any] = StateGraph(state_type)
-    workflow.add_node(node_name, _agent_node)  # type: ignore[type-var]
+    workflow.add_node(node_name, _agent_node)
 
     if all_tools:
         tool_node = ToolNode(all_tools)

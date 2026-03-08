@@ -286,6 +286,40 @@ wheels = [
 ]
 
 [[package]]
+name = "langchain-agentkit"
+version = "0.4.0"
+source = { editable = "." }
+dependencies = [
+    { name = "langchain-core" },
+    { name = "langgraph" },
+    { name = "pyyaml" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "langchain-openai" },
+    { name = "mypy" },
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+    { name = "ruff" },
+    { name = "types-pyyaml" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "langchain-core", specifier = ">=0.3" },
+    { name = "langchain-openai", marker = "extra == 'dev'", specifier = ">=0.3" },
+    { name = "langgraph", specifier = ">=0.4" },
+    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
+    { name = "pyyaml", specifier = ">=6.0" },
+    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
+    { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
+]
+provides-extras = ["dev"]
+
+[[package]]
 name = "langchain-core"
 version = "1.2.16"
 source = { registry = "https://pypi.org/simple" }
@@ -317,40 +351,6 @@ sdist = { url = "https://files.pythonhosted.org/packages/d6/0f/01147f842499338ae
 wheels = [
     { url = "https://files.pythonhosted.org/packages/72/17/3785cbcdc81c451179247e4176d2697879cb4f45ab2c59d949ca574e072d/langchain_openai-1.1.10-py3-none-any.whl", hash = "sha256:d91b2c09e9fbc70f7af45345d3aa477744962d41c73a029beb46b4f83b824827", size = 87205, upload-time = "2026-02-17T18:03:43.502Z" },
 ]
-
-[[package]]
-name = "langchain-skillkit"
-version = "0.3.0"
-source = { editable = "." }
-dependencies = [
-    { name = "langchain-core" },
-    { name = "langgraph" },
-    { name = "pyyaml" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "langchain-openai" },
-    { name = "mypy" },
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-    { name = "ruff" },
-    { name = "types-pyyaml" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "langchain-core", specifier = ">=0.3" },
-    { name = "langchain-openai", marker = "extra == 'dev'", specifier = ">=0.3" },
-    { name = "langgraph", specifier = ">=0.4" },
-    { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
-    { name = "pyyaml", specifier = ">=6.0" },
-    { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
-    { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
-]
-provides-extras = ["dev"]
 
 [[package]]
 name = "langgraph"

@@ -28,7 +28,7 @@ Prompt templates can be loaded from files or provided as inline strings::
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from langchain_core.runnables import RunnableConfig
@@ -82,7 +82,7 @@ class AgentKit:
             self._tools_cache = tools
         return self._tools_cache
 
-    def prompt(self, state: dict, config: RunnableConfig) -> str:
+    def prompt(self, state: dict[str, Any], config: RunnableConfig) -> str:
         """Compose prompt from template + all middleware sections.
 
         Called on every LLM invocation. Each middleware contributes

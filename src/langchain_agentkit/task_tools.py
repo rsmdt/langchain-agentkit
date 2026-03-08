@@ -47,7 +47,7 @@ class _TaskCreateInput(BaseModel):
         default=None,
         description="Optional arbitrary key-value data.",
     )
-    state: Annotated[dict, InjectedState]
+    state: Annotated[dict[str, Any], InjectedState]
 
 
 class _TaskUpdateInput(BaseModel):
@@ -68,25 +68,25 @@ class _TaskUpdateInput(BaseModel):
         default=None,
         description="Keys to merge (set value to null to delete a key).",
     )
-    state: Annotated[dict, InjectedState]
+    state: Annotated[dict[str, Any], InjectedState]
 
 
 class _TaskListInput(BaseModel):
-    state: Annotated[dict, InjectedState]
+    state: Annotated[dict[str, Any], InjectedState]
 
 
 class _TaskGetInput(BaseModel):
     task_id: str = Field(description="Task ID to retrieve.")
-    state: Annotated[dict, InjectedState]
+    state: Annotated[dict[str, Any], InjectedState]
 
 
 def _task_create(
     subject: str,
     description: str,
-    state: dict,
+    state: dict[str, Any],
     active_form: str = "",
     metadata: dict[str, Any] | None = None,
-) -> Command:
+) -> Command:  # type: ignore[type-arg]
     """Create a new task with pending status."""
     task: dict[str, Any] = {
         "id": str(uuid.uuid4()),
@@ -107,7 +107,7 @@ def _task_create(
 
 def _task_update(
     task_id: str,
-    state: dict,
+    state: dict[str, Any],
     status: str | None = None,
     subject: str | None = None,
     description: str | None = None,
@@ -116,7 +116,7 @@ def _task_update(
     add_blocks: list[str] | None = None,
     add_blocked_by: list[str] | None = None,
     metadata: dict[str, Any] | None = None,
-) -> Command:
+) -> Command:  # type: ignore[type-arg]
     """Update an existing task."""
     tasks = [dict(t) for t in (state.get("tasks") or [])]
     task = next((t for t in tasks if t["id"] == task_id), None)
@@ -145,7 +145,7 @@ def _task_update(
     return Command(update={"tasks": tasks})
 
 
-def _task_list(state: dict) -> str:
+def _task_list(state: dict[str, Any]) -> str:
     """List all non-deleted tasks."""
     tasks = state.get("tasks") or []
     summary = [
@@ -162,7 +162,7 @@ def _task_list(state: dict) -> str:
     return json.dumps(summary)
 
 
-def _task_get(task_id: str, state: dict) -> str:
+def _task_get(task_id: str, state: dict[str, Any]) -> str:
     """Get full details of a task by ID."""
     tasks = state.get("tasks") or []
     task = next((t for t in tasks if t["id"] == task_id), None)

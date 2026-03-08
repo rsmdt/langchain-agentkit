@@ -24,7 +24,7 @@ Example::
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Protocol
+from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from langchain_core.runnables import RunnableConfig
@@ -37,7 +37,7 @@ class Middleware(Protocol):
         """Tools this middleware provides to the LLM."""
         ...
 
-    def prompt(self, state: dict, config: RunnableConfig) -> str | None:
+    def prompt(self, state: dict[str, Any], config: RunnableConfig) -> str | None:
         """Prompt section to inject into the system prompt.
 
         Called on every LLM invocation. Return None to skip injection.

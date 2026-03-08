@@ -12,7 +12,7 @@ Usage::
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from langchain_core.prompts import PromptTemplate
 
@@ -49,7 +49,7 @@ class SkillsMiddleware:
     def tools(self) -> list[BaseTool]:
         return self._kit.tools
 
-    def prompt(self, state: dict, config: RunnableConfig) -> str:
+    def prompt(self, state: dict[str, Any], config: RunnableConfig) -> str:
         return _skills_system_prompt.format(
             skills_list=self._format_skills_list(),
         )
