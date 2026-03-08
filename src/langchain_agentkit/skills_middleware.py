@@ -11,7 +11,10 @@ Usage::
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING
+
+from langchain_core.prompts import PromptTemplate
 
 from langchain_agentkit.skill_kit import SkillKit
 from langchain_agentkit.types import SkillConfig
@@ -20,39 +23,9 @@ if TYPE_CHECKING:
     from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
 
+_PROMPTS_DIR = Path(__file__).parent / "prompts"
 
-# fmt: off
-SKILLS_SYSTEM_PROMPT = """\
-## Skills System
-
-You have access to a skills library that provides specialized methodology and domain knowledge.
-
-**Available Skills:**
-
-{skills_list}
-
-**How to Use Skills (Progressive Disclosure):**
-
-Skills follow a **progressive disclosure** pattern -- you see their name and \
-description above, but only load full instructions when needed:
-
-1. **Recognize when a skill applies**: Check if the current task matches a skill's description
-2. **Load the skill**: Call `Skill("skill-name")` to get full instructions
-3. **Follow the skill's instructions**: Contains step-by-step workflows, quality rubrics, \
-and methodology
-4. **Access supporting files**: Call `SkillRead("skill-name", "reference/file.md")` for \
-templates, examples, or rubrics
-
-**When to Use Skills:**
-- Starting work on an artifact that has a matching skill
-- You need structured methodology or quality criteria
-- A skill provides proven patterns for the task at hand
-
-**When NOT to Use Skills:**
-- Conversational exchanges or simple questions
-- You already loaded the skill this session (don't reload)
-- The task doesn't match any available skill"""
-# fmt: on
+_skills_system_prompt = PromptTemplate.from_file(_PROMPTS_DIR / "skills_system.md")
 
 
 class SkillsMiddleware:
@@ -77,7 +50,7 @@ class SkillsMiddleware:
         return self._kit.tools
 
     def prompt(self, state: dict, config: RunnableConfig) -> str:
-        return SKILLS_SYSTEM_PROMPT.format(
+        return _skills_system_prompt.format(
             skills_list=self._format_skills_list(),
         )
 

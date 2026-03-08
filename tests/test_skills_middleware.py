@@ -36,7 +36,7 @@ class TestPrompt:
         result = mw.prompt({}, RunnableConfig())
 
         assert isinstance(result, str)
-        assert "Skills System" in result
+        assert "## Skills" in result
 
     def test_includes_available_skill_names(self):
         mw = SkillsMiddleware(str(FIXTURES / "skills"))
@@ -50,7 +50,7 @@ class TestPrompt:
 
         result = mw.prompt({}, RunnableConfig())
 
-        assert "Progressive Disclosure" in result
+        assert "progressive disclosure" in result
 
     def test_no_skills_available_returns_marker(self):
         mw = SkillsMiddleware(str(FIXTURES / "nonexistent_dir"))

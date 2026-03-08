@@ -10,6 +10,8 @@ Build LangGraph agents with reusable middleware that composes tools and prompts.
 - **`agent` metaclass** — declare a class, get a complete ReAct agent with middleware-composed tools and prompts
 - **`AgentKit`** — primitive composition engine for full control over graph topology
 
+> **Migrating from `langchain-skillkit`?** See [Migration](#migrating-from-langchain-skillkit) below. The old import path still works with a deprecation warning.
+
 ## Installation
 
 Requires **Python 3.11+**, `langchain-core>=0.3`, `langgraph>=0.4`.
@@ -25,7 +27,7 @@ pip install langchain-agentkit
 Declare a class that inherits from `agent` to get a `StateGraph` with an automatic ReAct loop:
 
 ```python
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 from langchain_agentkit import agent, SkillsMiddleware, TasksMiddleware
 
@@ -58,7 +60,7 @@ from langchain_agentkit import AgentKit, SkillsMiddleware, TasksMiddleware
 
 kit = AgentKit([
     SkillsMiddleware("skills/"),
-    TasksMiddleware(task_tools=[task_create, task_update]),
+    TasksMiddleware(),
 ])
 
 # In any graph node:
@@ -118,7 +120,9 @@ async def handler(state, *, llm, tools, prompt, config, runtime): ...
 | `tools` | `list[BaseTool]` | All tools (user tools + middleware tools) |
 | `prompt` | `str` | Fully composed prompt (template + middleware sections) |
 | `config` | `RunnableConfig` | LangGraph config for the current invocation |
-| `runtime` | `Any` | LangGraph runtime context (from `kwargs`) |
+| `runtime` | `Any` | LangGraph runtime context (passed through from graph kwargs) |
+
+Both sync and async handlers are supported — sync handlers are detected via `inspect.isawaitable` and awaited automatically.
 
 **Custom state types** — annotate the handler's `state` parameter:
 
@@ -138,7 +142,7 @@ Without an annotation, `AgentState` is used by default.
 
 ### `Middleware` protocol
 
-Any class with `tools` (property) and `prompt(state, config)` (method) satisfies the protocol:
+Any class with `tools` (property) and `prompt(state, config)` (method) satisfies the protocol via structural subtyping — no base class needed:
 
 ```python
 class MyMiddleware:
@@ -150,10 +154,37 @@ class MyMiddleware:
         return "You have access to my_tool."
 ```
 
-Built-in middleware:
+**Built-in middleware:**
 
-- **`SkillsMiddleware(skills_dirs)`** — Progressive disclosure skill system with `Skill` and `SkillRead` tools
-- **`TasksMiddleware(task_tools=[])`** — Task management tools with base agent behavior prompt
+| Middleware | Tools | Prompt |
+|-----------|-------|--------|
+| `SkillsMiddleware(skills_dirs)` | `Skill`, `SkillRead` | Progressive disclosure skill list with load instructions |
+| `TasksMiddleware()` | `TaskCreate`, `TaskUpdate`, `TaskList`, `TaskGet` | Base agent behavior + task context with status icons |
+
+### `TasksMiddleware`
+
+Task management middleware with `Command`-based tools that update graph state via LangGraph's `ToolNode`.
+
+```python
+# Default — auto-creates task tools
+mw = TasksMiddleware()
+
+# Custom tools
+mw = TasksMiddleware(task_tools=[my_create, my_update])
+
+# Custom task formatter
+mw = TasksMiddleware(formatter=my_format_function)
+```
+
+Task tools use `InjectedState` to read tasks from state and return `Command(update={"tasks": [...]})` to apply changes. Task state is updated locally within the agent's graph, visible to the prompt on every ReAct loop iteration. When used as a subgraph, state flows back to the parent graph on completion.
+
+You can also create task tools directly:
+
+```python
+from langchain_agentkit import create_task_tools
+
+tools = create_task_tools()  # [TaskCreate, TaskUpdate, TaskList, TaskGet]
+```
 
 ### `AgentKit(middleware, prompt=None)`
 
@@ -170,13 +201,14 @@ kit = AgentKit(middleware, prompt=Path("prompts/system.txt"))
 kit = AgentKit(middleware, prompt=["prompts/base.txt", "Extra instructions"])
 ```
 
-### `node` (legacy)
+### `node`
 
-The original skill-aware metaclass. Uses `skills` attribute instead of `middleware`. Consider migrating to `agent` for the full middleware composition model.
+The original skill-aware metaclass. Uses `skills` attribute instead of `middleware`. Consider migrating to `agent` for the full middleware composition model — `agent` adds `middleware`, `prompt`, and `config` injection.
 
 ```python
 class my_agent(node):
     llm = ChatOpenAI(model="gpt-4o")
+    tools = [web_search]
     skills = "skills/"  # str, list[str], or SkillKit instance
 
     async def handler(state, *, llm, tools, runtime): ...
@@ -184,12 +216,21 @@ class my_agent(node):
 
 ### `AgentState`
 
-Minimal LangGraph state type:
+Minimal LangGraph state type with task support:
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `messages` | `Annotated[list, add_messages]` | Conversation history with LangGraph message reducer |
 | `sender` | `str` | Name of the last node that produced output |
+| `tasks` | `list[dict[str, Any]]` | Task list managed by `TasksMiddleware` tools |
+
+Extend with your own fields:
+
+```python
+class MyState(AgentState):
+    current_project: str
+    iteration_count: int
+```
 
 ## Security
 
@@ -197,6 +238,36 @@ Minimal LangGraph state type:
 - **Name validation**: Skill names validated per [AgentSkills.io spec](https://agentskills.io/specification) — lowercase alphanumeric + hyphens, 1-64 chars.
 - **Tool scoping**: Each agent only has access to the tools declared in its `tools` attribute plus middleware-provided tools.
 - **Prompt trust boundary**: Prompt templates and middleware prompt sections are set by the developer at construction time, not by end-user input.
+
+## Migrating from `langchain-skillkit`
+
+`langchain-agentkit` v0.4.0 is the successor to `langchain-skillkit`. The old import path works with a deprecation warning:
+
+```python
+# Still works — emits DeprecationWarning
+from langchain_skillkit import node, SkillKit, AgentState
+
+# Update to:
+from langchain_agentkit import node, SkillKit, AgentState
+```
+
+**What changed:**
+
+| Before (`langchain-skillkit`) | After (`langchain-agentkit`) |
+|------------------------------|------------------------------|
+| `from langchain_skillkit import ...` | `from langchain_agentkit import ...` |
+| `node` with `skills` attribute | `node` (unchanged) + new `agent` with `middleware` |
+| `SkillKit` only | `SkillKit` + `SkillsMiddleware` + `TasksMiddleware` |
+| No middleware system | `Middleware` protocol + `AgentKit` composition |
+| Handler injectables: `llm`, `tools`, `runtime` | `agent` adds: `prompt`, `config` |
+
+**Migration steps:**
+
+1. Update imports from `langchain_skillkit` to `langchain_agentkit`
+2. Existing `node` subclasses work unchanged
+3. Optionally migrate `node` to `agent` for middleware support:
+   - Replace `skills = "skills/"` with `middleware = [SkillsMiddleware("skills/")]`
+   - Add `prompt` and `config` injectables as needed
 
 ## Contributing
 

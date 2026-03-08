@@ -18,7 +18,10 @@ Usage::
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from langchain_core.prompts import PromptTemplate
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -26,43 +29,13 @@ if TYPE_CHECKING:
     from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
 
+_PROMPTS_DIR = Path(__file__).parent / "prompts"
 
-BASE_AGENT_PROMPT = """\
-## Core Behavior
-- Be concise and direct. Don't over-explain unless asked.
-- NEVER add unnecessary preamble.
-- Focus on solving the user's actual problem, not demonstrating your capabilities.
+_base_agent_prompt = PromptTemplate.from_file(_PROMPTS_DIR / "base_agent.md")
+_task_management_prompt = PromptTemplate.from_file(_PROMPTS_DIR / "task_management.md")
 
-## Doing Tasks
-1. Understand first -- read relevant context, check existing patterns.
-2. Act -- implement the solution. Work quickly but accurately.
-3. Verify -- check your work against what was asked.
-
-## Progress Updates
-For longer tasks, provide brief progress updates at reasonable intervals."""
-
-TASK_MANAGEMENT_PROMPT = """\
-## Task Management
-
-You have access to task management tools to help you manage and plan complex objectives.
-Use these tools for complex objectives to ensure that you are tracking each necessary step
-and giving the user visibility into your progress.
-
-These tools are very helpful for planning complex objectives, and for breaking down larger
-complex objectives into smaller steps.
-
-It is critical that you mark tasks as completed as soon as you are done with a step.
-Do not batch up multiple steps before marking them as completed.
-
-For simple objectives that only require a few steps, it is better to just complete the
-objective directly and NOT use these tools.
-
-## Important Task Usage Notes
-- When starting work on a task, set status to `in_progress` BEFORE beginning.
-- When finishing, set `completed` ONLY when the work is fully done and verified.
-- Don't be afraid to revise the task list as you go. New information may reveal new tasks
-  that need to be done, or old tasks that are irrelevant.
-- Never mark `completed` if work is partial or errors are unresolved."""
+BASE_AGENT_PROMPT = _base_agent_prompt.format()
+TASK_MANAGEMENT_PROMPT = _task_management_prompt.format()
 
 _STATUS_ICONS = {
     "completed": "x",
