@@ -10,8 +10,6 @@ Build LangGraph agents with reusable middleware that composes tools and prompts.
 - **`agent` metaclass** — declare a class, get a complete ReAct agent with middleware-composed tools and prompts
 - **`AgentKit`** — primitive composition engine for full control over graph topology
 
-> **Migrating from `langchain-skillkit`?** See [Migration](#migrating-from-langchain-skillkit) below. The old import path still works with a deprecation warning.
-
 ## Installation
 
 Requires **Python 3.11+**, `langchain-core>=0.3`, `langgraph>=0.4`.
@@ -68,15 +66,15 @@ all_tools = my_tools + kit.tools
 system_prompt = kit.prompt(state, runtime)
 ```
 
-### Standalone `SkillKit`
+### Standalone `SkillRegistry`
 
-Use `SkillKit` directly for skill discovery without the middleware layer:
+Use `SkillRegistry` directly for skill discovery without the middleware layer:
 
 ```python
-from langchain_agentkit import SkillKit
+from langchain_agentkit import SkillRegistry
 
-kit = SkillKit("skills/")
-tools = kit.tools  # [Skill, SkillRead]
+registry = SkillRegistry("skills/")
+tools = registry.tools  # [Skill, SkillRead]
 ```
 
 ## Examples
@@ -84,7 +82,7 @@ tools = kit.tools  # [Skill, SkillRead]
 See [`examples/`](examples/) for complete working code:
 
 - **[`standalone_node.py`](examples/standalone_node.py)** — Simplest usage: declare a node class, compile, invoke
-- **[`manual_wiring.py`](examples/manual_wiring.py)** — Use `SkillKit` as a standalone toolkit with full graph control
+- **[`manual_wiring.py`](examples/manual_wiring.py)** — Use `SkillRegistry` as a standalone toolkit with full graph control
 - **[`multi_agent.py`](examples/multi_agent.py)** — Compose multiple agents in a parent graph
 - **[`root_with_checkpointer.py`](examples/root_with_checkpointer.py)** — Multi-turn conversations with `interrupt()` and `Command(resume=...)`
 - **[`subgraph_with_checkpointer.py`](examples/subgraph_with_checkpointer.py)** — Subgraph inherits parent's checkpointer automatically
@@ -190,7 +188,7 @@ tools = create_task_tools()  # [TaskCreate, TaskUpdate, TaskList, TaskGet]
 Composition engine that merges tools and prompts from middleware.
 
 - **`tools`** — All tools from all middleware, deduplicated by name (first middleware wins, cached)
-- **`prompt(state, config)`** — Template + middleware sections, joined with double newline (dynamic per call)
+- **`prompt(state, runtime)`** — Template + middleware sections, joined with double newline (dynamic per call)
 
 Prompt templates can be inline strings, file paths, or a list of either:
 
@@ -202,13 +200,13 @@ kit = AgentKit(middleware, prompt=["prompts/base.txt", "Extra instructions"])
 
 ### `node`
 
-The original skill-aware metaclass. Uses `skills` attribute instead of `middleware`. Consider migrating to `agent` for the full middleware composition model — `agent` adds `middleware`, `prompt`, and `config` injection.
+Skill-aware metaclass. Uses `skills` attribute instead of `middleware`. Consider using `agent` for the full middleware composition model.
 
 ```python
 class my_agent(node):
     llm = ChatOpenAI(model="gpt-4o")
     tools = [web_search]
-    skills = "skills/"  # str, list[str], or SkillKit instance
+    skills = "skills/"  # str, list[str], or SkillRegistry instance
 
     async def handler(state, *, llm, tools, runtime): ...
 ```
@@ -237,36 +235,6 @@ class MyState(AgentState):
 - **Name validation**: Skill names validated per [AgentSkills.io spec](https://agentskills.io/specification) — lowercase alphanumeric + hyphens, 1-64 chars.
 - **Tool scoping**: Each agent only has access to the tools declared in its `tools` attribute plus middleware-provided tools.
 - **Prompt trust boundary**: Prompt templates and middleware prompt sections are set by the developer at construction time, not by end-user input.
-
-## Migrating from `langchain-skillkit`
-
-`langchain-agentkit` v0.4.0 is the successor to `langchain-skillkit`. The old import path works with a deprecation warning:
-
-```python
-# Still works — emits DeprecationWarning
-from langchain_skillkit import node, SkillKit, AgentState
-
-# Update to:
-from langchain_agentkit import node, SkillKit, AgentState
-```
-
-**What changed:**
-
-| Before (`langchain-skillkit`) | After (`langchain-agentkit`) |
-|------------------------------|------------------------------|
-| `from langchain_skillkit import ...` | `from langchain_agentkit import ...` |
-| `node` with `skills` attribute | `node` (unchanged) + new `agent` with `middleware` |
-| `SkillKit` only | `SkillKit` + `SkillsMiddleware` + `TasksMiddleware` |
-| No middleware system | `Middleware` protocol + `AgentKit` composition |
-| Handler injectables: `llm`, `tools`, `runtime` | `agent` adds: `prompt`. `runtime` is now `ToolRuntime` |
-
-**Migration steps:**
-
-1. Update imports from `langchain_skillkit` to `langchain_agentkit`
-2. Existing `node` subclasses work unchanged
-3. Optionally migrate `node` to `agent` for middleware support:
-   - Replace `skills = "skills/"` with `middleware = [SkillsMiddleware("skills/")]`
-   - Add `prompt` and `config` injectables as needed
 
 ## Contributing
 

@@ -1,17 +1,17 @@
-"""SkillKit — toolkit providing Skill and SkillRead tools for LangGraph agents.
+"""SkillRegistry — provides Skill and SkillRead tools for LangGraph agents.
 
 Usage::
 
-    from langchain_agentkit import SkillKit
+    from langchain_agentkit import SkillRegistry
 
     # Single directory
-    kit = SkillKit("skills/")
+    registry = SkillRegistry("skills/")
 
     # Multiple directories
-    kit = SkillKit(["skills/", "shared_skills/"])
+    registry = SkillRegistry(["skills/", "shared_skills/"])
 
     # Get tools for manual LangGraph wiring
-    tools = kit.tools  # → [Skill, SkillRead]
+    tools = registry.tools  # → [Skill, SkillRead]
 
 The ``Skill`` tool returns skill instructions as a plain string.
 The ``SkillRead`` tool reads reference files scoped to a skill's directory.
@@ -50,8 +50,8 @@ class SkillReadInput(BaseModel):
     file_name: str = Field(description="Name of the reference file to read (e.g. 'calculator.py')")
 
 
-class SkillKit:
-    """Toolkit providing ``Skill`` and ``SkillRead`` tools.
+class SkillRegistry:
+    """Registry providing ``Skill`` and ``SkillRead`` tools.
 
     Scans one or more directories for skill subdirectories containing
     ``SKILL.md`` files. Provides two tools via the ``tools`` property:
@@ -62,12 +62,12 @@ class SkillKit:
 
     Example::
 
-        from langchain_agentkit import SkillKit
+        from langchain_agentkit import SkillRegistry
 
-        kit = SkillKit("skills/")
+        registry = SkillRegistry("skills/")
 
         # Use in any LangGraph setup
-        all_tools = [web_search, calculate] + kit.tools
+        all_tools = [web_search, calculate] + registry.tools
         bound_llm = llm.bind_tools(all_tools)
 
     Args:
@@ -76,7 +76,7 @@ class SkillKit:
     """
 
     def __init__(self, skills_dirs: str | list[str]) -> None:
-        """Create a SkillKit from one or more skill directories.
+        """Create a SkillRegistry from one or more skill directories.
 
         Args:
             skills_dirs: A single path or list of paths to directories
@@ -87,7 +87,7 @@ class SkillKit:
 
     @property
     def tools(self) -> list[BaseTool]:
-        """The toolkit's tools: ``[Skill, SkillRead]``.
+        """The registry's tools: ``[Skill, SkillRead]``.
 
         Built once on first access, then cached.
         """

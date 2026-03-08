@@ -1,4 +1,4 @@
-"""Validation utilities for langchain-skillkit.
+"""Validation utilities for langchain-agentkit.
 
 Validates skill configurations against the AgentSkills.io specification.
 """

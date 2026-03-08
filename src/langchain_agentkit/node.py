@@ -28,7 +28,7 @@ from langgraph.prebuilt import ToolNode
 
 from langchain_agentkit._handler_validation import validate_handler_signature
 from langchain_agentkit.runtime import ToolRuntime
-from langchain_agentkit.skill_kit import SkillKit
+from langchain_agentkit.skill_registry import SkillRegistry
 from langchain_agentkit.state import AgentState
 
 if TYPE_CHECKING:
@@ -49,19 +49,19 @@ def _validate_handler_signature(handler: Any, class_name: str) -> tuple[set[str]
 
 
 def _normalize_skills(
-    skills: str | list[str] | SkillKit | None,
-) -> SkillKit | None:
-    """Normalize the skills parameter into a SkillKit instance or None."""
+    skills: str | list[str] | SkillRegistry | None,
+) -> SkillRegistry | None:
+    """Normalize the skills parameter into a SkillRegistry instance or None."""
     if skills is None:
         return None
-    if isinstance(skills, SkillKit):
+    if isinstance(skills, SkillRegistry):
         return skills
     if isinstance(skills, str):
-        return SkillKit(skills)
+        return SkillRegistry(skills)
     if isinstance(skills, list):
-        return SkillKit(skills)
+        return SkillRegistry(skills)
     raise TypeError(
-        f"skills must be str, list[str], SkillKit, or None, got {type(skills).__name__}"
+        f"skills must be str, list[str], SkillRegistry, or None, got {type(skills).__name__}"
     )
 
 
@@ -87,7 +87,7 @@ def _build_graph(
     handler: Any,
     llm: BaseChatModel,
     user_tools: list[BaseTool],
-    skill_kit: SkillKit | None,
+    skill_registry: SkillRegistry | None,
     injectable: set[str],
     state_type: type = AgentState,
 ) -> Any:
@@ -99,8 +99,8 @@ def _build_graph(
     """
     # Build complete tool list
     skill_tools: list[BaseTool] = []
-    if skill_kit is not None:
-        skill_tools = skill_kit.tools
+    if skill_registry is not None:
+        skill_tools = skill_registry.tools
 
     all_tools = list(user_tools) + skill_tools
     node_name = name
@@ -203,14 +203,14 @@ class _NodeMeta(type):
             )
 
         skills_raw = namespace.get("skills")
-        skill_kit = _normalize_skills(skills_raw)
+        skill_registry = _normalize_skills(skills_raw)
 
         return _build_graph(
             name=name,
             handler=handler,
             llm=llm,
             user_tools=list(user_tools),
-            skill_kit=skill_kit,
+            skill_registry=skill_registry,
             injectable=injectable,
             state_type=state_type,
         )
@@ -251,7 +251,7 @@ class node(metaclass=_NodeMeta):  # noqa: N801
 
         llm: Required. The language model instance.
         tools: Optional. List of LangChain tools available to the agent.
-        skills: Optional. Path(s) to skill directories or a SkillKit instance.
+        skills: Optional. Path(s) to skill directories or a SkillRegistry instance.
 
     Handler signature::
 

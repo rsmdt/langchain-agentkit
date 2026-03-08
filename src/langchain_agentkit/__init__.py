@@ -8,7 +8,7 @@ Two layers:
 
     kit = AgentKit([SkillsMiddleware("skills/"), TasksMiddleware()])
     all_tools = my_tools + kit.tools
-    prompt = kit.prompt(state, config)
+    prompt = kit.prompt(state, runtime)
 
 **Convenience** — use ``agent`` metaclass for standalone ReAct agents::
 
@@ -25,12 +25,12 @@ Two layers:
 
     graph = researcher.compile()
 
-**Standalone toolkit** — use ``SkillKit`` directly::
+**Standalone** — use ``SkillRegistry`` directly::
 
-    from langchain_agentkit import SkillKit
+    from langchain_agentkit import SkillRegistry
 
-    kit = SkillKit("skills/")
-    tools = kit.tools  # [Skill, SkillRead]
+    registry = SkillRegistry("skills/")
+    tools = registry.tools  # [Skill, SkillRead]
 """
 
 from langchain_agentkit.agent import agent
@@ -39,7 +39,7 @@ from langchain_agentkit.hitl_middleware import HITLMiddleware
 from langchain_agentkit.middleware import Middleware
 from langchain_agentkit.node import node
 from langchain_agentkit.runtime import ToolRuntime
-from langchain_agentkit.skill_kit import SkillKit
+from langchain_agentkit.skill_registry import SkillRegistry
 from langchain_agentkit.skills_middleware import SkillsMiddleware
 from langchain_agentkit.state import AgentState
 from langchain_agentkit.task_tools import create_task_tools
@@ -54,7 +54,7 @@ __all__ = [
     "agent",
     "node",
     # Standalone
-    "SkillKit",
+    "SkillRegistry",
     # Middleware implementations
     "HITLMiddleware",
     "SkillsMiddleware",

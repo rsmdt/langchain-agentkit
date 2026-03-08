@@ -1,20 +1,20 @@
-"""Tests for SkillKit toolkit."""
+"""Tests for SkillRegistry."""
 
 from pathlib import Path
 
-from langchain_agentkit.skill_kit import SkillKit
+from langchain_agentkit.skill_registry import SkillRegistry
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
 
-class TestSkillKitInit:
+class TestInit:
     def test_accepts_single_string_path(self):
-        kit = SkillKit(str(FIXTURES / "skills"))
+        kit = SkillRegistry(str(FIXTURES / "skills"))
 
         assert len(kit.skills_dirs) == 1
 
     def test_accepts_list_of_paths(self):
-        kit = SkillKit(
+        kit = SkillRegistry(
             [
                 str(FIXTURES / "skills"),
                 str(FIXTURES / "skills_extra"),
@@ -26,28 +26,28 @@ class TestSkillKitInit:
 
 class TestTools:
     def test_returns_two_tools(self):
-        kit = SkillKit(str(FIXTURES / "skills"))
+        kit = SkillRegistry(str(FIXTURES / "skills"))
 
         tools = kit.tools
 
         assert len(tools) == 2
 
     def test_first_tool_is_skill(self):
-        kit = SkillKit(str(FIXTURES / "skills"))
+        kit = SkillRegistry(str(FIXTURES / "skills"))
 
         tools = kit.tools
 
         assert tools[0].name == "Skill"
 
     def test_second_tool_is_skill_read(self):
-        kit = SkillKit(str(FIXTURES / "skills"))
+        kit = SkillRegistry(str(FIXTURES / "skills"))
 
         tools = kit.tools
 
         assert tools[1].name == "SkillRead"
 
     def test_skill_description_lists_available_skills(self):
-        kit = SkillKit(str(FIXTURES / "skills"))
+        kit = SkillRegistry(str(FIXTURES / "skills"))
 
         tools = kit.tools
         skill_tool = tools[0]
@@ -55,7 +55,7 @@ class TestTools:
         assert "market-sizing" in skill_tool.description
 
     def test_tools_property_is_cached(self):
-        kit = SkillKit(str(FIXTURES / "skills"))
+        kit = SkillRegistry(str(FIXTURES / "skills"))
 
         first = kit.tools
         second = kit.tools
@@ -65,7 +65,7 @@ class TestTools:
 
 class TestSkillTool:
     def test_loads_skill_instructions(self):
-        kit = SkillKit(str(FIXTURES / "skills"))
+        kit = SkillRegistry(str(FIXTURES / "skills"))
         skill_tool = kit.tools[0]
 
         result = skill_tool.invoke({"skill_name": "market-sizing"})
@@ -73,7 +73,7 @@ class TestSkillTool:
         assert "# Market Sizing Methodology" in result
 
     def test_unknown_skill_returns_error(self):
-        kit = SkillKit(str(FIXTURES / "skills"))
+        kit = SkillRegistry(str(FIXTURES / "skills"))
         skill_tool = kit.tools[0]
 
         result = skill_tool.invoke({"skill_name": "nonexistent"})
@@ -81,7 +81,7 @@ class TestSkillTool:
         assert "not found" in result
 
     def test_invalid_skill_name_returns_error(self):
-        kit = SkillKit(str(FIXTURES / "skills"))
+        kit = SkillRegistry(str(FIXTURES / "skills"))
         skill_tool = kit.tools[0]
 
         result = skill_tool.invoke({"skill_name": "../escape"})
@@ -91,7 +91,7 @@ class TestSkillTool:
 
 class TestSkillReadTool:
     def test_reads_reference_file(self):
-        kit = SkillKit(str(FIXTURES / "skills"))
+        kit = SkillRegistry(str(FIXTURES / "skills"))
         skill_read_tool = kit.tools[1]
 
         result = skill_read_tool.invoke(
@@ -105,7 +105,7 @@ class TestSkillReadTool:
         assert len(result) > 0
 
     def test_unknown_file_returns_error(self):
-        kit = SkillKit(str(FIXTURES / "skills"))
+        kit = SkillRegistry(str(FIXTURES / "skills"))
         skill_read_tool = kit.tools[1]
 
         result = skill_read_tool.invoke(
@@ -118,7 +118,7 @@ class TestSkillReadTool:
         assert "not found" in result
 
     def test_path_traversal_returns_error(self):
-        kit = SkillKit(str(FIXTURES / "skills"))
+        kit = SkillRegistry(str(FIXTURES / "skills"))
         skill_read_tool = kit.tools[1]
 
         result = skill_read_tool.invoke(
@@ -133,7 +133,7 @@ class TestSkillReadTool:
 
 class TestMultipleDirectories:
     def test_discovers_skills_from_both_directories(self):
-        kit = SkillKit(
+        kit = SkillRegistry(
             [
                 str(FIXTURES / "skills"),
                 str(FIXTURES / "skills_extra"),
@@ -147,7 +147,7 @@ class TestMultipleDirectories:
         assert "competitive-analysis" in skill_tool.description
 
     def test_loads_skill_from_extra_directory(self):
-        kit = SkillKit(
+        kit = SkillRegistry(
             [
                 str(FIXTURES / "skills"),
                 str(FIXTURES / "skills_extra"),

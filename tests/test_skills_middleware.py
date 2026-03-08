@@ -3,7 +3,7 @@
 from pathlib import Path
 
 from langchain_agentkit.runtime import ToolRuntime
-from langchain_agentkit.skill_kit import SkillKit
+from langchain_agentkit.skill_registry import SkillRegistry
 from langchain_agentkit.skills_middleware import SkillsMiddleware
 
 _TEST_RUNTIME = ToolRuntime(config={})
@@ -19,10 +19,10 @@ class TestTools:
 
         assert len(tools) == 2
 
-    def test_tools_delegates_to_skill_kit(self):
+    def test_tools_delegates_to_skill_registry(self):
         skills_dir = str(FIXTURES / "skills")
         mw = SkillsMiddleware(skills_dir)
-        kit = SkillKit(skills_dir)
+        kit = SkillRegistry(skills_dir)
 
         mw_tool_names = [t.name for t in mw.tools]
         kit_tool_names = [t.name for t in kit.tools]

@@ -1,4 +1,4 @@
-"""SkillsMiddleware — wraps SkillKit with system prompt injection.
+"""SkillsMiddleware — wraps SkillRegistry with system prompt injection.
 
 Usage::
 
@@ -16,7 +16,7 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_core.prompts import PromptTemplate
 
-from langchain_agentkit.skill_kit import SkillKit
+from langchain_agentkit.skill_registry import SkillRegistry
 from langchain_agentkit.types import SkillConfig
 
 if TYPE_CHECKING:
@@ -44,7 +44,7 @@ class SkillsMiddleware:
     """
 
     def __init__(self, skills_dirs: str | list[str]) -> None:
-        self._kit = SkillKit(skills_dirs)
+        self._kit = SkillRegistry(skills_dirs)
 
     @property
     def tools(self) -> list[BaseTool]:

@@ -13,7 +13,7 @@ from langchain_agentkit.node import (
     _normalize_skills,
     _validate_handler_signature,
 )
-from langchain_agentkit.skill_kit import SkillKit
+from langchain_agentkit.skill_registry import SkillRegistry
 from langchain_agentkit.state import AgentState
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -101,18 +101,18 @@ class TestNormalizeSkills:
     def test_none_returns_none(self):
         assert _normalize_skills(None) is None
 
-    def test_string_returns_skill_kit(self):
+    def test_string_returns_skill_registry(self):
         result = _normalize_skills(str(FIXTURES / "skills"))
 
-        assert isinstance(result, SkillKit)
+        assert isinstance(result, SkillRegistry)
 
-    def test_list_returns_skill_kit(self):
+    def test_list_returns_skill_registry(self):
         result = _normalize_skills([str(FIXTURES / "skills")])
 
-        assert isinstance(result, SkillKit)
+        assert isinstance(result, SkillRegistry)
 
-    def test_skill_kit_passes_through(self):
-        kit = SkillKit(str(FIXTURES / "skills"))
+    def test_skill_registry_passes_through(self):
+        kit = SkillRegistry(str(FIXTURES / "skills"))
 
         result = _normalize_skills(kit)
 

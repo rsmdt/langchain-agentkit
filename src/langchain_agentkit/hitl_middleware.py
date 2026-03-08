@@ -156,12 +156,14 @@ class HITLMiddleware:
 
         description = self._build_description(request, config)
 
-        decision = interrupt({
-            "tool": tool_name,
-            "args": request.tool_call["args"],
-            "allowed_decisions": config.allowed_decisions,
-            "description": description,
-        })
+        decision = interrupt(
+            {
+                "tool": tool_name,
+                "args": request.tool_call["args"],
+                "allowed_decisions": config.allowed_decisions,
+                "description": description,
+            }
+        )
 
         decision_type = decision.get("type", "reject") if isinstance(decision, dict) else "reject"
 

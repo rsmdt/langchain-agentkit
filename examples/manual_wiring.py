@@ -1,4 +1,4 @@
-"""Manual wiring — use SkillKit as a standalone toolkit.
+"""Manual wiring — use SkillRegistry as a standalone toolkit.
 
 Use this approach when you want full control over your LangGraph graph
 and just need the Skill + SkillRead tools added to your tool list.
@@ -10,7 +10,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from langchain_agentkit import AgentState, SkillKit
+from langchain_agentkit import AgentState, SkillRegistry
 
 
 @tool
@@ -20,7 +20,7 @@ def web_search(query: str) -> str:
 
 
 llm = ChatOpenAI(model="gpt-4o")
-kit = SkillKit("skills/")
+kit = SkillRegistry("skills/")
 
 # Combine your tools with skill tools
 all_tools = [web_search] + kit.tools
