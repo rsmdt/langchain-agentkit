@@ -19,6 +19,12 @@ jobs:
       - name: Install Python
         run: uv python install 3.13
 
+      - name: Sync version from tag
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          sed -i "s/^version = .*/version = \"${VERSION}\"/" pyproject.toml
+          echo "Publishing version ${VERSION}"
+
       - name: Build package
         run: uv build
 

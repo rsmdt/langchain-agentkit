@@ -1,6 +1,6 @@
 [project]
 name = "langchain-agentkit"
-version = "0.4.0"
+version = "0.5.0"
 description = "Composable middleware framework for LangGraph agents"
 readme = "README.md"
 requires-python = ">=3.11"
