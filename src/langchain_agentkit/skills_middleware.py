@@ -6,7 +6,7 @@ Usage::
 
     mw = SkillsMiddleware("skills/")
     tools = mw.tools           # [Skill, SkillRead]
-    prompt = mw.prompt(state, config)  # Skills system prompt with skill list
+    prompt = mw.prompt(state, runtime)  # Skills system prompt with skill list
 """
 
 from __future__ import annotations
@@ -20,8 +20,9 @@ from langchain_agentkit.skill_kit import SkillKit
 from langchain_agentkit.types import SkillConfig
 
 if TYPE_CHECKING:
-    from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
+
+    from langchain_agentkit.runtime import ToolRuntime
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
@@ -49,7 +50,7 @@ class SkillsMiddleware:
     def tools(self) -> list[BaseTool]:
         return self._kit.tools
 
-    def prompt(self, state: dict[str, Any], config: RunnableConfig) -> str:
+    def prompt(self, state: dict[str, Any], runtime: ToolRuntime) -> str:
         return _skills_system_prompt.format(
             skills_list=self._format_skills_list(),
         )

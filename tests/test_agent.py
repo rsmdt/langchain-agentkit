@@ -30,12 +30,12 @@ class TestValidateHandlerSignature:
         assert state_type is AgentState
 
     def test_accepts_all_injectables(self):
-        def handler(state, *, llm, tools, prompt, config, runtime):
+        def handler(state, *, llm, tools, prompt, runtime):
             pass
 
         injectable, state_type = _validate_handler_signature(handler, "test")
 
-        assert injectable == {"llm", "tools", "prompt", "config", "runtime"}
+        assert injectable == {"llm", "tools", "prompt", "runtime"}
 
     def test_rejects_unknown_keyword_param(self):
         def handler(state, *, unknown):

@@ -18,7 +18,7 @@ Example::
         def tools(self) -> list[BaseTool]:
             return [my_tool]
 
-        def prompt(self, state: dict, config: RunnableConfig) -> str | None:
+        def prompt(self, state: dict, runtime: ToolRuntime) -> str | None:
             return "You have access to my_tool."
 """
 
@@ -27,8 +27,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
-    from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
+
+    from langchain_agentkit.runtime import ToolRuntime
 
 
 class Middleware(Protocol):
@@ -37,13 +38,14 @@ class Middleware(Protocol):
         """Tools this middleware provides to the LLM."""
         ...
 
-    def prompt(self, state: dict[str, Any], config: RunnableConfig) -> str | None:
+    def prompt(self, state: dict[str, Any], runtime: ToolRuntime) -> str | None:
         """Prompt section to inject into the system prompt.
 
         Called on every LLM invocation. Return None to skip injection.
 
         Args:
             state: Current graph state.
-            config: Runnable config with configurable context.
+            runtime: Tool runtime context. Use ``runtime.config`` for
+                the full ``RunnableConfig``.
         """
         ...

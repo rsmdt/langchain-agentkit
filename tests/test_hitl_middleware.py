@@ -2,11 +2,12 @@
 
 from unittest.mock import MagicMock
 
-import pytest
 from langchain_core.messages import ToolMessage
-from langchain_core.runnables import RunnableConfig
 
 from langchain_agentkit.hitl_middleware import HITLMiddleware
+from langchain_agentkit.runtime import ToolRuntime
+
+_TEST_RUNTIME = ToolRuntime(config={})
 
 
 class TestInit:
@@ -47,7 +48,7 @@ class TestMiddlewareProtocol:
     def test_prompt_returns_none(self):
         mw = HITLMiddleware(interrupt_on={"send_email": True})
 
-        result = mw.prompt({}, RunnableConfig())
+        result = mw.prompt({}, _TEST_RUNTIME)
 
         assert result is None
 

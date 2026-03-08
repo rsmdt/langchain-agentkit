@@ -41,10 +41,11 @@ from langgraph.types import interrupt
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt.tool_node import ToolCallRequest
     from langgraph.types import Command
+
+    from langchain_agentkit.runtime import ToolRuntime
 
 DecisionType = Literal["approve", "edit", "reject"]
 
@@ -122,7 +123,7 @@ class HITLMiddleware:
         """No tools — HITL is a tool execution wrapper, not a tool provider."""
         return []
 
-    def prompt(self, state: dict[str, Any], config: RunnableConfig) -> str | None:
+    def prompt(self, state: dict[str, Any], runtime: ToolRuntime) -> str | None:
         """No prompt injection needed."""
         return None
 

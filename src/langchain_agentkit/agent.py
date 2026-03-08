@@ -10,7 +10,7 @@ Usage::
         middleware = [SkillsMiddleware("skills/"), TasksMiddleware()]
         prompt = "You are a research assistant."
 
-        async def handler(state, *, llm, tools, prompt, config, runtime):
+        async def handler(state, *, llm, tools, prompt, runtime):
             response = await llm.ainvoke(state["messages"])
             return {"messages": [response], "sender": "researcher"}
 
@@ -29,6 +29,7 @@ from langgraph.prebuilt import ToolNode
 
 from langchain_agentkit._handler_validation import validate_handler_signature
 from langchain_agentkit.agent_kit import AgentKit
+from langchain_agentkit.runtime import ToolRuntime
 from langchain_agentkit.state import AgentState
 
 if TYPE_CHECKING:
@@ -41,7 +42,7 @@ if TYPE_CHECKING:
     from langchain_agentkit.middleware import Middleware
 
 # Valid injectable parameter names for handler (besides 'state')
-_INJECTABLE_PARAMS = frozenset({"llm", "tools", "prompt", "config", "runtime"})
+_INJECTABLE_PARAMS = frozenset({"llm", "tools", "prompt", "runtime"})
 
 
 def _validate_handler_signature(handler: Any, class_name: str) -> tuple[set[str], type]:
@@ -57,8 +58,7 @@ def _build_inject(
     bound_llm: Any,
     all_tools: list[Any],
     composed_prompt: str,
-    config: RunnableConfig,
-    kwargs: dict[str, Any],
+    runtime: ToolRuntime,
 ) -> dict[str, Any]:
     """Build the injection dict for the handler based on requested params."""
     inject: dict[str, Any] = {}
@@ -68,10 +68,8 @@ def _build_inject(
         inject["tools"] = list(all_tools)
     if "prompt" in injectable:
         inject["prompt"] = composed_prompt
-    if "config" in injectable:
-        inject["config"] = config
     if "runtime" in injectable:
-        inject["runtime"] = kwargs.get("runtime")
+        inject["runtime"] = runtime
     return inject
 
 
@@ -97,9 +95,10 @@ def _build_graph(
     async def _agent_node(
         state: dict[str, Any], config: RunnableConfig, **kwargs: Any
     ) -> dict[str, Any]:
-        composed_prompt = kit.prompt(state, config)
+        runtime = ToolRuntime(config, **kwargs)
+        composed_prompt = kit.prompt(state, runtime)
         bound_llm = llm.bind_tools(all_tools) if all_tools else llm
-        inject = _build_inject(injectable, bound_llm, all_tools, composed_prompt, config, kwargs)
+        inject = _build_inject(injectable, bound_llm, all_tools, composed_prompt, runtime)
 
         result = handler(state, **inject)
         if inspect.isawaitable(result):
@@ -248,7 +247,7 @@ class agent(metaclass=_AgentMeta):  # noqa: N801
             middleware = [SkillsMiddleware("skills/"), TasksMiddleware()]
             prompt = "You are a research assistant."
 
-            async def handler(state, *, llm, tools, prompt, config, runtime):
+            async def handler(state, *, llm, tools, prompt, runtime):
                 response = await llm.ainvoke(state["messages"])
                 return {"messages": [response], "sender": "researcher"}
 
@@ -273,7 +272,7 @@ class agent(metaclass=_AgentMeta):  # noqa: N801
 
     Handler signature::
 
-        async def handler(state, *, llm, tools, prompt, config, runtime): ...
+        async def handler(state, *, llm, tools, prompt, runtime): ...
 
     ``state`` is positional. Everything after ``*`` is keyword-only and
     injected by name — declare only what you need, in any order.
@@ -283,8 +282,8 @@ class agent(metaclass=_AgentMeta):  # noqa: N801
         llm: LLM with all tools bound (user tools + middleware tools).
         tools: Complete tool list (user tools + middleware tools).
         prompt: Fully composed system prompt (template + middleware sections).
-        config: LangGraph RunnableConfig for the current invocation.
-        runtime: LangGraph runtime context.
+        runtime: ToolRuntime — unified runtime context. Use
+            ``runtime.config`` for the full ``RunnableConfig``.
 
     Annotate ``state`` to use a custom state type::
 

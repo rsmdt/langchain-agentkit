@@ -27,11 +27,13 @@ from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode
 
 from langchain_agentkit._handler_validation import validate_handler_signature
+from langchain_agentkit.runtime import ToolRuntime
 from langchain_agentkit.skill_kit import SkillKit
 from langchain_agentkit.state import AgentState
 
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
+    from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
 
 # Valid injectable parameter names for handler (besides 'state')
@@ -67,7 +69,7 @@ def _build_inject(
     injectable: set[str],
     bound_llm: Any,
     all_tools: list[Any],
-    kwargs: dict[str, Any],
+    runtime: ToolRuntime,
 ) -> dict[str, Any]:
     """Build the injection dict for the handler based on requested params."""
     inject: dict[str, Any] = {}
@@ -76,7 +78,7 @@ def _build_inject(
     if "tools" in injectable:
         inject["tools"] = list(all_tools)
     if "runtime" in injectable:
-        inject["runtime"] = kwargs.get("runtime")
+        inject["runtime"] = runtime
     return inject
 
 
@@ -104,9 +106,12 @@ def _build_graph(
     node_name = name
 
     # Build the handler wrapper as a LangGraph node
-    async def _agent_node(state: dict[str, Any], **kwargs: Any) -> dict[str, Any]:
+    async def _agent_node(
+        state: dict[str, Any], config: RunnableConfig, **kwargs: Any
+    ) -> dict[str, Any]:
+        runtime = ToolRuntime(config, **kwargs)
         bound_llm = llm.bind_tools(all_tools) if all_tools else llm
-        inject = _build_inject(injectable, bound_llm, all_tools, kwargs)
+        inject = _build_inject(injectable, bound_llm, all_tools, runtime)
 
         result = handler(state, **inject)
         if inspect.isawaitable(result):

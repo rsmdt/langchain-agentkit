@@ -16,7 +16,7 @@ Example::
 
     # In any graph node:
     all_tools = my_tools + kit.tools
-    system_prompt = my_template + "\\n\\n" + kit.prompt(state, config)
+    system_prompt = my_template + "\\n\\n" + kit.prompt(state, runtime)
 
 Prompt templates can be loaded from files or provided as inline strings::
 
@@ -31,10 +31,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
 
     from langchain_agentkit.middleware import Middleware
+    from langchain_agentkit.runtime import ToolRuntime
 
 
 class AgentKit:
@@ -52,7 +52,7 @@ class AgentKit:
 
         # In any graph node:
         all_tools = my_tools + kit.tools
-        prompt = my_template + "\\n\\n" + kit.prompt(state, config)
+        prompt = my_template + "\\n\\n" + kit.prompt(state, runtime)
     """
 
     def __init__(
@@ -82,7 +82,7 @@ class AgentKit:
             self._tools_cache = tools
         return self._tools_cache
 
-    def prompt(self, state: dict[str, Any], config: RunnableConfig) -> str:
+    def prompt(self, state: dict[str, Any], runtime: ToolRuntime) -> str:
         """Compose prompt from template + all middleware sections.
 
         Called on every LLM invocation. Each middleware contributes
@@ -90,7 +90,7 @@ class AgentKit:
         """
         sections = [self._template] if self._template else []
         for mw in self._middleware:
-            section = mw.prompt(state, config)
+            section = mw.prompt(state, runtime)
             if section:
                 sections.append(section)
         return "\n\n".join(sections)

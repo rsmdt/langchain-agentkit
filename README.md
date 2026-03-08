@@ -65,7 +65,7 @@ kit = AgentKit([
 
 # In any graph node:
 all_tools = my_tools + kit.tools
-system_prompt = kit.prompt(state, config)
+system_prompt = kit.prompt(state, runtime)
 ```
 
 ### Standalone `SkillKit`
@@ -108,7 +108,7 @@ Declarative agent builder. Subclassing produces a `StateGraph`. Call `.compile()
 **Handler signature:**
 
 ```python
-async def handler(state, *, llm, tools, prompt, config, runtime): ...
+async def handler(state, *, llm, tools, prompt, runtime): ...
 ```
 
 `state` is positional. Everything after `*` is keyword-only and injected by name — declare only what you need:
@@ -119,8 +119,7 @@ async def handler(state, *, llm, tools, prompt, config, runtime): ...
 | `llm` | `BaseChatModel` | LLM pre-bound with all tools via `bind_tools()` |
 | `tools` | `list[BaseTool]` | All tools (user tools + middleware tools) |
 | `prompt` | `str` | Fully composed prompt (template + middleware sections) |
-| `config` | `RunnableConfig` | LangGraph config for the current invocation |
-| `runtime` | `Any` | LangGraph runtime context (passed through from graph kwargs) |
+| `runtime` | `ToolRuntime` | Unified runtime context. Use `runtime.config` for the full `RunnableConfig` |
 
 Both sync and async handlers are supported — sync handlers are detected via `inspect.isawaitable` and awaited automatically.
 
@@ -142,7 +141,7 @@ Without an annotation, `AgentState` is used by default.
 
 ### `Middleware` protocol
 
-Any class with `tools` (property) and `prompt(state, config)` (method) satisfies the protocol via structural subtyping — no base class needed:
+Any class with `tools` (property) and `prompt(state, runtime)` (method) satisfies the protocol via structural subtyping — no base class needed:
 
 ```python
 class MyMiddleware:
@@ -150,7 +149,7 @@ class MyMiddleware:
     def tools(self) -> list[BaseTool]:
         return [my_tool]
 
-    def prompt(self, state: dict, config: RunnableConfig) -> str | None:
+    def prompt(self, state: dict, runtime: ToolRuntime) -> str | None:
         return "You have access to my_tool."
 ```
 
@@ -259,7 +258,7 @@ from langchain_agentkit import node, SkillKit, AgentState
 | `node` with `skills` attribute | `node` (unchanged) + new `agent` with `middleware` |
 | `SkillKit` only | `SkillKit` + `SkillsMiddleware` + `TasksMiddleware` |
 | No middleware system | `Middleware` protocol + `AgentKit` composition |
-| Handler injectables: `llm`, `tools`, `runtime` | `agent` adds: `prompt`, `config` |
+| Handler injectables: `llm`, `tools`, `runtime` | `agent` adds: `prompt`. `runtime` is now `ToolRuntime` |
 
 **Migration steps:**
 

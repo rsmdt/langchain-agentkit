@@ -38,6 +38,7 @@ from langchain_agentkit.agent_kit import AgentKit
 from langchain_agentkit.hitl_middleware import HITLMiddleware
 from langchain_agentkit.middleware import Middleware
 from langchain_agentkit.node import node
+from langchain_agentkit.runtime import ToolRuntime
 from langchain_agentkit.skill_kit import SkillKit
 from langchain_agentkit.skills_middleware import SkillsMiddleware
 from langchain_agentkit.state import AgentState
@@ -48,6 +49,7 @@ __all__ = [
     # Primitive
     "AgentKit",
     "Middleware",
+    "ToolRuntime",
     # Convenience
     "agent",
     "node",

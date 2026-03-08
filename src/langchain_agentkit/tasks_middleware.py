@@ -7,7 +7,7 @@ Usage::
     # Default — auto-creates Command-based task tools
     mw = TasksMiddleware()
     mw.tools   # [TaskCreate, TaskUpdate, TaskList, TaskGet]
-    mw.prompt(state, config)  # Base agent prompt + task context
+    mw.prompt(state, runtime)  # Base agent prompt + task context
 
     # Custom tools
     mw = TasksMiddleware(task_tools=[my_task_create, my_task_update])
@@ -26,8 +26,9 @@ from langchain_core.prompts import PromptTemplate
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
+
+    from langchain_agentkit.runtime import ToolRuntime
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
@@ -130,7 +131,7 @@ class TasksMiddleware:
     def tools(self) -> list[BaseTool]:
         return list(self._tools)
 
-    def prompt(self, state: dict[str, Any], config: RunnableConfig) -> str:
+    def prompt(self, state: dict[str, Any], runtime: ToolRuntime) -> str:
         sections = [BASE_AGENT_PROMPT]
         tasks = state.get("tasks") or []
         sections.append(self._formatter(tasks))

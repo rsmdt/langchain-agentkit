@@ -2,15 +2,17 @@
 
 from unittest.mock import MagicMock
 
-from langchain_core.runnables import RunnableConfig
 from langchain_core.tools import BaseTool
 
+from langchain_agentkit.runtime import ToolRuntime
 from langchain_agentkit.tasks_middleware import (
     BASE_AGENT_PROMPT,
     TASK_MANAGEMENT_PROMPT,
     TasksMiddleware,
     format_task_context,
 )
+
+_TEST_RUNTIME = ToolRuntime(config={})
 
 
 class TestTasksMiddlewareTools:
@@ -46,7 +48,7 @@ class TestTasksMiddlewarePrompt:
     def test_prompt_with_no_tasks_includes_base_and_task_management(self):
         mw = TasksMiddleware()
 
-        result = mw.prompt({"tasks": []}, RunnableConfig())
+        result = mw.prompt({"tasks": []}, _TEST_RUNTIME)
 
         assert BASE_AGENT_PROMPT in result
         assert TASK_MANAGEMENT_PROMPT in result
@@ -55,7 +57,7 @@ class TestTasksMiddlewarePrompt:
         mw = TasksMiddleware()
         tasks = [{"subject": "Write tests", "status": "in_progress"}]
 
-        result = mw.prompt({"tasks": tasks}, RunnableConfig())
+        result = mw.prompt({"tasks": tasks}, _TEST_RUNTIME)
 
         assert BASE_AGENT_PROMPT in result
         assert "Write tests" in result
@@ -64,7 +66,7 @@ class TestTasksMiddlewarePrompt:
     def test_prompt_without_tasks_key_includes_task_management(self):
         mw = TasksMiddleware()
 
-        result = mw.prompt({}, RunnableConfig())
+        result = mw.prompt({}, _TEST_RUNTIME)
 
         assert BASE_AGENT_PROMPT in result
         assert TASK_MANAGEMENT_PROMPT in result
@@ -72,12 +74,12 @@ class TestTasksMiddlewarePrompt:
     def test_prompt_always_returns_string(self):
         mw = TasksMiddleware()
 
-        result_empty = mw.prompt({"tasks": []}, RunnableConfig())
+        result_empty = mw.prompt({"tasks": []}, _TEST_RUNTIME)
         result_with = mw.prompt(
             {"tasks": [{"subject": "Task", "status": "pending"}]},
-            RunnableConfig(),
+            _TEST_RUNTIME,
         )
-        result_none = mw.prompt({}, RunnableConfig())
+        result_none = mw.prompt({}, _TEST_RUNTIME)
 
         assert isinstance(result_empty, str)
         assert isinstance(result_with, str)
@@ -88,7 +90,7 @@ class TestTasksMiddlewarePrompt:
             return f"Custom: {len(tasks)} tasks"
 
         mw = TasksMiddleware(formatter=my_formatter)
-        result = mw.prompt({"tasks": [{"subject": "A"}]}, RunnableConfig())
+        result = mw.prompt({"tasks": [{"subject": "A"}]}, _TEST_RUNTIME)
 
         assert "Custom: 1 tasks" in result
 
@@ -207,5 +209,5 @@ class TestTasksMiddlewareProtocol:
         assert isinstance(mw.tools, list)
 
         # Verify prompt accepts (state, config) and returns str
-        result = mw.prompt({}, RunnableConfig())
+        result = mw.prompt({}, _TEST_RUNTIME)
         assert isinstance(result, str)

@@ -2,10 +2,11 @@
 
 from pathlib import Path
 
-from langchain_core.runnables import RunnableConfig
-
+from langchain_agentkit.runtime import ToolRuntime
 from langchain_agentkit.skill_kit import SkillKit
 from langchain_agentkit.skills_middleware import SkillsMiddleware
+
+_TEST_RUNTIME = ToolRuntime(config={})
 
 FIXTURES = Path(__file__).parent / "fixtures"
 
@@ -33,7 +34,7 @@ class TestPrompt:
     def test_returns_string_containing_skills_system(self):
         mw = SkillsMiddleware(str(FIXTURES / "skills"))
 
-        result = mw.prompt({}, RunnableConfig())
+        result = mw.prompt({}, _TEST_RUNTIME)
 
         assert isinstance(result, str)
         assert "## Skills" in result
@@ -41,28 +42,28 @@ class TestPrompt:
     def test_includes_available_skill_names(self):
         mw = SkillsMiddleware(str(FIXTURES / "skills"))
 
-        result = mw.prompt({}, RunnableConfig())
+        result = mw.prompt({}, _TEST_RUNTIME)
 
         assert "market-sizing" in result
 
     def test_includes_progressive_disclosure_instructions(self):
         mw = SkillsMiddleware(str(FIXTURES / "skills"))
 
-        result = mw.prompt({}, RunnableConfig())
+        result = mw.prompt({}, _TEST_RUNTIME)
 
         assert "progressive disclosure" in result
 
     def test_no_skills_available_returns_marker(self):
         mw = SkillsMiddleware(str(FIXTURES / "nonexistent_dir"))
 
-        result = mw.prompt({}, RunnableConfig())
+        result = mw.prompt({}, _TEST_RUNTIME)
 
         assert "(No skills available)" in result
 
     def test_always_returns_string(self):
         mw = SkillsMiddleware(str(FIXTURES / "skills"))
 
-        result = mw.prompt({}, RunnableConfig())
+        result = mw.prompt({}, _TEST_RUNTIME)
 
         assert result is not None
         assert isinstance(result, str)
