@@ -32,9 +32,9 @@ from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
+    from langgraph.prebuilt import ToolRuntime
 
     from langchain_agentkit.middleware import Middleware
-    from langchain_agentkit.runtime import ToolRuntime
 
 
 class AgentKit:

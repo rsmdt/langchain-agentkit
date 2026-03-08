@@ -33,12 +33,12 @@ Two layers:
     tools = registry.tools  # [Skill, SkillRead]
 """
 
+from langgraph.prebuilt import ToolRuntime
+
 from langchain_agentkit.agent import agent
 from langchain_agentkit.agent_kit import AgentKit
 from langchain_agentkit.hitl_middleware import HITLMiddleware
 from langchain_agentkit.middleware import Middleware
-from langchain_agentkit.node import node
-from langchain_agentkit.runtime import ToolRuntime
 from langchain_agentkit.skill_registry import SkillRegistry
 from langchain_agentkit.skills_middleware import SkillsMiddleware
 from langchain_agentkit.state import AgentState
@@ -52,7 +52,6 @@ __all__ = [
     "ToolRuntime",
     # Convenience
     "agent",
-    "node",
     # Standalone
     "SkillRegistry",
     # Middleware implementations

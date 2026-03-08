@@ -25,11 +25,10 @@ import inspect
 from typing import TYPE_CHECKING, Any
 
 from langgraph.graph import END, StateGraph
-from langgraph.prebuilt import ToolNode
+from langgraph.prebuilt import ToolNode, ToolRuntime
 
 from langchain_agentkit._handler_validation import validate_handler_signature
 from langchain_agentkit.agent_kit import AgentKit
-from langchain_agentkit.runtime import ToolRuntime
 from langchain_agentkit.state import AgentState
 
 if TYPE_CHECKING:
@@ -95,7 +94,14 @@ def _build_graph(
     async def _agent_node(
         state: dict[str, Any], config: RunnableConfig, **kwargs: Any
     ) -> dict[str, Any]:
-        runtime = ToolRuntime(config, **kwargs)
+        runtime = ToolRuntime(
+            state=state,
+            context=kwargs.get("context"),
+            config=config,
+            stream_writer=kwargs.get("stream_writer", lambda _: None),
+            tool_call_id=None,
+            store=kwargs.get("store"),
+        )
         composed_prompt = kit.prompt(state, runtime)
         bound_llm = llm.bind_tools(all_tools) if all_tools else llm
         inject = _build_inject(injectable, bound_llm, all_tools, composed_prompt, runtime)

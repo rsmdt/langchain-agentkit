@@ -3,8 +3,8 @@
 from unittest.mock import MagicMock
 
 from langchain_core.tools import BaseTool
+from langgraph.prebuilt import ToolRuntime
 
-from langchain_agentkit.runtime import ToolRuntime
 from langchain_agentkit.tasks_middleware import (
     BASE_AGENT_PROMPT,
     TASK_MANAGEMENT_PROMPT,
@@ -12,7 +12,14 @@ from langchain_agentkit.tasks_middleware import (
     format_task_context,
 )
 
-_TEST_RUNTIME = ToolRuntime(config={})
+_TEST_RUNTIME = ToolRuntime(
+    state={},
+    context=None,
+    config={},
+    stream_writer=lambda _: None,
+    tool_call_id=None,
+    store=None,
+)
 
 
 class TestTasksMiddlewareTools:

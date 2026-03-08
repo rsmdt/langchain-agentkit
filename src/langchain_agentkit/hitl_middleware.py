@@ -19,7 +19,7 @@ Usage::
         tools = [send_email, delete_file, search]
         middleware = [mw]
 
-        async def handler(state, *, llm, tools, prompt, config, runtime):
+        async def handler(state, *, llm, tools, prompt, runtime):
             ...
 
     # Compile with checkpointer (required for interrupt)
@@ -42,10 +42,9 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from langchain_core.tools import BaseTool
+    from langgraph.prebuilt import ToolRuntime
     from langgraph.prebuilt.tool_node import ToolCallRequest
     from langgraph.types import Command
-
-    from langchain_agentkit.runtime import ToolRuntime
 
 DecisionType = Literal["approve", "edit", "reject"]
 

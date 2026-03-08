@@ -3,11 +3,18 @@
 from unittest.mock import MagicMock
 
 from langchain_core.messages import ToolMessage
+from langgraph.prebuilt import ToolRuntime
 
 from langchain_agentkit.hitl_middleware import HITLMiddleware
-from langchain_agentkit.runtime import ToolRuntime
 
-_TEST_RUNTIME = ToolRuntime(config={})
+_TEST_RUNTIME = ToolRuntime(
+    state={},
+    context=None,
+    config={},
+    stream_writer=lambda _: None,
+    tool_call_id=None,
+    store=None,
+)
 
 
 class TestInit:

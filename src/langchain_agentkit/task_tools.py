@@ -33,8 +33,6 @@ from pydantic import BaseModel, Field
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
-_REMINDER = "Check TaskList for your next task. Update status before starting work."
-
 
 class _TaskCreateInput(BaseModel):
     subject: str = Field(description='Imperative title, e.g. "Analyze problem context".')

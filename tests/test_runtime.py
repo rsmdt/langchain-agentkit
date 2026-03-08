@@ -1,38 +1,50 @@
-"""Tests for ToolRuntime."""
+"""Tests for ToolRuntime integration with langgraph.prebuilt."""
 
-from langchain_agentkit.runtime import ToolRuntime
+from langgraph.prebuilt import ToolRuntime
 
 
 class TestToolRuntime:
-    def test_config_property_returns_provided_config(self):
+    def test_config_field_returns_provided_config(self):
         config = {"configurable": {"thread_id": "abc"}}
 
-        runtime = ToolRuntime(config=config)
+        runtime = ToolRuntime(
+            state={},
+            context=None,
+            config=config,
+            stream_writer=lambda _: None,
+            tool_call_id=None,
+            store=None,
+        )
 
         assert runtime.config is config
 
-    def test_get_returns_extra_value(self):
-        runtime = ToolRuntime(config={}, store="my_store")
+    def test_state_field_returns_provided_state(self):
+        state = {"messages": []}
 
-        assert runtime.get("store") == "my_store"
+        runtime = ToolRuntime(
+            state=state,
+            context=None,
+            config={},
+            stream_writer=lambda _: None,
+            tool_call_id=None,
+            store=None,
+        )
 
-    def test_get_returns_default_for_missing_key(self):
-        runtime = ToolRuntime(config={})
+        assert runtime.state is state
 
-        assert runtime.get("missing") is None
-        assert runtime.get("missing", "fallback") == "fallback"
+    def test_store_field(self):
+        runtime = ToolRuntime(
+            state={},
+            context=None,
+            config={},
+            stream_writer=lambda _: None,
+            tool_call_id=None,
+            store=None,
+        )
 
-    def test_repr_without_extras(self):
-        runtime = ToolRuntime(config={})
+        assert runtime.store is None
 
-        assert "ToolRuntime" in repr(runtime)
-        assert "extras" not in repr(runtime)
+    def test_re_exported_from_agentkit(self):
+        from langchain_agentkit import ToolRuntime as ExportedToolRuntime
 
-    def test_repr_with_extras(self):
-        runtime = ToolRuntime(config={}, store="s")
-
-        result = repr(runtime)
-
-        assert "ToolRuntime" in result
-        assert "extras" in result
-        assert "store" in result
+        assert ExportedToolRuntime is ToolRuntime

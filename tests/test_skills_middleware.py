@@ -2,11 +2,19 @@
 
 from pathlib import Path
 
-from langchain_agentkit.runtime import ToolRuntime
+from langgraph.prebuilt import ToolRuntime
+
 from langchain_agentkit.skill_registry import SkillRegistry
 from langchain_agentkit.skills_middleware import SkillsMiddleware
 
-_TEST_RUNTIME = ToolRuntime(config={})
+_TEST_RUNTIME = ToolRuntime(
+    state={},
+    context=None,
+    config={},
+    stream_writer=lambda _: None,
+    tool_call_id=None,
+    store=None,
+)
 
 FIXTURES = Path(__file__).parent / "fixtures"
 

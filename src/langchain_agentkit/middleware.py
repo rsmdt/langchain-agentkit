@@ -28,8 +28,7 @@ from typing import TYPE_CHECKING, Any, Protocol
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
-
-    from langchain_agentkit.runtime import ToolRuntime
+    from langgraph.prebuilt import ToolRuntime
 
 
 class Middleware(Protocol):

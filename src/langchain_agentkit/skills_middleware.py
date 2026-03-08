@@ -21,8 +21,7 @@ from langchain_agentkit.types import SkillConfig
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
-
-    from langchain_agentkit.runtime import ToolRuntime
+    from langgraph.prebuilt import ToolRuntime
 
 _PROMPTS_DIR = Path(__file__).parent / "prompts"
 
