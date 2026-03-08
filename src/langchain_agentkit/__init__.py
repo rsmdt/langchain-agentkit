@@ -35,6 +35,7 @@ Two layers:
 
 from langchain_agentkit.agent import agent
 from langchain_agentkit.agent_kit import AgentKit
+from langchain_agentkit.hitl_middleware import HITLMiddleware
 from langchain_agentkit.middleware import Middleware
 from langchain_agentkit.node import node
 from langchain_agentkit.skill_kit import SkillKit
@@ -53,6 +54,7 @@ __all__ = [
     # Standalone
     "SkillKit",
     # Middleware implementations
+    "HITLMiddleware",
     "SkillsMiddleware",
     "TasksMiddleware",
     # Task tools

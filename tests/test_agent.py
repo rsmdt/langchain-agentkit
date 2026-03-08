@@ -351,3 +351,58 @@ class TestAgentInvocation:
         result = await compiled.ainvoke({"messages": [HumanMessage(content="hi")]})
 
         assert result["messages"][-1].content == "sync done"
+
+    def test_hitl_middleware_wrap_tool_call_passed_to_tool_node(self):
+        """Verify agent detects wrap_tool_call from HITLMiddleware."""
+        from langchain_agentkit.hitl_middleware import HITLMiddleware
+
+        mock_llm = MagicMock()
+        mock_llm.bind_tools = MagicMock(return_value=mock_llm)
+
+        @tool
+        def send_email(to: str, body: str) -> str:
+            """Send an email."""
+            return f"Sent to {to}"
+
+        hitl = HITLMiddleware(interrupt_on={"send_email": True})
+
+        class hitl_agent(agent):
+            llm = mock_llm
+            tools = [send_email]
+            middleware = [hitl]
+
+            async def handler(state, *, llm):
+                return {
+                    "messages": [AIMessage(content="ok")],
+                    "sender": "hitl_agent",
+                }
+
+        # Should produce a StateGraph without error
+        from langgraph.graph import StateGraph
+
+        assert isinstance(hitl_agent, StateGraph)
+
+    def test_multiple_wrap_tool_call_raises(self):
+        """Only one middleware can provide wrap_tool_call."""
+        from langchain_agentkit.hitl_middleware import HITLMiddleware
+
+        mock_llm = MagicMock()
+        mock_llm.bind_tools = MagicMock(return_value=mock_llm)
+
+        @tool
+        def action(x: str) -> str:
+            """Do something."""
+            return x
+
+        with pytest.raises(ValueError, match="multiple middleware provide wrap_tool_call"):
+
+            class bad_agent(agent):
+                llm = mock_llm
+                tools = [action]
+                middleware = [
+                    HITLMiddleware(interrupt_on={"action": True}),
+                    HITLMiddleware(interrupt_on={"action": True}),
+                ]
+
+                async def handler(state, *, llm):
+                    return {"messages": [], "sender": "bad"}

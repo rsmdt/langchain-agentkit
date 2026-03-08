@@ -84,6 +84,7 @@ def _build_graph(
     all_tools: list[BaseTool],
     injectable: set[str],
     state_type: type = AgentState,
+    wrap_tool_call: Any | None = None,
 ) -> Any:
     """Build the ReAct subgraph.
 
@@ -110,10 +111,13 @@ def _build_graph(
     _agent_node.__qualname__ = f"agent.<locals>.{node_name}"
 
     workflow: StateGraph[Any] = StateGraph(state_type)
-    workflow.add_node(node_name, _agent_node)
+    workflow.add_node(node_name, _agent_node)  # type: ignore[type-var]
 
     if all_tools:
-        tool_node = ToolNode(all_tools)
+        tool_node_kwargs: dict[str, Any] = {}
+        if wrap_tool_call is not None:
+            tool_node_kwargs["wrap_tool_call"] = wrap_tool_call
+        tool_node = ToolNode(all_tools, **tool_node_kwargs)
         workflow.add_node("tools", tool_node)
 
         def _should_continue(state: dict[str, Any]) -> str:
@@ -202,6 +206,18 @@ class _AgentMeta(type):
         kit = AgentKit(list(middleware), prompt=prompt_source)
         all_tools: list[BaseTool] = list(user_tools) + kit.tools
 
+        # Detect wrap_tool_call from middleware (e.g., HITLMiddleware)
+        wrap_tool_call = None
+        for mw in middleware:
+            wrapper = getattr(mw, "wrap_tool_call", None)
+            if callable(wrapper):
+                if wrap_tool_call is not None:
+                    raise ValueError(
+                        f"class {name}(agent): multiple middleware provide wrap_tool_call. "
+                        f"Only one is supported per agent."
+                    )
+                wrap_tool_call = wrapper
+
         return _build_graph(
             name=name,
             handler=handler,
@@ -211,6 +227,7 @@ class _AgentMeta(type):
             all_tools=all_tools,
             injectable=injectable,
             state_type=state_type,
+            wrap_tool_call=wrap_tool_call,
         )
 
 
