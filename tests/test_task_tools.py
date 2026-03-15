@@ -3,6 +3,7 @@
 import json
 
 import pytest
+from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
 from langchain_agentkit.task_tools import (
@@ -12,6 +13,8 @@ from langchain_agentkit.task_tools import (
     _task_update,
     create_task_tools,
 )
+
+FAKE_TOOL_CALL_ID = "call_abc123"
 
 
 class TestCreateTaskTools:
@@ -39,6 +42,7 @@ class TestTaskCreate:
             subject="Test task",
             description="A test",
             state={"tasks": []},
+            tool_call_id=FAKE_TOOL_CALL_ID,
         )
 
         assert isinstance(result, Command)
@@ -48,6 +52,7 @@ class TestTaskCreate:
             subject="New task",
             description="Do something",
             state={"tasks": []},
+            tool_call_id=FAKE_TOOL_CALL_ID,
         )
 
         tasks = result.update["tasks"]
@@ -63,6 +68,7 @@ class TestTaskCreate:
             subject="New task",
             description="Another",
             state={"tasks": existing},
+            tool_call_id=FAKE_TOOL_CALL_ID,
         )
 
         tasks = result.update["tasks"]
@@ -74,6 +80,7 @@ class TestTaskCreate:
             subject="Task",
             description="Desc",
             state={},
+            tool_call_id=FAKE_TOOL_CALL_ID,
         )
 
         task_id = result.update["tasks"][0]["id"]
@@ -85,6 +92,7 @@ class TestTaskCreate:
             description="Deep analysis",
             active_form="Analyzing...",
             state={},
+            tool_call_id=FAKE_TOOL_CALL_ID,
         )
 
         assert result.update["tasks"][0]["active_form"] == "Analyzing..."
@@ -95,6 +103,7 @@ class TestTaskCreate:
             description="Desc",
             metadata={"priority": "high"},
             state={},
+            tool_call_id=FAKE_TOOL_CALL_ID,
         )
 
         assert result.update["tasks"][0]["metadata"] == {"priority": "high"}
@@ -103,9 +112,24 @@ class TestTaskCreate:
         original_tasks = [{"id": "1", "subject": "Original", "status": "pending"}]
         state = {"tasks": original_tasks}
 
-        _task_create(subject="New", description="Desc", state=state)
+        _task_create(subject="New", description="Desc", state=state, tool_call_id=FAKE_TOOL_CALL_ID)
 
         assert len(original_tasks) == 1  # Original list unchanged
+
+    def test_includes_tool_message_in_command(self):
+        result = _task_create(
+            subject="Test task",
+            description="A test",
+            state={"tasks": []},
+            tool_call_id=FAKE_TOOL_CALL_ID,
+        )
+
+        messages = result.update["messages"]
+        assert len(messages) == 1
+        assert isinstance(messages[0], ToolMessage)
+        assert messages[0].tool_call_id == FAKE_TOOL_CALL_ID
+        content = json.loads(messages[0].content)
+        assert content["subject"] == "Test task"
 
 
 class TestTaskUpdate:
@@ -128,28 +152,43 @@ class TestTaskUpdate:
         }
 
     def test_updates_status(self, state_with_task):
-        result = _task_update(task_id="task-1", state=state_with_task, status="in_progress")
+        result = _task_update(
+            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            status="in_progress",
+        )
 
         task = result.update["tasks"][0]
         assert task["status"] == "in_progress"
 
     def test_updates_subject(self, state_with_task):
-        result = _task_update(task_id="task-1", state=state_with_task, subject="Updated")
+        result = _task_update(
+            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            subject="Updated",
+        )
 
         assert result.update["tasks"][0]["subject"] == "Updated"
 
     def test_updates_owner(self, state_with_task):
-        result = _task_update(task_id="task-1", state=state_with_task, owner="researcher")
+        result = _task_update(
+            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            owner="researcher",
+        )
 
         assert result.update["tasks"][0]["owner"] == "researcher"
 
     def test_adds_blocked_by(self, state_with_task):
-        result = _task_update(task_id="task-1", state=state_with_task, add_blocked_by=["task-2"])
+        result = _task_update(
+            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            add_blocked_by=["task-2"],
+        )
 
         assert "task-2" in result.update["tasks"][0]["blocked_by"]
 
     def test_adds_blocks(self, state_with_task):
-        result = _task_update(task_id="task-1", state=state_with_task, add_blocks=["task-3"])
+        result = _task_update(
+            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            add_blocks=["task-3"],
+        )
 
         assert "task-3" in result.update["tasks"][0]["blocks"]
 
@@ -157,7 +196,8 @@ class TestTaskUpdate:
         state_with_task["tasks"][0]["metadata"] = {"existing": "value"}
 
         result = _task_update(
-            task_id="task-1", state=state_with_task, metadata={"new_key": "new_value"}
+            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            metadata={"new_key": "new_value"},
         )
 
         meta = result.update["tasks"][0]["metadata"]
@@ -167,7 +207,10 @@ class TestTaskUpdate:
     def test_deletes_metadata_keys_with_none(self, state_with_task):
         state_with_task["tasks"][0]["metadata"] = {"keep": "yes", "remove": "this"}
 
-        result = _task_update(task_id="task-1", state=state_with_task, metadata={"remove": None})
+        result = _task_update(
+            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            metadata={"remove": None},
+        )
 
         meta = result.update["tasks"][0]["metadata"]
         assert "keep" in meta
@@ -177,19 +220,40 @@ class TestTaskUpdate:
         from langchain_core.tools import ToolException
 
         with pytest.raises(ToolException, match="not found"):
-            _task_update(task_id="nonexistent", state=state_with_task)
+            _task_update(
+                task_id="nonexistent", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            )
 
     def test_returns_command(self, state_with_task):
-        result = _task_update(task_id="task-1", state=state_with_task, status="completed")
+        result = _task_update(
+            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            status="completed",
+        )
 
         assert isinstance(result, Command)
 
     def test_does_not_mutate_original_state(self, state_with_task):
         original_task = state_with_task["tasks"][0]
 
-        _task_update(task_id="task-1", state=state_with_task, status="completed")
+        _task_update(
+            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            status="completed",
+        )
 
         assert original_task["status"] == "pending"  # Unchanged
+
+    def test_includes_tool_message_in_command(self, state_with_task):
+        result = _task_update(
+            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            status="completed",
+        )
+
+        messages = result.update["messages"]
+        assert len(messages) == 1
+        assert isinstance(messages[0], ToolMessage)
+        assert messages[0].tool_call_id == FAKE_TOOL_CALL_ID
+        content = json.loads(messages[0].content)
+        assert content["status"] == "completed"
 
 
 class TestTaskList:

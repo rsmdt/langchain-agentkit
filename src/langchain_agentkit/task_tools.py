@@ -25,7 +25,8 @@ import uuid
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated, Any
 
-from langchain_core.tools import StructuredTool, ToolException
+from langchain_core.messages import ToolMessage
+from langchain_core.tools import InjectedToolCallId, StructuredTool, ToolException
 from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from pydantic import BaseModel, Field
@@ -46,6 +47,7 @@ class _TaskCreateInput(BaseModel):
         description="Optional arbitrary key-value data.",
     )
     state: Annotated[dict[str, Any], InjectedState]
+    tool_call_id: Annotated[str, InjectedToolCallId]
 
 
 class _TaskUpdateInput(BaseModel):
@@ -67,6 +69,7 @@ class _TaskUpdateInput(BaseModel):
         description="Keys to merge (set value to null to delete a key).",
     )
     state: Annotated[dict[str, Any], InjectedState]
+    tool_call_id: Annotated[str, InjectedToolCallId]
 
 
 class _TaskListInput(BaseModel):
@@ -82,6 +85,7 @@ def _task_create(
     subject: str,
     description: str,
     state: dict[str, Any],
+    tool_call_id: str,
     active_form: str = "",
     metadata: dict[str, Any] | None = None,
 ) -> Command:  # type: ignore[type-arg]
@@ -100,12 +104,18 @@ def _task_create(
     }
     tasks = list(state.get("tasks") or [])
     tasks.append(task)
-    return Command(update={"tasks": tasks})
+    return Command(
+        update={
+            "tasks": tasks,
+            "messages": [ToolMessage(content=json.dumps(task), tool_call_id=tool_call_id)],
+        }
+    )
 
 
 def _task_update(
     task_id: str,
     state: dict[str, Any],
+    tool_call_id: str,
     status: str | None = None,
     subject: str | None = None,
     description: str | None = None,
@@ -140,7 +150,12 @@ def _task_update(
         merged = {**existing, **metadata}
         task["metadata"] = {k: v for k, v in merged.items() if v is not None}
 
-    return Command(update={"tasks": tasks})
+    return Command(
+        update={
+            "tasks": tasks,
+            "messages": [ToolMessage(content=json.dumps(task), tool_call_id=tool_call_id)],
+        }
+    )
 
 
 def _task_list(state: dict[str, Any]) -> str:
