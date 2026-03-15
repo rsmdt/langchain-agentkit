@@ -44,6 +44,7 @@ from langchain_agentkit.skills_middleware import SkillsMiddleware
 from langchain_agentkit.state import AgentState
 from langchain_agentkit.task_tools import create_task_tools
 from langchain_agentkit.tasks_middleware import TasksMiddleware
+from langchain_agentkit.web_search_middleware import QwantSearchTool, WebSearchMiddleware
 
 __all__ = [
     # Primitive
@@ -58,6 +59,9 @@ __all__ = [
     "HITLMiddleware",
     "SkillsMiddleware",
     "TasksMiddleware",
+    "WebSearchMiddleware",
+    # Tools
+    "QwantSearchTool",
     # Task tools
     "create_task_tools",
     # State
