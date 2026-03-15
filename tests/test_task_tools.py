@@ -153,7 +153,9 @@ class TestTaskUpdate:
 
     def test_updates_status(self, state_with_task):
         result = _task_update(
-            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            task_id="task-1",
+            state=state_with_task,
+            tool_call_id=FAKE_TOOL_CALL_ID,
             status="in_progress",
         )
 
@@ -162,7 +164,9 @@ class TestTaskUpdate:
 
     def test_updates_subject(self, state_with_task):
         result = _task_update(
-            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            task_id="task-1",
+            state=state_with_task,
+            tool_call_id=FAKE_TOOL_CALL_ID,
             subject="Updated",
         )
 
@@ -170,7 +174,9 @@ class TestTaskUpdate:
 
     def test_updates_owner(self, state_with_task):
         result = _task_update(
-            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            task_id="task-1",
+            state=state_with_task,
+            tool_call_id=FAKE_TOOL_CALL_ID,
             owner="researcher",
         )
 
@@ -178,7 +184,9 @@ class TestTaskUpdate:
 
     def test_adds_blocked_by(self, state_with_task):
         result = _task_update(
-            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            task_id="task-1",
+            state=state_with_task,
+            tool_call_id=FAKE_TOOL_CALL_ID,
             add_blocked_by=["task-2"],
         )
 
@@ -186,7 +194,9 @@ class TestTaskUpdate:
 
     def test_adds_blocks(self, state_with_task):
         result = _task_update(
-            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            task_id="task-1",
+            state=state_with_task,
+            tool_call_id=FAKE_TOOL_CALL_ID,
             add_blocks=["task-3"],
         )
 
@@ -196,7 +206,9 @@ class TestTaskUpdate:
         state_with_task["tasks"][0]["metadata"] = {"existing": "value"}
 
         result = _task_update(
-            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            task_id="task-1",
+            state=state_with_task,
+            tool_call_id=FAKE_TOOL_CALL_ID,
             metadata={"new_key": "new_value"},
         )
 
@@ -208,7 +220,9 @@ class TestTaskUpdate:
         state_with_task["tasks"][0]["metadata"] = {"keep": "yes", "remove": "this"}
 
         result = _task_update(
-            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            task_id="task-1",
+            state=state_with_task,
+            tool_call_id=FAKE_TOOL_CALL_ID,
             metadata={"remove": None},
         )
 
@@ -221,12 +235,16 @@ class TestTaskUpdate:
 
         with pytest.raises(ToolException, match="not found"):
             _task_update(
-                task_id="nonexistent", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+                task_id="nonexistent",
+                state=state_with_task,
+                tool_call_id=FAKE_TOOL_CALL_ID,
             )
 
     def test_returns_command(self, state_with_task):
         result = _task_update(
-            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            task_id="task-1",
+            state=state_with_task,
+            tool_call_id=FAKE_TOOL_CALL_ID,
             status="completed",
         )
 
@@ -236,7 +254,9 @@ class TestTaskUpdate:
         original_task = state_with_task["tasks"][0]
 
         _task_update(
-            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            task_id="task-1",
+            state=state_with_task,
+            tool_call_id=FAKE_TOOL_CALL_ID,
             status="completed",
         )
 
@@ -244,7 +264,9 @@ class TestTaskUpdate:
 
     def test_includes_tool_message_in_command(self, state_with_task):
         result = _task_update(
-            task_id="task-1", state=state_with_task, tool_call_id=FAKE_TOOL_CALL_ID,
+            task_id="task-1",
+            state=state_with_task,
+            tool_call_id=FAKE_TOOL_CALL_ID,
             status="completed",
         )
 

@@ -99,6 +99,7 @@ class TestQwantSearchToolStandalone:
 
     def test_importable_from_package(self):
         from langchain_agentkit import QwantSearchTool as Imported
+
         assert Imported is QwantSearchTool
 
 

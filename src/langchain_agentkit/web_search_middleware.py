@@ -48,23 +48,28 @@ class QwantSearchTool(BaseTool):
 
     def _run(self, query: str, **kwargs: Any) -> str:
         """Sync search via Qwant API using urllib (no external deps)."""
-        params = urllib.parse.urlencode({
-            "q": query,
-            "count": self.max_results,
-            "locale": self.locale,
-            "safesearch": self.safesearch,
-        })
+        params = urllib.parse.urlencode(
+            {
+                "q": query,
+                "count": self.max_results,
+                "locale": self.locale,
+                "safesearch": self.safesearch,
+            }
+        )
         url = f"https://api.qwant.com/v3/search/web?{params}"
-        request = urllib.request.Request(url, headers={
-            "User-Agent": "langchain-agentkit/0.5",
-        })
+        request = urllib.request.Request(
+            url,
+            headers={
+                "User-Agent": "langchain-agentkit/0.5",
+            },
+        )
         with urllib.request.urlopen(request, timeout=10) as response:
             data = json.loads(response.read().decode())
         items = data.get("data", {}).get("result", {}).get("items", [])
         if not items:
             return "No results found."
         results = []
-        for item in items[:self.max_results]:
+        for item in items[: self.max_results]:
             title = item.get("title", "")
             url = item.get("url", "")
             snippet = item.get("desc", "")
