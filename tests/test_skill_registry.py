@@ -13,6 +13,12 @@ class TestInit:
 
         assert len(kit.skills_dirs) == 1
 
+    def test_accepts_path_object(self):
+        kit = SkillRegistry(FIXTURES / "skills")
+
+        assert len(kit.skills_dirs) == 1
+        assert len(kit.tools) == 2
+
     def test_accepts_list_of_paths(self):
         kit = SkillRegistry(
             [
@@ -22,6 +28,17 @@ class TestInit:
         )
 
         assert len(kit.skills_dirs) == 2
+
+    def test_accepts_list_of_path_objects(self):
+        kit = SkillRegistry(
+            [
+                FIXTURES / "skills",
+                FIXTURES / "skills_extra",
+            ]
+        )
+
+        assert len(kit.skills_dirs) == 2
+        assert "market-sizing" in kit.tools[0].description
 
 
 class TestTools:

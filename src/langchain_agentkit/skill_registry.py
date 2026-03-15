@@ -75,14 +75,18 @@ class SkillRegistry:
             containing skill subdirectories.
     """
 
-    def __init__(self, skills_dirs: str | list[str]) -> None:
+    def __init__(self, skills_dirs: str | Path | list[str | Path]) -> None:
         """Create a SkillRegistry from one or more skill directories.
 
         Args:
-            skills_dirs: A single path or list of paths to directories
-                containing skill subdirectories with ``SKILL.md`` files.
+            skills_dirs: A single path (str or Path) or list of paths to
+                directories containing skill subdirectories with ``SKILL.md``
+                files.
         """
-        self.skills_dirs = [skills_dirs] if isinstance(skills_dirs, str) else list(skills_dirs)
+        if isinstance(skills_dirs, (str, Path)):
+            self.skills_dirs: list[str | Path] = [skills_dirs]
+        else:
+            self.skills_dirs = list(skills_dirs)
         self._tools_cache: list[BaseTool] | None = None
 
     @property

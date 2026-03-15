@@ -20,6 +20,11 @@ FIXTURES = Path(__file__).parent / "fixtures"
 
 
 class TestTools:
+    def test_accepts_path_object(self):
+        mw = SkillsMiddleware(FIXTURES / "skills")
+
+        assert len(mw.tools) == 2
+
     def test_returns_two_tools(self):
         mw = SkillsMiddleware(str(FIXTURES / "skills"))
 
