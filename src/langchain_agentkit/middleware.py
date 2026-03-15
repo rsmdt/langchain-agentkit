@@ -18,7 +18,7 @@ Example::
         def tools(self) -> list[BaseTool]:
             return [my_tool]
 
-        def prompt(self, state: dict, runtime: ToolRuntime) -> str | None:
+        def prompt(self, state: dict, runtime=None) -> str | None:
             return "You have access to my_tool."
 """
 
@@ -37,14 +37,14 @@ class Middleware(Protocol):
         """Tools this middleware provides to the LLM."""
         ...
 
-    def prompt(self, state: dict[str, Any], runtime: ToolRuntime) -> str | None:
+    def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str | None:
         """Prompt section to inject into the system prompt.
 
         Called on every LLM invocation. Return None to skip injection.
 
         Args:
             state: Current graph state.
-            runtime: Tool runtime context. Use ``runtime.config`` for
-                the full ``RunnableConfig``.
+            runtime: Optional tool runtime context. Use ``runtime.config``
+                for the full ``RunnableConfig`` when available.
         """
         ...

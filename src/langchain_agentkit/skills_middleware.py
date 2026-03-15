@@ -38,18 +38,19 @@ class SkillsMiddleware:
     Example::
 
         mw = SkillsMiddleware("skills/")
+        mw = SkillsMiddleware(Path(__file__).parent / "skills")
         mw.tools   # [Skill, SkillRead]
         mw.prompt(state, config)  # Skills system prompt with skill list
     """
 
-    def __init__(self, skills_dirs: str | list[str]) -> None:
+    def __init__(self, skills_dirs: str | Path | list[str | Path]) -> None:
         self._kit = SkillRegistry(skills_dirs)
 
     @property
     def tools(self) -> list[BaseTool]:
         return self._kit.tools
 
-    def prompt(self, state: dict[str, Any], runtime: ToolRuntime) -> str:
+    def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
         return _skills_system_prompt.format(
             skills_list=self._format_skills_list(),
         )

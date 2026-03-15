@@ -82,7 +82,7 @@ class AgentKit:
             self._tools_cache = tools
         return self._tools_cache
 
-    def prompt(self, state: dict[str, Any], runtime: ToolRuntime) -> str:
+    def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
         """Compose prompt from template + all middleware sections.
 
         Called on every LLM invocation. Each middleware contributes
