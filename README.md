@@ -27,12 +27,15 @@ Declare a class that inherits from `agent` to get a `StateGraph` with an automat
 ```python
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from langchain_agentkit import agent, SkillsMiddleware, TasksMiddleware
+from langchain_agentkit import agent, SkillsMiddleware, TasksMiddleware, WebSearchMiddleware
 
 class researcher(agent):
     llm = ChatOpenAI(model="gpt-4o")
-    tools = [web_search]
-    middleware = [SkillsMiddleware("skills/"), TasksMiddleware()]
+    middleware = [
+        SkillsMiddleware("skills/"),
+        TasksMiddleware(),
+        WebSearchMiddleware(),  # Built-in Qwant search, no API key needed
+    ]
     prompt = "You are a research assistant."
 
     async def handler(state, *, llm, prompt):
@@ -157,6 +160,7 @@ class MyMiddleware:
 |-----------|-------|--------|
 | `SkillsMiddleware(skills_dirs)` | `Skill`, `SkillRead` | Progressive disclosure skill list with load instructions |
 | `TasksMiddleware()` | `TaskCreate`, `TaskUpdate`, `TaskList`, `TaskGet` | Base agent behavior + task context with status icons |
+| `WebSearchMiddleware(providers?)` | `web_search` | Search guidance with provider names |
 
 ### `TasksMiddleware`
 
@@ -182,6 +186,58 @@ from langchain_agentkit import create_task_tools
 
 tools = create_task_tools()  # [TaskCreate, TaskUpdate, TaskList, TaskGet]
 ```
+
+### `WebSearchMiddleware`
+
+Multi-provider web search middleware. Fans out queries to all configured search providers in parallel via `asyncio.gather`, returning results attributed per provider.
+
+Works out of the box with zero configuration — uses built-in Qwant search (no API key required). Add your own providers for more comprehensive results:
+
+```python
+# Zero config — uses built-in Qwant search
+mw = WebSearchMiddleware()
+
+# Custom providers — any BaseTool or callable
+from langchain_tavily import TavilySearch
+
+mw = WebSearchMiddleware(providers=[
+    TavilySearch(max_results=5),
+])
+
+# Mix built-in with custom
+from langchain_community.tools import DuckDuckGoSearchRun
+
+mw = WebSearchMiddleware(providers=[
+    DuckDuckGoSearchRun(),
+    my_custom_search_function,  # auto-wrapped into BaseTool
+])
+
+# Custom prompt template
+mw = WebSearchMiddleware(prompt_template="Use {provider_names} to search.")
+```
+
+Providers can be any LangChain `BaseTool` or a callable with signature `(query: str) -> str`. Callables are auto-wrapped into tools. Provider errors are captured per-provider — one failing provider doesn't break the search.
+
+### `QwantSearchTool`
+
+Built-in web search tool using [Qwant's](https://www.qwant.com/) search API. No API key required. Works as a standalone LangChain tool or as the default provider for `WebSearchMiddleware`:
+
+```python
+from langchain_agentkit import QwantSearchTool
+
+# Standalone usage — like any other LangChain tool
+tool = QwantSearchTool()
+result = tool.invoke("latest AI news")
+
+# Configurable
+tool = QwantSearchTool(max_results=3, locale="fr_FR", safesearch=2)
+```
+
+| Parameter | Default | Description |
+|-----------|---------|-------------|
+| `max_results` | `5` | Number of results to return (max 10) |
+| `locale` | `"en_US"` | Search locale |
+| `safesearch` | `1` | Safe search level: 0=off, 1=moderate, 2=strict |
 
 ### `AgentKit(middleware, prompt=None)`
 
@@ -228,6 +284,80 @@ class MyState(AgentState):
     current_project: str
     iteration_count: int
 ```
+
+## Patterns
+
+### Reasoning: ReAct and Chain of Thought
+
+The `agent` metaclass builds a [ReAct](https://arxiv.org/abs/2210.03629) loop — the LLM reasons, calls tools, observes results, and reasons again. This is Chain of Thought with tool use built in:
+
+```
+handler → LLM reasons → tool calls? → ToolNode executes → handler → LLM reasons → ... → END
+```
+
+All middleware tools (search, tasks, skills) live in a **single shared ToolNode**. No special routing or if/else logic — `ToolNode` dispatches by tool name.
+
+#### Prompt-based Chain of Thought
+
+Add reasoning instructions via the `prompt` attribute — no code changes needed:
+
+```python
+class analyst(agent):
+    llm = ChatOpenAI(model="gpt-4o")
+    middleware = [WebSearchMiddleware()]
+    prompt = """You are a research analyst. Think step by step:
+1. Identify what information you need
+2. Search for evidence using web_search
+3. Synthesize findings into a clear answer"""
+
+    async def handler(state, *, llm, prompt):
+        messages = [SystemMessage(content=prompt)] + state["messages"]
+        return {"messages": [await llm.ainvoke(messages)]}
+```
+
+#### Multi-node reasoning pipeline
+
+For explicit Reason → Act → Synthesize stages, use `AgentKit` with manual graph wiring:
+
+```python
+from langgraph.graph import END, StateGraph
+from langgraph.prebuilt import ToolNode
+from langchain_agentkit import AgentKit, WebSearchMiddleware
+
+kit = AgentKit([WebSearchMiddleware()])
+
+async def reason(state, config, **kw):
+    """Analyze the question and plan what to search for."""
+    ...
+
+async def act(state, config, **kw):
+    """Execute searches based on the reasoning step."""
+    ...
+
+async def synthesize(state, config, **kw):
+    """Combine findings into a final answer."""
+    ...
+
+workflow = StateGraph(MyState)
+workflow.add_node("reason", reason)
+workflow.add_node("act", act)
+workflow.add_node("tools", ToolNode(kit.tools))
+workflow.add_node("synthesize", synthesize)
+
+workflow.set_entry_point("reason")
+workflow.add_edge("reason", "act")
+workflow.add_conditional_edges("act", should_continue, {"tools": "tools", "synthesize": "synthesize"})
+workflow.add_edge("tools", "act")
+workflow.add_edge("synthesize", END)
+```
+
+#### Choosing a pattern
+
+| Pattern | When to use | How |
+|---------|------------|-----|
+| **ReAct** (default) | Most agents — LLM decides when to use tools | `agent` metaclass, automatic |
+| **Prompt CoT** | Step-by-step reasoning without changing architecture | Add instructions to `prompt` |
+| **Multi-node pipeline** | Explicit reasoning stages, different LLMs per stage | `AgentKit` + manual `StateGraph` |
 
 ## Security
 
