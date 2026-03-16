@@ -7,6 +7,8 @@ from langchain_core.messages import ToolMessage
 from langgraph.types import Command
 
 from langchain_agentkit.task_tools import (
+    Task,
+    TaskStatus,
     _task_create,
     _task_get,
     _task_list,
@@ -15,6 +17,44 @@ from langchain_agentkit.task_tools import (
 )
 
 FAKE_TOOL_CALL_ID = "call_abc123"
+
+
+class TestTaskType:
+    def test_task_is_typed_dict(self):
+        assert hasattr(Task, "__required_keys__") or hasattr(Task, "__annotations__")
+
+    def test_task_has_all_expected_keys(self):
+        assert Task.__required_keys__ == {
+            "id",
+            "subject",
+            "description",
+            "status",
+            "active_form",
+        }
+        assert Task.__optional_keys__ == {"blocked_by"}
+
+    def test_task_status_is_literal(self):
+        assert "pending" in TaskStatus.__args__
+        assert "in_progress" in TaskStatus.__args__
+        assert "completed" in TaskStatus.__args__
+        assert "deleted" in TaskStatus.__args__
+
+    def test_task_create_returns_task_shaped_dict(self):
+        result = _task_create(
+            subject="Test",
+            description="Desc",
+            state={"tasks": []},
+            tool_call_id=FAKE_TOOL_CALL_ID,
+        )
+        task = result.update["tasks"][0]
+        for key in Task.__required_keys__:
+            assert key in task, f"Missing required key: {key}"
+
+    def test_task_importable_from_package(self):
+        from langchain_agentkit import Task, TaskStatus
+
+        assert Task is not None
+        assert TaskStatus is not None
 
 
 class TestCreateTaskTools:
@@ -97,17 +137,6 @@ class TestTaskCreate:
 
         assert result.update["tasks"][0]["active_form"] == "Analyzing..."
 
-    def test_stores_metadata(self):
-        result = _task_create(
-            subject="Task",
-            description="Desc",
-            metadata={"priority": "high"},
-            state={},
-            tool_call_id=FAKE_TOOL_CALL_ID,
-        )
-
-        assert result.update["tasks"][0]["metadata"] == {"priority": "high"}
-
     def test_does_not_mutate_original_state(self):
         original_tasks = [{"id": "1", "subject": "Original", "status": "pending"}]
         state = {"tasks": original_tasks}
@@ -143,10 +172,6 @@ class TestTaskUpdate:
                     "description": "Original desc",
                     "status": "pending",
                     "active_form": "",
-                    "owner": None,
-                    "blocks": [],
-                    "blocked_by": [],
-                    "metadata": {},
                 }
             ]
         }
@@ -172,16 +197,6 @@ class TestTaskUpdate:
 
         assert result.update["tasks"][0]["subject"] == "Updated"
 
-    def test_updates_owner(self, state_with_task):
-        result = _task_update(
-            task_id="task-1",
-            state=state_with_task,
-            tool_call_id=FAKE_TOOL_CALL_ID,
-            owner="researcher",
-        )
-
-        assert result.update["tasks"][0]["owner"] == "researcher"
-
     def test_adds_blocked_by(self, state_with_task):
         result = _task_update(
             task_id="task-1",
@@ -191,44 +206,6 @@ class TestTaskUpdate:
         )
 
         assert "task-2" in result.update["tasks"][0]["blocked_by"]
-
-    def test_adds_blocks(self, state_with_task):
-        result = _task_update(
-            task_id="task-1",
-            state=state_with_task,
-            tool_call_id=FAKE_TOOL_CALL_ID,
-            add_blocks=["task-3"],
-        )
-
-        assert "task-3" in result.update["tasks"][0]["blocks"]
-
-    def test_merges_metadata(self, state_with_task):
-        state_with_task["tasks"][0]["metadata"] = {"existing": "value"}
-
-        result = _task_update(
-            task_id="task-1",
-            state=state_with_task,
-            tool_call_id=FAKE_TOOL_CALL_ID,
-            metadata={"new_key": "new_value"},
-        )
-
-        meta = result.update["tasks"][0]["metadata"]
-        assert meta["existing"] == "value"
-        assert meta["new_key"] == "new_value"
-
-    def test_deletes_metadata_keys_with_none(self, state_with_task):
-        state_with_task["tasks"][0]["metadata"] = {"keep": "yes", "remove": "this"}
-
-        result = _task_update(
-            task_id="task-1",
-            state=state_with_task,
-            tool_call_id=FAKE_TOOL_CALL_ID,
-            metadata={"remove": None},
-        )
-
-        meta = result.update["tasks"][0]["metadata"]
-        assert "keep" in meta
-        assert "remove" not in meta
 
     def test_raises_on_missing_task(self, state_with_task):
         from langchain_core.tools import ToolException

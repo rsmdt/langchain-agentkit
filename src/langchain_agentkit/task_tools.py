@@ -22,8 +22,7 @@ from __future__ import annotations
 
 import json
 import uuid
-from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, Any, Literal, TypedDict
 
 from langchain_core.messages import ToolMessage
 from langchain_core.tools import InjectedToolCallId, StructuredTool, ToolException
@@ -34,6 +33,22 @@ from pydantic import BaseModel, Field
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
+TaskStatus = Literal["pending", "in_progress", "completed", "deleted"]
+
+
+class _TaskOptional(TypedDict, total=False):
+    blocked_by: list[str]
+
+
+class Task(_TaskOptional):
+    """Shape of a task dict managed by the task tools."""
+
+    id: str
+    subject: str
+    description: str
+    status: TaskStatus
+    active_form: str
+
 
 class _TaskCreateInput(BaseModel):
     subject: str = Field(description='Imperative title, e.g. "Analyze problem context".')
@@ -41,10 +56,6 @@ class _TaskCreateInput(BaseModel):
     active_form: str = Field(
         default="",
         description='Spinner text shown when in progress, e.g. "Analyzing problem context".',
-    )
-    metadata: dict[str, Any] | None = Field(
-        default=None,
-        description="Optional arbitrary key-value data.",
     )
     state: Annotated[dict[str, Any], InjectedState]
     tool_call_id: Annotated[str, InjectedToolCallId]
@@ -59,14 +70,8 @@ class _TaskUpdateInput(BaseModel):
     subject: str | None = Field(default=None, description="Updated imperative title.")
     description: str | None = Field(default=None, description="Updated requirements/context.")
     active_form: str | None = Field(default=None, description="Updated spinner text.")
-    owner: str | None = Field(default=None, description="Specialist slug claiming this task.")
-    add_blocks: list[str] | None = Field(default=None, description="Task IDs this task now blocks.")
     add_blocked_by: list[str] | None = Field(
         default=None, description="Task IDs now blocking this task."
-    )
-    metadata: dict[str, Any] | None = Field(
-        default=None,
-        description="Keys to merge (set value to null to delete a key).",
     )
     state: Annotated[dict[str, Any], InjectedState]
     tool_call_id: Annotated[str, InjectedToolCallId]
@@ -87,20 +92,14 @@ def _task_create(
     state: dict[str, Any],
     tool_call_id: str,
     active_form: str = "",
-    metadata: dict[str, Any] | None = None,
 ) -> Command:  # type: ignore[type-arg]
     """Create a new task with pending status."""
-    task: dict[str, Any] = {
+    task: Task = {
         "id": str(uuid.uuid4()),
         "subject": subject,
         "description": description,
         "status": "pending",
         "active_form": active_form,
-        "owner": None,
-        "blocks": [],
-        "blocked_by": [],
-        "metadata": metadata or {},
-        "created_at": datetime.now(UTC).isoformat(),
     }
     tasks = list(state.get("tasks") or [])
     tasks.append(task)
@@ -120,10 +119,7 @@ def _task_update(
     subject: str | None = None,
     description: str | None = None,
     active_form: str | None = None,
-    owner: str | None = None,
-    add_blocks: list[str] | None = None,
     add_blocked_by: list[str] | None = None,
-    metadata: dict[str, Any] | None = None,
 ) -> Command:  # type: ignore[type-arg]
     """Update an existing task."""
     tasks = [dict(t) for t in (state.get("tasks") or [])]
@@ -139,16 +135,8 @@ def _task_update(
         task["description"] = description
     if active_form is not None:
         task["active_form"] = active_form
-    if owner is not None:
-        task["owner"] = owner
-    if add_blocks:
-        task["blocks"] = list(dict.fromkeys(task.get("blocks", []) + add_blocks))
     if add_blocked_by:
         task["blocked_by"] = list(dict.fromkeys(task.get("blocked_by", []) + add_blocked_by))
-    if metadata:
-        existing = task.get("metadata") or {}
-        merged = {**existing, **metadata}
-        task["metadata"] = {k: v for k, v in merged.items() if v is not None}
 
     return Command(
         update={
@@ -166,7 +154,6 @@ def _task_list(state: dict[str, Any]) -> str:
             "id": t["id"],
             "subject": t.get("subject", ""),
             "status": t.get("status", "pending"),
-            "owner": t.get("owner"),
             "blocked_by": t.get("blocked_by", []),
         }
         for t in tasks
