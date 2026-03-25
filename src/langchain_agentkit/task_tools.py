@@ -13,9 +13,6 @@ Usage::
 
     # Explicit — pass tools to middleware
     mw = TasksMiddleware(task_tools=create_task_tools())
-
-    # Custom state key
-    mw = TasksMiddleware(task_tools=create_task_tools(state_key="my_tasks"))
 """
 
 from __future__ import annotations
@@ -38,6 +35,9 @@ TaskStatus = Literal["pending", "in_progress", "completed", "deleted"]
 
 class _TaskOptional(TypedDict, total=False):
     blocked_by: list[str]
+    blocks: list[str]
+    owner: str
+    metadata: dict[str, Any]
 
 
 class Task(_TaskOptional):
@@ -50,12 +50,31 @@ class Task(_TaskOptional):
     active_form: str
 
 
+# ---------------------------------------------------------------------------
+# Input schemas
+# ---------------------------------------------------------------------------
+
+
 class _TaskCreateInput(BaseModel):
-    subject: str = Field(description='Imperative title, e.g. "Analyze problem context".')
-    description: str = Field(description="Detailed requirements, context, and acceptance criteria.")
+    subject: str = Field(
+        description=(
+            "A brief, actionable title in imperative form "
+            '(e.g., "Fix authentication bug in login flow").'
+        ),
+    )
+    description: str = Field(
+        description=(
+            "Detailed description of what needs to be done, "
+            "including context and acceptance criteria."
+        ),
+    )
     active_form: str = Field(
         default="",
-        description='Spinner text shown when in progress, e.g. "Analyzing problem context".',
+        description=(
+            "Present continuous form shown in the spinner when the task is "
+            'in_progress (e.g., "Fixing authentication bug"). '
+            "If omitted, the spinner shows the subject instead."
+        ),
     )
     state: Annotated[dict[str, Any], InjectedState]
     tool_call_id: Annotated[str, InjectedToolCallId]
@@ -65,13 +84,39 @@ class _TaskUpdateInput(BaseModel):
     task_id: str = Field(description="Task ID to update.")
     status: str | None = Field(
         default=None,
-        description="New status -- pending, in_progress, completed, or deleted.",
+        description="New status: pending, in_progress, completed, or deleted.",
     )
-    subject: str | None = Field(default=None, description="Updated imperative title.")
-    description: str | None = Field(default=None, description="Updated requirements/context.")
-    active_form: str | None = Field(default=None, description="Updated spinner text.")
+    subject: str | None = Field(
+        default=None,
+        description='Updated imperative title (e.g., "Run tests").',
+    )
+    description: str | None = Field(
+        default=None, description="Updated requirements/context.",
+    )
+    active_form: str | None = Field(
+        default=None,
+        description=(
+            "Present continuous form shown in spinner when "
+            'in_progress (e.g., "Running tests").'
+        ),
+    )
+    owner: str | None = Field(
+        default=None, description="Set the task owner (agent name).",
+    )
+    metadata: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "Metadata keys to merge into the task. "
+            "Set a key to null to delete it."
+        ),
+    )
     add_blocked_by: list[str] | None = Field(
-        default=None, description="Task IDs now blocking this task."
+        default=None,
+        description="Task IDs that must complete before this one can start.",
+    )
+    add_blocks: list[str] | None = Field(
+        default=None,
+        description="Task IDs that cannot start until this one completes.",
     )
     state: Annotated[dict[str, Any], InjectedState]
     tool_call_id: Annotated[str, InjectedToolCallId]
@@ -84,6 +129,32 @@ class _TaskListInput(BaseModel):
 class _TaskGetInput(BaseModel):
     task_id: str = Field(description="Task ID to retrieve.")
     state: Annotated[dict[str, Any], InjectedState]
+
+
+class _TaskStopInput(BaseModel):
+    task_id: str = Field(description="ID of the task to stop.")
+    state: Annotated[dict[str, Any], InjectedState]
+    tool_call_id: Annotated[str, InjectedToolCallId]
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _compute_blocks(task_id: str, tasks: list[dict[str, Any]]) -> list[str]:
+    """Compute which tasks are blocked by *task_id* (reverse lookup)."""
+    return [
+        t["id"]
+        for t in tasks
+        if task_id in t.get("blocked_by", [])
+        and t.get("status") not in ("completed", "deleted")
+    ]
+
+
+# ---------------------------------------------------------------------------
+# Tool implementations
+# ---------------------------------------------------------------------------
 
 
 def _task_create(
@@ -111,6 +182,31 @@ def _task_create(
     )
 
 
+def _merge_metadata(
+    task: dict[str, Any], metadata: dict[str, Any],
+) -> None:
+    """Merge metadata into task, removing keys set to None."""
+    existing = dict(task.get("metadata") or {})
+    for key, val in metadata.items():
+        if val is None:
+            existing.pop(key, None)
+        else:
+            existing[key] = val
+    task["metadata"] = existing
+
+
+def _apply_blocks(
+    task_id: str, tasks: list[dict[str, Any]], target_ids: list[str],
+) -> None:
+    """For each target, add *task_id* to its blocked_by list."""
+    for target_id in target_ids:
+        target = next((t for t in tasks if t["id"] == target_id), None)
+        if target is not None:
+            target["blocked_by"] = list(
+                dict.fromkeys(target.get("blocked_by", []) + [task_id]),
+            )
+
+
 def _task_update(
     task_id: str,
     state: dict[str, Any],
@@ -119,7 +215,10 @@ def _task_update(
     subject: str | None = None,
     description: str | None = None,
     active_form: str | None = None,
+    owner: str | None = None,
+    metadata: dict[str, Any] | None = None,
     add_blocked_by: list[str] | None = None,
+    add_blocks: list[str] | None = None,
 ) -> Command:  # type: ignore[type-arg]
     """Update an existing task."""
     tasks = [dict(t) for t in (state.get("tasks") or [])]
@@ -135,8 +234,16 @@ def _task_update(
         task["description"] = description
     if active_form is not None:
         task["active_form"] = active_form
+    if owner is not None:
+        task["owner"] = owner
+    if metadata is not None:
+        _merge_metadata(task, metadata)
     if add_blocked_by:
-        task["blocked_by"] = list(dict.fromkeys(task.get("blocked_by", []) + add_blocked_by))
+        task["blocked_by"] = list(
+            dict.fromkeys(task.get("blocked_by", []) + add_blocked_by),
+        )
+    if add_blocks:
+        _apply_blocks(task_id, tasks, add_blocks)
 
     return Command(
         update={
@@ -154,6 +261,7 @@ def _task_list(state: dict[str, Any]) -> str:
             "id": t["id"],
             "subject": t.get("subject", ""),
             "status": t.get("status", "pending"),
+            "owner": t.get("owner", ""),
             "blocked_by": t.get("blocked_by", []),
         }
         for t in tasks
@@ -168,13 +276,140 @@ def _task_get(task_id: str, state: dict[str, Any]) -> str:
     task = next((t for t in tasks if t["id"] == task_id), None)
     if task is None:
         raise ToolException(f"Task '{task_id}' not found.")
-    return json.dumps(task)
+    # Include computed blocks (reverse of blocked_by)
+    result = dict(task)
+    result["blocks"] = _compute_blocks(task_id, tasks)
+    return json.dumps(result)
+
+
+def _task_stop(
+    task_id: str,
+    state: dict[str, Any],
+    tool_call_id: str,
+) -> Command:  # type: ignore[type-arg]
+    """Stop a running task by setting its status back to pending."""
+    tasks = [dict(t) for t in (state.get("tasks") or [])]
+    task = next((t for t in tasks if t["id"] == task_id), None)
+    if task is None:
+        raise ToolException(f"Task '{task_id}' not found.")
+    if task.get("status") != "in_progress":
+        raise ToolException(
+            f"Task '{task_id}' is not in_progress (status: {task.get('status')}).",
+        )
+    task["status"] = "pending"
+    return Command(
+        update={
+            "tasks": tasks,
+            "messages": [
+                ToolMessage(
+                    content=json.dumps({"id": task_id, "status": "pending", "stopped": True}),
+                    tool_call_id=tool_call_id,
+                ),
+            ],
+        }
+    )
+
+
+# ---------------------------------------------------------------------------
+# Tool descriptions (from spec)
+# ---------------------------------------------------------------------------
+
+_TASK_CREATE_DESCRIPTION = """\
+Create a new task with pending status.
+
+Use this tool proactively in these scenarios:
+- Complex multi-step tasks requiring 3+ distinct steps or actions
+- Non-trivial tasks that require careful planning or multiple operations
+- User explicitly requests a todo list
+- User provides multiple tasks (numbered or comma-separated)
+- After receiving new instructions, to capture requirements as tasks
+
+Do NOT use when:
+- There is only a single, straightforward task
+- The task is trivial and tracking it provides no organizational benefit
+- The task can be completed in less than 3 trivial steps
+- The task is purely conversational or informational
+
+Tips:
+- Create tasks with clear, specific subjects that describe the outcome
+- Include enough detail in the description for another agent to understand and complete the task
+- After creating tasks, use TaskUpdate to set up dependencies (addBlockedBy/addBlocks) if needed
+- Check TaskList first to avoid creating duplicate tasks\
+"""
+
+_TASK_UPDATE_DESCRIPTION = """\
+Update an existing task.
+
+Mark tasks as resolved:
+- When you have completed the work described in a task
+- IMPORTANT: Always mark assigned tasks as resolved when finished
+- After resolving, call TaskList to find your next task
+- ONLY mark completed when FULLY accomplished
+- Never mark completed if tests are failing, implementation is partial, or errors are unresolved
+- If blocked, keep as in_progress and create a new task describing what needs resolution
+
+Delete tasks:
+- When a task is no longer relevant or was created in error
+- Setting status to 'deleted' permanently removes the task
+
+Update task details:
+- When requirements change or become clearer
+- When establishing dependencies between tasks
+
+Fields: status, subject, description, activeForm, owner, metadata, addBlocks, addBlockedBy
+
+Status workflow: pending → in_progress → completed. Use 'deleted' to permanently remove.\
+"""
+
+_TASK_LIST_DESCRIPTION = """\
+List all tasks with their current status.
+
+Use to:
+- See what tasks are available to work on (status: pending, no owner, not blocked)
+- Check overall progress on the project
+- Find tasks that are blocked and need dependencies resolved
+- Before creating tasks, to avoid duplicates
+- After completing a task, to check for newly unblocked work
+
+Prefer working on tasks in ID order (lowest ID first) when multiple are available, \
+as earlier tasks often set up context for later ones.
+
+Teammate workflow:
+1. Call TaskList to find available work
+2. Look for tasks with status 'pending', no owner, and empty blockedBy
+3. Claim an available task using TaskUpdate (set owner to your name)\
+"""
+
+_TASK_GET_DESCRIPTION = """\
+Get full details of a task by ID.
+
+Use when:
+- You need the full description and context before starting work on a task
+- To understand task dependencies (what it blocks, what blocks it)
+- After being assigned a task, to get complete requirements
+
+Returns: subject, description, status, owner, blocks, blockedBy, metadata.
+
+Tip: After fetching a task, verify its blockedBy list is empty before beginning work.\
+"""
+
+_TASK_STOP_DESCRIPTION = """\
+Stop a running background task by its ID.
+
+Sets the task status back to pending. Use when you need to terminate a \
+long-running task. Only works on tasks with status 'in_progress'.\
+"""
+
+
+# ---------------------------------------------------------------------------
+# Factory
+# ---------------------------------------------------------------------------
 
 
 def create_task_tools() -> list[BaseTool]:
     """Create Command-based task management tools.
 
-    Returns four tools: TaskCreate, TaskUpdate, TaskList, TaskGet.
+    Returns five tools: TaskCreate, TaskUpdate, TaskList, TaskGet, TaskStop.
 
     Each tool uses ``InjectedState`` to read tasks from graph state and
     returns ``Command(update={"tasks": ...})`` (or a JSON string for
@@ -189,12 +424,7 @@ def create_task_tools() -> list[BaseTool]:
     task_create = StructuredTool.from_function(
         func=_task_create,
         name="TaskCreate",
-        description=(
-            "Create a new task with pending status. Use for multi-step work (3+ steps), "
-            "complex tasks, or when a user gives a list of things to do. "
-            "Do NOT use for single trivial tasks or conversational questions. "
-            "Break down complex tasks into smaller, actionable steps."
-        ),
+        description=_TASK_CREATE_DESCRIPTION,
         args_schema=_TaskCreateInput,
         handle_tool_error=True,
     )
@@ -202,11 +432,7 @@ def create_task_tools() -> list[BaseTool]:
     task_update = StructuredTool.from_function(
         func=_task_update,
         name="TaskUpdate",
-        description=(
-            "Update an existing task. Set status to in_progress BEFORE starting work. "
-            "Set completed ONLY when FULLY done and verified. Set deleted to remove. "
-            "Never mark completed if work is partial or errors are unresolved."
-        ),
+        description=_TASK_UPDATE_DESCRIPTION,
         args_schema=_TaskUpdateInput,
         handle_tool_error=True,
     )
@@ -214,11 +440,7 @@ def create_task_tools() -> list[BaseTool]:
     task_list = StructuredTool.from_function(
         func=_task_list,
         name="TaskList",
-        description=(
-            "List all tasks with their current status. Use to check progress, "
-            "find available work, or before creating tasks to avoid duplicates. "
-            "Prefer working lowest-created-first (earlier tasks set up context)."
-        ),
+        description=_TASK_LIST_DESCRIPTION,
         args_schema=_TaskListInput,
         handle_tool_error=True,
     )
@@ -226,12 +448,17 @@ def create_task_tools() -> list[BaseTool]:
     task_get = StructuredTool.from_function(
         func=_task_get,
         name="TaskGet",
-        description=(
-            "Get full details of a task by ID. Use before starting a task to read "
-            "requirements, or to check dependency chains."
-        ),
+        description=_TASK_GET_DESCRIPTION,
         args_schema=_TaskGetInput,
         handle_tool_error=True,
     )
 
-    return [task_create, task_update, task_list, task_get]
+    task_stop = StructuredTool.from_function(
+        func=_task_stop,
+        name="TaskStop",
+        description=_TASK_STOP_DESCRIPTION,
+        args_schema=_TaskStopInput,
+        handle_tool_error=True,
+    )
+
+    return [task_create, task_update, task_list, task_get, task_stop]
