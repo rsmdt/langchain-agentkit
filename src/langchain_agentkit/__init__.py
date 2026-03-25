@@ -41,10 +41,11 @@ from langchain_agentkit.agent_kit import AgentKit
 
 # Middleware
 from langchain_agentkit.middleware import (
+    DuckDuckGoSearchProvider,
     FilesystemMiddleware,
     HITLMiddleware,
     Middleware,
-    QwantSearchTool,
+    QwantSearchProvider,
     SkillsMiddleware,
     TasksMiddleware,
     WebSearchMiddleware,
@@ -80,7 +81,8 @@ __all__ = [
     "TasksMiddleware",
     "WebSearchMiddleware",
     # Tools
-    "QwantSearchTool",
+    "DuckDuckGoSearchProvider",
+    "QwantSearchProvider",
     "SkillRegistry",
     "Task",
     "TaskStatus",

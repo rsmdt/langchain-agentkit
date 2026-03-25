@@ -7,7 +7,11 @@ import pytest
 from langchain_core.tools import BaseTool
 from langgraph.prebuilt import ToolRuntime
 
-from langchain_agentkit.middleware.web_search import QwantSearchTool, WebSearchMiddleware
+from langchain_agentkit.middleware.web_search import (
+    DuckDuckGoSearchProvider,
+    QwantSearchProvider,
+    WebSearchMiddleware,
+)
 
 _TEST_RUNTIME = ToolRuntime(
     state={},
@@ -61,7 +65,7 @@ class TestWebSearchMiddlewareConstruction:
 
         assert mw is not None
 
-    def test_empty_providers_uses_qwant_default(self):
+    def test_empty_providers_uses_default(self):
         mw = WebSearchMiddleware(providers=[])
 
         assert len(mw.tools) == 1
@@ -76,46 +80,78 @@ class TestWebSearchMiddlewareConstruction:
             WebSearchMiddleware(providers=["not_a_provider"])  # type: ignore[list-item]
 
 
-class TestQwantSearchToolStandalone:
+class TestDuckDuckGoSearchProviderStandalone:
     def test_is_base_tool(self):
-        tool = QwantSearchTool()
+        tool = DuckDuckGoSearchProvider()
         assert isinstance(tool, BaseTool)
 
     def test_default_name(self):
-        tool = QwantSearchTool()
+        tool = DuckDuckGoSearchProvider()
+        assert tool.name == "DuckDuckGoSearch"
+
+    def test_configurable_max_results(self):
+        tool = DuckDuckGoSearchProvider(max_results=3)
+        assert tool.max_results == 3
+
+    def test_configurable_headers(self):
+        tool = DuckDuckGoSearchProvider(headers={"User-Agent": "custom/1.0"})
+        assert tool.headers["User-Agent"] == "custom/1.0"
+
+    def test_default_headers_has_user_agent(self):
+        tool = DuckDuckGoSearchProvider()
+        assert "User-Agent" in tool.headers
+
+    def test_importable_from_package(self):
+        from langchain_agentkit import DuckDuckGoSearchProvider as Imported
+
+        assert Imported is DuckDuckGoSearchProvider
+
+
+
+class TestQwantSearchProviderStandalone:
+    def test_is_base_tool(self):
+        tool = QwantSearchProvider()
+        assert isinstance(tool, BaseTool)
+
+    def test_default_name(self):
+        tool = QwantSearchProvider()
         assert tool.name == "QwantSearch"
 
     def test_configurable_max_results(self):
-        tool = QwantSearchTool(max_results=3)
+        tool = QwantSearchProvider(max_results=3)
         assert tool.max_results == 3
 
     def test_configurable_locale(self):
-        tool = QwantSearchTool(locale="fr_FR")
+        tool = QwantSearchProvider(locale="fr_FR")
         assert tool.locale == "fr_FR"
 
     def test_configurable_safesearch(self):
-        tool = QwantSearchTool(safesearch=2)
+        tool = QwantSearchProvider(safesearch=2)
         assert tool.safesearch == 2
 
+    def test_configurable_headers(self):
+        tool = QwantSearchProvider(headers={"User-Agent": "custom/1.0"})
+        assert tool.headers["User-Agent"] == "custom/1.0"
+
     def test_importable_from_package(self):
-        from langchain_agentkit import QwantSearchTool as Imported
+        from langchain_agentkit import QwantSearchProvider as Imported
 
-        assert Imported is QwantSearchTool
+        assert Imported is QwantSearchProvider
 
 
-class TestQwantDefaultProvider:
+class TestDefaultProvider:
     def test_no_providers_uses_qwant_default(self):
         """When no providers given, uses built-in Qwant search."""
         mw = WebSearchMiddleware()
         assert len(mw.tools) == 1
         assert mw.tools[0].name == "WebSearch"
 
-    def test_none_providers_uses_qwant_default(self):
+    def test_none_providers_uses_default(self):
         """When providers=None, uses built-in Qwant search."""
         mw = WebSearchMiddleware(providers=None)
         assert len(mw.tools) == 1
 
-    def test_empty_list_uses_qwant_default(self):
+    def test_empty_list_uses_default(self):
         """When providers=[], uses built-in Qwant search."""
         mw = WebSearchMiddleware(providers=[])
         assert len(mw.tools) == 1

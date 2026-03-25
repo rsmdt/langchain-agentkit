@@ -19,7 +19,10 @@ from langchain_agentkit.middleware.hitl import HITLMiddleware as HITLMiddleware
 from langchain_agentkit.middleware.skills import SkillsMiddleware as SkillsMiddleware
 from langchain_agentkit.middleware.tasks import TasksMiddleware as TasksMiddleware
 from langchain_agentkit.middleware.web_search import (
-    QwantSearchTool as QwantSearchTool,
+    DuckDuckGoSearchProvider as DuckDuckGoSearchProvider,
+)
+from langchain_agentkit.middleware.web_search import (
+    QwantSearchProvider as QwantSearchProvider,
 )
 from langchain_agentkit.middleware.web_search import (
     WebSearchMiddleware as WebSearchMiddleware,
@@ -64,10 +67,11 @@ class Middleware(Protocol):
 
 
 __all__ = [
+    "DuckDuckGoSearchProvider",
     "FilesystemMiddleware",
     "HITLMiddleware",
     "Middleware",
-    "QwantSearchTool",
+    "QwantSearchProvider",
     "SkillsMiddleware",
     "TasksMiddleware",
     "WebSearchMiddleware",
