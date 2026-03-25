@@ -5,374 +5,239 @@ Composable middleware framework for LangGraph agents.
 [![Python](https://img.shields.io/pypi/pyversions/langchain-agentkit.svg)](https://pypi.org/project/langchain-agentkit/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Build LangGraph agents with reusable middleware that composes tools and prompts. Two layers to choose from:
-
-- **`agent` metaclass** — declare a class, get a complete ReAct agent with middleware-composed tools and prompts
-- **`AgentKit`** — primitive composition engine for full control over graph topology
-
 ## Installation
-
-Requires **Python 3.11+**, `langchain-core>=0.3`, `langgraph>=0.4`.
 
 ```bash
 pip install langchain-agentkit
 ```
 
+Requires Python 3.11+.
+
 ## Quick Start
 
-### The `agent` metaclass (recommended)
+### The `agent` metaclass
 
-Declare a class that inherits from `agent` to get a `StateGraph` with an automatic ReAct loop:
+Declare a class, get a complete ReAct agent with middleware-composed tools and prompts:
 
 ```python
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from langchain_agentkit import agent, SkillsMiddleware, TasksMiddleware, WebSearchMiddleware
+from langchain_agentkit import agent, SkillsMiddleware, TasksMiddleware
 
 class researcher(agent):
     llm = ChatOpenAI(model="gpt-4o")
     middleware = [
-        SkillsMiddleware("skills/"),
+        SkillsMiddleware(skills="skills/"),
         TasksMiddleware(),
-        WebSearchMiddleware(),  # Built-in Qwant search, no API key needed
     ]
     prompt = "You are a research assistant."
 
     async def handler(state, *, llm, prompt):
         messages = [SystemMessage(content=prompt)] + state["messages"]
-        response = await llm.ainvoke(messages)
-        return {"messages": [response], "sender": "researcher"}
+        return {"messages": [await llm.ainvoke(messages)]}
 
-# Compile and use
 graph = researcher.compile()
 result = graph.invoke({"messages": [HumanMessage("Size the B2B SaaS market")]})
-
-# With checkpointer for interrupt() support
-from langgraph.checkpoint.memory import InMemorySaver
-graph = researcher.compile(checkpointer=InMemorySaver())
 ```
+
+The state schema is composed automatically from middleware — `TasksMiddleware` adds a `tasks` key, `SkillsMiddleware` adds nothing. No need to define state manually.
 
 ### `AgentKit` for manual graph wiring
 
-Use `AgentKit` when you need full control over graph topology — multi-node graphs, shared `ToolNode`, custom routing:
+Use `AgentKit` when you need full control over graph topology:
 
 ```python
 from langchain_agentkit import AgentKit, SkillsMiddleware, TasksMiddleware
 
 kit = AgentKit([
-    SkillsMiddleware("skills/"),
+    SkillsMiddleware(skills="skills/"),
     TasksMiddleware(),
 ])
 
-# In any graph node:
 all_tools = my_tools + kit.tools
 system_prompt = kit.prompt(state, runtime)
+state_schema = kit.state_schema  # composed from middleware
 ```
 
-### Standalone `SkillRegistry`
+## Middleware
 
-Use `SkillRegistry` directly for skill discovery without the middleware layer:
+Each middleware provides tools, a prompt section, and optional state requirements. Compose them in any combination:
 
 ```python
-from langchain_agentkit import SkillRegistry
-
-registry = SkillRegistry("skills/")
-tools = registry.tools  # [Skill, SkillRead]
+middleware = [
+    SkillsMiddleware(skills="skills/"),
+    TasksMiddleware(),
+    FilesystemMiddleware(),
+    WebSearchMiddleware(),
+    HITLMiddleware(interrupt_on={"send_email": True}),
+]
 ```
 
-## Examples
+### SkillsMiddleware
 
-See [`examples/`](examples/) for complete working code:
-
-- **[`standalone_node.py`](examples/standalone_node.py)** — Simplest usage: declare a node class, compile, invoke
-- **[`manual_wiring.py`](examples/manual_wiring.py)** — Use `SkillRegistry` as a standalone toolkit with full graph control
-- **[`multi_agent.py`](examples/multi_agent.py)** — Compose multiple agents in a parent graph
-- **[`root_with_checkpointer.py`](examples/root_with_checkpointer.py)** — Multi-turn conversations with `interrupt()` and `Command(resume=...)`
-- **[`subgraph_with_checkpointer.py`](examples/subgraph_with_checkpointer.py)** — Subgraph inherits parent's checkpointer automatically
-- **[`custom_state_type.py`](examples/custom_state_type.py)** — Custom state shape via handler annotation + subgraph schema translation
-
-## API Reference
-
-### `agent`
-
-Declarative agent builder. Subclassing produces a `StateGraph`. Call `.compile()` to get a runnable graph.
-
-**Class attributes:**
-
-| Attribute | Required | Description |
-|-----------|----------|-------------|
-| `llm` | Yes | Language model instance |
-| `tools` | No | List of LangChain tools |
-| `middleware` | No | Ordered list of `Middleware` instances |
-| `prompt` | No | System prompt — inline string, file path, or list of either |
-
-**Handler signature:**
+Loads skills from directories containing `SKILL.md` files. Provides progressive disclosure — the agent sees skill names and descriptions, then loads full instructions on demand.
 
 ```python
-async def handler(state, *, llm, tools, prompt, runtime): ...
+# Convenience: includes filesystem tools for reading skill reference files
+mw = SkillsMiddleware(skills="skills/")
+mw.tools  # [Skill, Read, Write, Edit, Glob, Grep]
+
+# Explicit: provide a shared VFS, manage filesystem tools separately
+from langchain_agentkit import VirtualFilesystem, FilesystemMiddleware
+
+vfs = VirtualFilesystem()
+skills_mw = SkillsMiddleware(skills="skills/", filesystem=vfs)
+fs_mw = FilesystemMiddleware(filesystem=vfs)
+skills_mw.tools  # [Skill]
+fs_mw.tools      # [Read, Write, Edit, Glob, Grep]
 ```
 
-`state` is positional. Everything after `*` is keyword-only and injected by name — declare only what you need:
+**Tools:**
 
-| Parameter | Type | Description |
-|-----------|------|-------------|
-| `state` | `dict` | LangGraph state (positional, required) |
-| `llm` | `BaseChatModel` | LLM pre-bound with all tools via `bind_tools()` |
-| `tools` | `list[BaseTool]` | All tools (user tools + middleware tools) |
-| `prompt` | `str` | Fully composed prompt (template + middleware sections) |
-| `runtime` | `ToolRuntime` | Unified runtime context. Use `runtime.config` for the full `RunnableConfig` |
+| Tool | Description |
+|------|-------------|
+| `Skill(skill_name)` | Load a skill's instructions |
 
-Both sync and async handlers are supported — sync handlers are detected via `inspect.isawaitable` and awaited automatically.
+Skill directories follow the [AgentSkills.io](https://agentskills.io/specification) format:
 
-**Custom state types** — annotate the handler's `state` parameter:
-
-```python
-class MyState(TypedDict, total=False):
-    messages: Annotated[list, add_messages]
-    draft: dict | None
-
-class my_agent(agent):
-    llm = ChatOpenAI(model="gpt-4o")
-
-    async def handler(state: MyState, *, llm):
-        ...
+```
+skills/
+└── market-sizing/
+    ├── SKILL.md          # YAML frontmatter (name, description) + instructions
+    └── calculator.py     # Reference files accessible via Read tool
 ```
 
-Without an annotation, `AgentState` is used by default.
+### TasksMiddleware
 
-### `Middleware` protocol
-
-Any class with `tools` (property) and `prompt(state, runtime)` (method) satisfies the protocol via structural subtyping — no base class needed:
+Task management for complex multi-step objectives. The agent creates, tracks, and completes tasks with dependency ordering.
 
 ```python
-class MyMiddleware:
-    @property
-    def tools(self) -> list[BaseTool]:
-        return [my_tool]
-
-    def prompt(self, state: dict, runtime: ToolRuntime) -> str | None:
-        return "You have access to my_tool."
-```
-
-**Built-in middleware:**
-
-| Middleware | Tools | Prompt |
-|-----------|-------|--------|
-| `SkillsMiddleware(skills_dirs)` | `Skill`, `SkillRead` | Progressive disclosure skill list with load instructions |
-| `TasksMiddleware()` | `TaskCreate`, `TaskUpdate`, `TaskList`, `TaskGet` | Base agent behavior + task context with status icons |
-| `WebSearchMiddleware(providers?)` | `web_search` | Search guidance with provider names |
-
-### `TasksMiddleware`
-
-Task management middleware with `Command`-based tools that update graph state via LangGraph's `ToolNode`.
-
-```python
-# Default — auto-creates task tools
 mw = TasksMiddleware()
-
-# Custom tools
-mw = TasksMiddleware(task_tools=[my_create, my_update])
-
-# Custom task formatter
-mw = TasksMiddleware(formatter=my_format_function)
+mw.tools  # [TaskCreate, TaskUpdate, TaskList, TaskGet, TaskStop]
 ```
 
-Task tools use `InjectedState` to read tasks from state and return `Command(update={"tasks": [...]})` to apply changes. Task state is updated locally within the agent's graph, visible to the prompt on every ReAct loop iteration. When used as a subgraph, state flows back to the parent graph on completion.
+**Tools:**
 
-You can also create task tools directly:
+| Tool | Description |
+|------|-------------|
+| `TaskCreate` | Create a task with subject, description, and optional spinner text |
+| `TaskUpdate` | Update status, owner, metadata, or dependencies |
+| `TaskList` | List all non-deleted tasks with status and dependencies |
+| `TaskGet` | Get full task details including computed `blocks` |
+| `TaskStop` | Stop a running task |
+
+Tasks support `blocked_by` dependencies, `owner` assignment, and arbitrary `metadata`. Parallel `TaskCreate` calls are handled by a merge-by-ID reducer.
+
+### FilesystemMiddleware
+
+Claude Code-aligned file tools operating on an in-memory virtual filesystem:
 
 ```python
-from langchain_agentkit import create_task_tools
+from langchain_agentkit import FilesystemMiddleware, VirtualFilesystem
 
-tools = create_task_tools()  # [TaskCreate, TaskUpdate, TaskList, TaskGet]
+vfs = VirtualFilesystem()
+vfs.write("/data/config.json", '{"key": "value"}')
+
+mw = FilesystemMiddleware(filesystem=vfs)
+mw.tools  # [Read, Write, Edit, Glob, Grep]
 ```
 
-### `WebSearchMiddleware`
+**Tools:**
 
-Multi-provider web search middleware. Fans out queries to all configured search providers in parallel via `asyncio.gather`, returning results attributed per provider.
+| Tool | Description |
+|------|-------------|
+| `Read(file_path)` | Read file with line numbers, offset/limit pagination |
+| `Write(file_path, content)` | Create or overwrite a file |
+| `Edit(file_path, old_string, new_string)` | Exact string replacement |
+| `Glob(pattern)` | Find files by pattern (supports `*`, `**`, `?`) |
+| `Grep(pattern)` | Search file contents by regex |
 
-Works out of the box with zero configuration — uses built-in Qwant search (no API key required). Add your own providers for more comprehensive results:
+### WebSearchMiddleware
+
+Multi-provider web search. Fans out queries to all providers in parallel. Works out of the box with built-in Qwant search (no API key needed):
 
 ```python
-# Zero config — uses built-in Qwant search
+# Zero config
 mw = WebSearchMiddleware()
 
-# Custom providers — any BaseTool or callable
+# Custom providers
 from langchain_tavily import TavilySearch
 
-mw = WebSearchMiddleware(providers=[
-    TavilySearch(max_results=5),
-])
-
-# Mix built-in with custom
-from langchain_community.tools import DuckDuckGoSearchRun
-
-mw = WebSearchMiddleware(providers=[
-    DuckDuckGoSearchRun(),
-    my_custom_search_function,  # auto-wrapped into BaseTool
-])
-
-# Custom prompt template
-mw = WebSearchMiddleware(prompt_template="Use {provider_names} to search.")
+mw = WebSearchMiddleware(providers=[TavilySearch(max_results=5)])
 ```
 
-Providers can be any LangChain `BaseTool` or a callable with signature `(query: str) -> str`. Callables are auto-wrapped into tools. Provider errors are captured per-provider — one failing provider doesn't break the search.
+### HITLMiddleware
 
-### `QwantSearchTool`
-
-Built-in web search tool using [Qwant's](https://www.qwant.com/) search API. No API key required. Works as a standalone LangChain tool or as the default provider for `WebSearchMiddleware`:
+Human-in-the-loop approval for sensitive tool calls via LangGraph `interrupt()`:
 
 ```python
-from langchain_agentkit import QwantSearchTool
-
-# Standalone usage — like any other LangChain tool
-tool = QwantSearchTool()
-result = tool.invoke("latest AI news")
-
-# Configurable
-tool = QwantSearchTool(max_results=3, locale="fr_FR", safesearch=2)
+mw = HITLMiddleware(interrupt_on={
+    "send_email": True,           # requires approval
+    "search": False,              # auto-approved
+    "delete_file": {"allowed_decisions": ["approve", "reject"]},
+})
 ```
 
-| Parameter | Default | Description |
-|-----------|---------|-------------|
-| `max_results` | `5` | Number of results to return (max 10) |
-| `locale` | `"en_US"` | Search locale |
-| `safesearch` | `1` | Safe search level: 0=off, 1=moderate, 2=strict |
+Requires a checkpointer. Resume with `Command(resume={"type": "approve"})`.
 
-### `AgentKit(middleware, prompt=None)`
+## Custom Middleware
 
-Composition engine that merges tools and prompts from middleware.
-
-- **`tools`** — All tools from all middleware, deduplicated by name (first middleware wins, cached)
-- **`prompt(state, runtime)`** — Template + middleware sections, joined with double newline (dynamic per call)
-
-Prompt templates can be inline strings, file paths, or a list of either:
+Any class with `tools`, `prompt()`, and `state_schema` satisfies the protocol:
 
 ```python
-kit = AgentKit(middleware, prompt="You are helpful.")
-kit = AgentKit(middleware, prompt=Path("prompts/system.txt"))
-kit = AgentKit(middleware, prompt=["prompts/base.txt", "Extra instructions"])
+from langchain_agentkit import Middleware
+
+class MyMiddleware:
+    @property
+    def tools(self):
+        return [my_tool]
+
+    def prompt(self, state, runtime=None):
+        return "You have access to my_tool."
+
+    @property
+    def state_schema(self):
+        return None  # or a TypedDict mixin if you need state keys
 ```
 
-### `node`
-
-Skill-aware metaclass. Uses `skills` attribute instead of `middleware`. Consider using `agent` for the full middleware composition model.
+If your middleware needs a custom state key, return a TypedDict mixin from `state_schema`:
 
 ```python
-class my_agent(node):
-    llm = ChatOpenAI(model="gpt-4o")
-    tools = [web_search]
-    skills = "skills/"  # str, list[str], or SkillRegistry instance
+from typing import TypedDict
 
-    async def handler(state, *, llm, tools, runtime): ...
+class MyState(TypedDict, total=False):
+    my_data: list[str]
+
+class MyMiddleware:
+    @property
+    def state_schema(self):
+        return MyState
+
+    # ... tools and prompt
 ```
 
-### `AgentState`
+The state key will be automatically included when the middleware is composed via `AgentKit`.
 
-Minimal LangGraph state type with task support:
+## Running Tests
 
-| Field | Type | Description |
-|-------|------|-------------|
-| `messages` | `Annotated[list, add_messages]` | Conversation history with LangGraph message reducer |
-| `sender` | `str` | Name of the last node that produced output |
-| `tasks` | `list[dict[str, Any]]` | Task list managed by `TasksMiddleware` tools |
+```bash
+# Unit tests
+pytest tests/unit/ -q
 
-Extend with your own fields:
+# Eval framework tests (no LLM needed)
+pytest tests/evals/ -m "not eval" -q
 
-```python
-class MyState(AgentState):
-    current_project: str
-    iteration_count: int
+# LLM integration evals (requires OPENAI_API_KEY in .env)
+pytest tests/evals/ -m eval -v
 ```
-
-## Patterns
-
-### Reasoning: ReAct and Chain of Thought
-
-The `agent` metaclass builds a [ReAct](https://arxiv.org/abs/2210.03629) loop — the LLM reasons, calls tools, observes results, and reasons again. This is Chain of Thought with tool use built in:
-
-```
-handler → LLM reasons → tool calls? → ToolNode executes → handler → LLM reasons → ... → END
-```
-
-All middleware tools (search, tasks, skills) live in a **single shared ToolNode**. No special routing or if/else logic — `ToolNode` dispatches by tool name.
-
-#### Prompt-based Chain of Thought
-
-Add reasoning instructions via the `prompt` attribute — no code changes needed:
-
-```python
-class analyst(agent):
-    llm = ChatOpenAI(model="gpt-4o")
-    middleware = [WebSearchMiddleware()]
-    prompt = """You are a research analyst. Think step by step:
-1. Identify what information you need
-2. Search for evidence using web_search
-3. Synthesize findings into a clear answer"""
-
-    async def handler(state, *, llm, prompt):
-        messages = [SystemMessage(content=prompt)] + state["messages"]
-        return {"messages": [await llm.ainvoke(messages)]}
-```
-
-#### Multi-node reasoning pipeline
-
-For explicit Reason → Act → Synthesize stages, use `AgentKit` with manual graph wiring:
-
-```python
-from langgraph.graph import END, StateGraph
-from langgraph.prebuilt import ToolNode
-from langchain_agentkit import AgentKit, WebSearchMiddleware
-
-kit = AgentKit([WebSearchMiddleware()])
-
-async def reason(state, config, **kw):
-    """Analyze the question and plan what to search for."""
-    ...
-
-async def act(state, config, **kw):
-    """Execute searches based on the reasoning step."""
-    ...
-
-async def synthesize(state, config, **kw):
-    """Combine findings into a final answer."""
-    ...
-
-workflow = StateGraph(MyState)
-workflow.add_node("reason", reason)
-workflow.add_node("act", act)
-workflow.add_node("tools", ToolNode(kit.tools))
-workflow.add_node("synthesize", synthesize)
-
-workflow.set_entry_point("reason")
-workflow.add_edge("reason", "act")
-workflow.add_conditional_edges("act", should_continue, {"tools": "tools", "synthesize": "synthesize"})
-workflow.add_edge("tools", "act")
-workflow.add_edge("synthesize", END)
-```
-
-#### Choosing a pattern
-
-| Pattern | When to use | How |
-|---------|------------|-----|
-| **ReAct** (default) | Most agents — LLM decides when to use tools | `agent` metaclass, automatic |
-| **Prompt CoT** | Step-by-step reasoning without changing architecture | Add instructions to `prompt` |
-| **Multi-node pipeline** | Explicit reasoning stages, different LLMs per stage | `AgentKit` + manual `StateGraph` |
-
-## Security
-
-- **Path traversal prevention**: Skill file paths resolved to absolute and checked against skill directories. Reference file names reject `.` and `..` patterns.
-- **Name validation**: Skill names validated per [AgentSkills.io spec](https://agentskills.io/specification) — lowercase alphanumeric + hyphens, 1-64 chars.
-- **Tool scoping**: Each agent only has access to the tools declared in its `tools` attribute plus middleware-provided tools.
-- **Prompt trust boundary**: Prompt templates and middleware prompt sections are set by the developer at construction time, not by end-user input.
 
 ## Contributing
 
 ```bash
 git clone https://github.com/rsmdt/langchain-agentkit.git
 cd langchain-agentkit
-uv sync --extra dev
-uv run pytest --tb=short -q
+uv sync --extra dev --extra eval
+uv run pytest tests/ -m "not eval" -q
 uv run ruff check src/ tests/
 uv run mypy src/
 ```
