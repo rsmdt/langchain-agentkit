@@ -65,7 +65,7 @@ class TestWebSearchMiddlewareConstruction:
         mw = WebSearchMiddleware(providers=[])
 
         assert len(mw.tools) == 1
-        assert mw.tools[0].name == "web_search"
+        assert mw.tools[0].name == "WebSearch"
 
     def test_invalid_provider_type_raises_type_error(self):
         with pytest.raises(TypeError):
@@ -83,7 +83,7 @@ class TestQwantSearchToolStandalone:
 
     def test_default_name(self):
         tool = QwantSearchTool()
-        assert tool.name == "qwant_search"
+        assert tool.name == "QwantSearch"
 
     def test_configurable_max_results(self):
         tool = QwantSearchTool(max_results=3)
@@ -108,7 +108,7 @@ class TestQwantDefaultProvider:
         """When no providers given, uses built-in Qwant search."""
         mw = WebSearchMiddleware()
         assert len(mw.tools) == 1
-        assert mw.tools[0].name == "web_search"
+        assert mw.tools[0].name == "WebSearch"
 
     def test_none_providers_uses_qwant_default(self):
         """When providers=None, uses built-in Qwant search."""
@@ -135,7 +135,7 @@ class TestWebSearchMiddlewareTools:
         tools = mw.tools
 
         assert len(tools) == 1
-        assert tools[0].name == "web_search"
+        assert tools[0].name == "WebSearch"
 
     def test_tools_cached_after_first_access(self):
         mock_tool = _make_mock_tool("test_search")

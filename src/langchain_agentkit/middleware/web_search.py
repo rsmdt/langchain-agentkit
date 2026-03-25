@@ -10,7 +10,7 @@ Usage::
     # Use QwantSearchTool standalone as any other LangChain tool
     tool = QwantSearchTool()
     result = tool.invoke("latest AI news")
-    tools = mw.tools           # [web_search]
+    tools = mw.tools           # [WebSearch]
     prompt = mw.prompt(state, runtime)  # Search guidance with provider names
 """
 
@@ -40,7 +40,7 @@ _web_search_system_prompt = PromptTemplate.from_file(_PROMPTS_DIR / "web_search_
 class QwantSearchTool(BaseTool):
     """Built-in web search provider using Qwant's API. No API key required."""
 
-    name: str = "qwant_search"
+    name: str = "QwantSearch"
     description: str = "Search the web using Qwant."
     max_results: int = 5
     locale: str = "en_US"
@@ -87,7 +87,7 @@ class _WebSearchTool(BaseTool):
 
     model_config = ConfigDict(arbitrary_types_allowed=True)
 
-    name: str = "web_search"
+    name: str = "WebSearch"
     description: str = "Search the web using multiple search providers simultaneously."
     providers: list[BaseTool]
 
@@ -116,11 +116,11 @@ class _WebSearchTool(BaseTool):
 
 
 class WebSearchMiddleware:
-    """Middleware providing a single web_search tool that fans out to
+    """Middleware providing a single WebSearch tool that fans out to
     multiple configured search providers in parallel.
 
     Each provider is a BaseTool or callable supplied by the application.
-    The middleware creates a single ``web_search`` tool that:
+    The middleware creates a single ``WebSearch`` tool that:
     1. Calls all providers concurrently via asyncio.gather
     2. Returns results attributed per provider
 
@@ -136,7 +136,7 @@ class WebSearchMiddleware:
 
         mw = WebSearchMiddleware()  # uses built-in Qwant provider
         mw = WebSearchMiddleware(providers=[my_search_tool])
-        mw.tools   # [web_search]
+        mw.tools   # [WebSearch]
         mw.prompt(state, runtime)  # Search guidance with provider names
     """
 
@@ -182,7 +182,7 @@ class WebSearchMiddleware:
 
     @property
     def tools(self) -> list[BaseTool]:
-        """Returns [web_search] — same list object on every access."""
+        """Returns [WebSearch] — same list object on every access."""
         return self._tools
 
     def prompt(self, state: dict[str, Any], runtime: ToolRuntime) -> str | None:
