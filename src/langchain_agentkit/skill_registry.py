@@ -1,4 +1,4 @@
-"""SkillRegistry — provides Skill and SkillRead tools for LangGraph agents.
+"""SkillRegistry — provides Skill tool and filesystem population for LangGraph agents.
 
 Usage::
 
@@ -11,10 +11,15 @@ Usage::
     registry = SkillRegistry(["skills/", "shared_skills/"])
 
     # Get tools for manual LangGraph wiring
-    tools = registry.tools  # → [Skill, SkillRead]
+    tools = registry.tools  # → [Skill]
+
+    # Populate a virtual filesystem with skill files
+    from langchain_agentkit.virtual_filesystem import VirtualFilesystem
+    vfs = VirtualFilesystem()
+    registry.populate_filesystem(vfs)
 
 The ``Skill`` tool returns skill instructions as a plain string.
-The ``SkillRead`` tool reads reference files scoped to a skill's directory.
+Reference files are accessible via the virtual filesystem ``Read`` tool.
 """
 
 from __future__ import annotations
@@ -22,6 +27,7 @@ from __future__ import annotations
 import os
 import re
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from langchain_core.tools import (
     BaseTool,
@@ -32,22 +38,15 @@ from pydantic import BaseModel, Field
 
 from langchain_agentkit.types import SkillConfig
 
+if TYPE_CHECKING:
+    from langchain_agentkit.virtual_filesystem import VirtualFilesystem
+
 # AgentSkills.io: 1-64 chars, lowercase + digits + hyphens, no leading/trailing/consecutive hyphens
 SKILL_NAME_PATTERN = re.compile(r"^[a-z](?:[a-z0-9]|-(?!-)){0,62}[a-z0-9]$|^[a-z]$")
-REFERENCE_NAME_PATTERN = re.compile(r"^(?!\.\.?$)[a-zA-Z0-9_.-]{1,255}$")
-
-
 class SkillInput(BaseModel):
     """Input schema for the Skill tool."""
 
     skill_name: str = Field(description="Name of the skill to load (e.g. 'market-sizing')")
-
-
-class SkillReadInput(BaseModel):
-    """Input schema for the SkillRead tool."""
-
-    skill_name: str = Field(description="Name of the skill containing the reference file")
-    file_name: str = Field(description="Name of the reference file to read (e.g. 'calculator.py')")
 
 
 class SkillRegistry:
@@ -91,12 +90,12 @@ class SkillRegistry:
 
     @property
     def tools(self) -> list[BaseTool]:
-        """The registry's tools: ``[Skill, SkillRead]``.
+        """The registry's tools: ``[Skill]``.
 
         Built once on first access, then cached.
         """
         if self._tools_cache is None:
-            self._tools_cache = [self._build_skill_tool(), self._build_skill_read_tool()]
+            self._tools_cache = [self._build_skill_tool()]
         return self._tools_cache
 
     @property
@@ -155,14 +154,47 @@ class SkillRegistry:
             if skill_dir is None:
                 continue
             config = SkillConfig.from_directory(skill_dir)
-            entries.append(
+            entry = (
                 f"<skill>\n"
                 f"  <name>{config.name}</name>\n"
                 f"  <description>{config.description}</description>\n"
-                f"</skill>"
             )
+            if config.reference_files:
+                files_str = ", ".join(config.reference_files)
+                entry += f"  <reference_files>{files_str}</reference_files>\n"
+            entry += "</skill>"
+            entries.append(entry)
 
         return "\n\n<available_skills>\n" + "\n".join(entries) + "\n</available_skills>"
+
+    def populate_filesystem(
+        self, filesystem: VirtualFilesystem, base_path: str = "/skills",
+    ) -> None:
+        """Load all skill files into a :class:`VirtualFilesystem`.
+
+        Copies each skill's ``SKILL.md`` and reference files from the real
+        filesystem into the virtual filesystem at ``{base_path}/{skill_name}/``.
+
+        Args:
+            filesystem: Target virtual filesystem to populate.
+            base_path: Virtual directory prefix for skills.
+        """
+        for name, skill_dir in self._build_skill_index().items():
+            vfs_dir = f"{base_path}/{name}"
+
+            # Load SKILL.md
+            skill_md = skill_dir / "SKILL.md"
+            if skill_md.exists():
+                filesystem.write(f"{vfs_dir}/SKILL.md", skill_md.read_text())
+
+            # Load all reference files (non-SKILL.md files)
+            for file_path in sorted(skill_dir.iterdir()):
+                if file_path.is_file() and file_path.name != "SKILL.md":
+                    try:
+                        content = file_path.read_text()
+                    except UnicodeDecodeError:
+                        content = f"(binary file: {file_path.name})"
+                    filesystem.write(f"{vfs_dir}/{file_path.name}", content)
 
     def _build_skill_tool(self) -> StructuredTool:
         base_description = (
@@ -198,33 +230,3 @@ class SkillRegistry:
             handle_tool_error=True,
         )
 
-    def _build_skill_read_tool(self) -> StructuredTool:
-        def skill_read(skill_name: str, file_name: str) -> str:
-            """Read a reference file from within a skill directory."""
-            self._validate_skill_name(skill_name)
-            if not REFERENCE_NAME_PATTERN.match(file_name):
-                raise ToolException(f"Invalid file name '{file_name}'")
-
-            skill_dir = self._find_skill_dir(skill_name)
-            if skill_dir is None:
-                raise ToolException(f"Skill '{skill_name}' not found")
-
-            file_path = (skill_dir / file_name).resolve()
-            self._validate_path_traversal(file_path, skill_dir.parent)
-
-            if not file_path.exists():
-                raise ToolException(
-                    f"Reference file '{file_name}' not found in skill '{skill_name}'"
-                )
-
-            return file_path.read_text()
-
-        return StructuredTool.from_function(
-            func=skill_read,
-            name="SkillRead",
-            description=(
-                "Read a reference file (template, example, script) from within a skill directory."
-            ),
-            args_schema=SkillReadInput,
-            handle_tool_error=True,
-        )

@@ -3,8 +3,9 @@
 from pathlib import Path
 
 from langchain_agentkit.skill_registry import SkillRegistry
+from langchain_agentkit.virtual_filesystem import VirtualFilesystem
 
-FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURES = Path(__file__).parent.parent / "fixtures"
 
 
 class TestInit:
@@ -17,7 +18,7 @@ class TestInit:
         kit = SkillRegistry(FIXTURES / "skills")
 
         assert len(kit.skills_dirs) == 1
-        assert len(kit.tools) == 2
+        assert len(kit.tools) == 1
 
     def test_accepts_list_of_paths(self):
         kit = SkillRegistry(
@@ -42,12 +43,12 @@ class TestInit:
 
 
 class TestTools:
-    def test_returns_two_tools(self):
+    def test_returns_one_tool(self):
         kit = SkillRegistry(str(FIXTURES / "skills"))
 
         tools = kit.tools
 
-        assert len(tools) == 2
+        assert len(tools) == 1
 
     def test_first_tool_is_skill(self):
         kit = SkillRegistry(str(FIXTURES / "skills"))
@@ -55,13 +56,6 @@ class TestTools:
         tools = kit.tools
 
         assert tools[0].name == "Skill"
-
-    def test_second_tool_is_skill_read(self):
-        kit = SkillRegistry(str(FIXTURES / "skills"))
-
-        tools = kit.tools
-
-        assert tools[1].name == "SkillRead"
 
     def test_skill_description_lists_available_skills(self):
         kit = SkillRegistry(str(FIXTURES / "skills"))
@@ -106,46 +100,68 @@ class TestSkillTool:
         assert "Invalid skill name" in result
 
 
-class TestSkillReadTool:
-    def test_reads_reference_file(self):
+class TestPopulateFilesystem:
+    def test_populates_skill_md(self):
         kit = SkillRegistry(str(FIXTURES / "skills"))
-        skill_read_tool = kit.tools[1]
+        vfs = VirtualFilesystem()
 
-        result = skill_read_tool.invoke(
-            {
-                "skill_name": "market-sizing",
-                "file_name": "calculator.py",
-            }
-        )
+        kit.populate_filesystem(vfs)
 
-        assert isinstance(result, str)
-        assert len(result) > 0
+        assert vfs.exists("/skills/market-sizing/SKILL.md")
 
-    def test_unknown_file_returns_error(self):
+    def test_populates_reference_files(self):
         kit = SkillRegistry(str(FIXTURES / "skills"))
-        skill_read_tool = kit.tools[1]
+        vfs = VirtualFilesystem()
 
-        result = skill_read_tool.invoke(
-            {
-                "skill_name": "market-sizing",
-                "file_name": "nonexistent.py",
-            }
-        )
+        kit.populate_filesystem(vfs)
 
-        assert "not found" in result
+        assert vfs.exists("/skills/market-sizing/calculator.py")
 
-    def test_path_traversal_returns_error(self):
+    def test_custom_base_path(self):
         kit = SkillRegistry(str(FIXTURES / "skills"))
-        skill_read_tool = kit.tools[1]
+        vfs = VirtualFilesystem()
 
-        result = skill_read_tool.invoke(
-            {
-                "skill_name": "market-sizing",
-                "file_name": "../../etc/passwd",
-            }
-        )
+        kit.populate_filesystem(vfs, base_path="/custom")
 
-        assert "Invalid file name" in result
+        assert vfs.exists("/custom/market-sizing/SKILL.md")
+
+    def test_multiple_directories(self):
+        kit = SkillRegistry([
+            str(FIXTURES / "skills"),
+            str(FIXTURES / "skills_extra"),
+        ])
+        vfs = VirtualFilesystem()
+
+        kit.populate_filesystem(vfs)
+
+        assert vfs.exists("/skills/market-sizing/SKILL.md")
+        assert vfs.exists("/skills/competitive-analysis/SKILL.md")
+
+    def test_skill_md_content_matches_real_file(self):
+        kit = SkillRegistry(str(FIXTURES / "skills"))
+        vfs = VirtualFilesystem()
+        kit.populate_filesystem(vfs)
+
+        real_content = (FIXTURES / "skills" / "market-sizing" / "SKILL.md").read_text()
+        virtual_content = vfs.read("/skills/market-sizing/SKILL.md")
+
+        assert virtual_content == real_content
+
+
+class TestAvailableSkillsDescription:
+    def test_includes_reference_files(self):
+        kit = SkillRegistry(str(FIXTURES / "skills"))
+
+        description = kit._build_available_skills_description()
+
+        assert "calculator.py" in description
+
+    def test_includes_skill_name(self):
+        kit = SkillRegistry(str(FIXTURES / "skills"))
+
+        description = kit._build_available_skills_description()
+
+        assert "market-sizing" in description
 
 
 class TestMultipleDirectories:

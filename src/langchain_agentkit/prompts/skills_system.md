@@ -13,7 +13,12 @@ Skills use progressive disclosure. You see names and descriptions above. Load fu
 1. Match the task to a skill description
 2. `Skill("name")` — loads step-by-step instructions, quality criteria, and methodology
 3. Follow the workflow inside
-4. `SkillRead("name", "reference/file.md")` — fetch templates, examples, or supporting docs
+4. `Read("/skills/name/reference-file.md")` — read templates, examples, or supporting docs from the virtual filesystem
+
+**When to use skills:**
+- User's request matches a skill's domain
+- You need specialized knowledge or structured workflows
+- A skill provides proven patterns for complex tasks
 
 **Skip skills when:**
 - Simple questions or conversation
