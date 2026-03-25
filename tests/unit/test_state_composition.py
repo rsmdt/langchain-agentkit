@@ -73,11 +73,13 @@ class TestAgentKitStateSchema:
         assert hasattr(hints["messages"], "__metadata__")
 
     def test_multiple_middleware_compose(self):
-        kit = AgentKit([
-            SkillsMiddleware(skills=str(FIXTURES / "skills")),
-            TasksMiddleware(),
-            FilesystemMiddleware(),
-        ])
+        kit = AgentKit(
+            [
+                SkillsMiddleware(skills=str(FIXTURES / "skills")),
+                TasksMiddleware(),
+                FilesystemMiddleware(),
+            ]
+        )
 
         schema = kit.state_schema
         annotations = typing.get_type_hints(schema, include_extras=True)

@@ -53,7 +53,8 @@ def _validate_handler_signature(handler: Any, class_name: str) -> tuple[set[str]
 
 
 def _find_wrap_tool_call(
-    middleware: list[Any], name: str,
+    middleware: list[Any],
+    name: str,
 ) -> Any | None:
     """Find a single wrap_tool_call callback from middleware list."""
     wrap_tool_call = None

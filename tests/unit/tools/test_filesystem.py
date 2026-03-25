@@ -1,6 +1,5 @@
 """Tests for filesystem tools (Read, Write, Edit, Glob, Grep)."""
 
-
 from langchain_agentkit.tools.filesystem import (
     _format_with_line_numbers,
     create_filesystem_tools,
@@ -231,11 +230,13 @@ class TestEditTool:
         vfs.write("/f.txt", "hello world")
         tool = create_filesystem_tools(vfs)[2]
 
-        result = tool.invoke({
-            "file_path": "/f.txt",
-            "old_string": "hello",
-            "new_string": "hi",
-        })
+        result = tool.invoke(
+            {
+                "file_path": "/f.txt",
+                "old_string": "hello",
+                "new_string": "hi",
+            }
+        )
 
         assert "Replaced" in result
         assert vfs.read("/f.txt") == "hi world"
@@ -244,11 +245,13 @@ class TestEditTool:
         vfs = VirtualFilesystem()
         tool = create_filesystem_tools(vfs)[2]
 
-        result = tool.invoke({
-            "file_path": "/nope.txt",
-            "old_string": "a",
-            "new_string": "b",
-        })
+        result = tool.invoke(
+            {
+                "file_path": "/nope.txt",
+                "old_string": "a",
+                "new_string": "b",
+            }
+        )
 
         assert "not found" in result.lower()
 
@@ -257,11 +260,13 @@ class TestEditTool:
         vfs.write("/f.txt", "hello")
         tool = create_filesystem_tools(vfs)[2]
 
-        result = tool.invoke({
-            "file_path": "/f.txt",
-            "old_string": "missing",
-            "new_string": "x",
-        })
+        result = tool.invoke(
+            {
+                "file_path": "/f.txt",
+                "old_string": "missing",
+                "new_string": "x",
+            }
+        )
 
         assert "not found" in result.lower()
 
@@ -270,12 +275,14 @@ class TestEditTool:
         vfs.write("/f.txt", "foo bar foo baz foo")
         tool = create_filesystem_tools(vfs)[2]
 
-        result = tool.invoke({
-            "file_path": "/f.txt",
-            "old_string": "foo",
-            "new_string": "qux",
-            "replace_all": True,
-        })
+        result = tool.invoke(
+            {
+                "file_path": "/f.txt",
+                "old_string": "foo",
+                "new_string": "qux",
+                "replace_all": True,
+            }
+        )
 
         assert "3 occurrence(s)" in result
         assert vfs.read("/f.txt") == "qux bar qux baz qux"
@@ -285,11 +292,13 @@ class TestEditTool:
         vfs.write("/f.txt", "aa")
         tool = create_filesystem_tools(vfs)[2]
 
-        result = tool.invoke({
-            "file_path": "/f.txt",
-            "old_string": "a",
-            "new_string": "b",
-        })
+        result = tool.invoke(
+            {
+                "file_path": "/f.txt",
+                "old_string": "a",
+                "new_string": "b",
+            }
+        )
 
         # Should return error via handle_tool_error
         assert "occurrences" in result.lower() or "2" in result
@@ -299,11 +308,13 @@ class TestEditTool:
         vfs.write("/f.py", "def foo():\n    pass\n")
         tool = create_filesystem_tools(vfs)[2]
 
-        tool.invoke({
-            "file_path": "/f.py",
-            "old_string": "def foo():\n    pass",
-            "new_string": "def foo():\n    return 42",
-        })
+        tool.invoke(
+            {
+                "file_path": "/f.py",
+                "old_string": "def foo():\n    pass",
+                "new_string": "def foo():\n    return 42",
+            }
+        )
 
         assert vfs.read("/f.py") == "def foo():\n    return 42\n"
 

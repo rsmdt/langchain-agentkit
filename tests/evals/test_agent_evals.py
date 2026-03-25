@@ -79,7 +79,9 @@ def _build_agent(middleware_list):
     graph.add_node("tools", ToolNode(kit.tools))
     graph.add_edge(START, "agent")
     graph.add_conditional_edges(
-        "agent", should_continue, {"tools": "tools", END: END},
+        "agent",
+        should_continue,
+        {"tools": "tools", END: END},
     )
     graph.add_edge("tools", "agent")
 
@@ -108,8 +110,10 @@ class TestSkillLoadingEval:
     def test_skill_loading_dataset(self):
         agent = _build_skills_agent()
         results = run_eval(
-            agent=agent, dataset=SKILL_LOADING_DATASET,
-            trajectory_mode="subset", tool_args_mode="ignore",
+            agent=agent,
+            dataset=SKILL_LOADING_DATASET,
+            trajectory_mode="subset",
+            tool_args_mode="ignore",
         )
         print_eval_results(results)
         for r in results:
@@ -121,8 +125,10 @@ class TestReadToolEval:
     def test_read_tool_dataset(self):
         agent = _build_skills_agent()
         results = run_eval(
-            agent=agent, dataset=READ_TOOL_DATASET,
-            trajectory_mode="subset", tool_args_mode="subset",
+            agent=agent,
+            dataset=READ_TOOL_DATASET,
+            trajectory_mode="subset",
+            tool_args_mode="subset",
         )
         print_eval_results(results)
         for r in results:
@@ -134,14 +140,14 @@ class TestMultiStepEval:
     def test_multi_step_dataset(self):
         agent = _build_skills_agent()
         results = run_eval(
-            agent=agent, dataset=MULTI_STEP_DATASET,
-            trajectory_mode="subset", tool_args_mode="ignore",
+            agent=agent,
+            dataset=MULTI_STEP_DATASET,
+            trajectory_mode="subset",
+            tool_args_mode="ignore",
         )
         print_eval_results(results)
         passed = sum(1 for r in results if r["score"])
-        assert passed >= len(results) * 0.5, (
-            f"Only {passed}/{len(results)} multi-step evals passed"
-        )
+        assert passed >= len(results) * 0.5, f"Only {passed}/{len(results)} multi-step evals passed"
 
 
 # ---------------------------------------------------------------------------
@@ -154,8 +160,10 @@ class TestTaskCreateEval:
     def test_creates_tasks_for_list(self):
         agent = _build_tasks_agent()
         results = run_eval(
-            agent=agent, dataset=TASK_CREATE_DATASET,
-            trajectory_mode="subset", tool_args_mode="ignore",
+            agent=agent,
+            dataset=TASK_CREATE_DATASET,
+            trajectory_mode="subset",
+            tool_args_mode="ignore",
         )
         print_eval_results(results)
         for r in results:
@@ -167,8 +175,10 @@ class TestTaskLifecycleEval:
     def test_task_lifecycle(self):
         agent = _build_tasks_agent()
         results = run_eval(
-            agent=agent, dataset=TASK_LIFECYCLE_DATASET,
-            trajectory_mode="subset", tool_args_mode="ignore",
+            agent=agent,
+            dataset=TASK_LIFECYCLE_DATASET,
+            trajectory_mode="subset",
+            tool_args_mode="ignore",
         )
         print_eval_results(results)
         for r in results:
@@ -180,14 +190,14 @@ class TestTaskDependenciesEval:
     def test_task_dependencies(self):
         agent = _build_tasks_agent()
         results = run_eval(
-            agent=agent, dataset=TASK_DEPENDENCIES_DATASET,
-            trajectory_mode="subset", tool_args_mode="ignore",
+            agent=agent,
+            dataset=TASK_DEPENDENCIES_DATASET,
+            trajectory_mode="subset",
+            tool_args_mode="ignore",
         )
         print_eval_results(results)
         passed = sum(1 for r in results if r["score"])
-        assert passed >= len(results) * 0.5, (
-            f"Only {passed}/{len(results)} dependency evals passed"
-        )
+        assert passed >= len(results) * 0.5, f"Only {passed}/{len(results)} dependency evals passed"
 
 
 @pytest.mark.skipif(not _HAS_OPENAI, reason=skip_reason)
@@ -195,8 +205,10 @@ class TestTaskListEval:
     def test_task_list(self):
         agent = _build_tasks_agent()
         results = run_eval(
-            agent=agent, dataset=TASK_LIST_DATASET,
-            trajectory_mode="subset", tool_args_mode="ignore",
+            agent=agent,
+            dataset=TASK_LIST_DATASET,
+            trajectory_mode="subset",
+            tool_args_mode="ignore",
         )
         print_eval_results(results)
         for r in results:
@@ -208,8 +220,10 @@ class TestTaskStopEval:
     def test_task_stop(self):
         agent = _build_tasks_agent()
         results = run_eval(
-            agent=agent, dataset=TASK_STOP_DATASET,
-            trajectory_mode="subset", tool_args_mode="ignore",
+            agent=agent,
+            dataset=TASK_STOP_DATASET,
+            trajectory_mode="subset",
+            tool_args_mode="ignore",
             state_factory=lambda: {
                 "messages": [
                     {"role": "user", "content": TASK_STOP_DATASET[0]["inputs"]},

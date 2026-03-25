@@ -105,8 +105,7 @@ def _build_write_tool(vfs: VirtualFilesystem) -> BaseTool:
         func=write,
         name="Write",
         description=(
-            "Write content to a file in the virtual filesystem, "
-            "creating or overwriting it."
+            "Write content to a file in the virtual filesystem, creating or overwriting it."
         ),
         args_schema=_WriteInput,
         handle_tool_error=True,
@@ -123,7 +122,10 @@ def _build_edit_tool(vfs: VirtualFilesystem) -> BaseTool:
         """Replace exact string occurrences in a file."""
         try:
             count = vfs.edit(
-                file_path, old_string, new_string, replace_all=replace_all,
+                file_path,
+                old_string,
+                new_string,
+                replace_all=replace_all,
             )
         except FileNotFoundError as err:
             raise ToolException(f"File not found: {file_path}") from err
@@ -154,10 +156,7 @@ def _build_glob_tool(vfs: VirtualFilesystem) -> BaseTool:
     return StructuredTool.from_function(
         func=glob,
         name="Glob",
-        description=(
-            'Find files matching a glob pattern '
-            '(e.g., "/skills/**/*.md").'
-        ),
+        description=('Find files matching a glob pattern (e.g., "/skills/**/*.md").'),
         args_schema=_GlobInput,
         handle_tool_error=True,
     )
@@ -172,13 +171,14 @@ def _build_grep_tool(vfs: VirtualFilesystem) -> BaseTool:
     ) -> str:
         """Search file contents for a regex pattern."""
         results = vfs.grep(
-            pattern, path=path, glob_filter=glob, ignore_case=ignore_case,
+            pattern,
+            path=path,
+            glob_filter=glob,
+            ignore_case=ignore_case,
         )
         if not results:
             return "No matches found."
-        lines = [
-            f"{r['path']}:{r['line']}: {r['text']}" for r in results
-        ]
+        lines = [f"{r['path']}:{r['line']}: {r['text']}" for r in results]
         if len(lines) > 200:
             lines = lines[:200]
             lines.append(f"... ({len(results) - 200} more matches)")

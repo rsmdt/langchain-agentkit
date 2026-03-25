@@ -126,10 +126,12 @@ class TestPopulateFilesystem:
         assert vfs.exists("/custom/market-sizing/SKILL.md")
 
     def test_multiple_directories(self):
-        kit = SkillRegistry([
-            str(FIXTURES / "skills"),
-            str(FIXTURES / "skills_extra"),
-        ])
+        kit = SkillRegistry(
+            [
+                str(FIXTURES / "skills"),
+                str(FIXTURES / "skills_extra"),
+            ]
+        )
         vfs = VirtualFilesystem()
 
         kit.populate_filesystem(vfs)

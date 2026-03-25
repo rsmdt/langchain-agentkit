@@ -43,6 +43,8 @@ if TYPE_CHECKING:
 
 # AgentSkills.io: 1-64 chars, lowercase + digits + hyphens, no leading/trailing/consecutive hyphens
 SKILL_NAME_PATTERN = re.compile(r"^[a-z](?:[a-z0-9]|-(?!-)){0,62}[a-z0-9]$|^[a-z]$")
+
+
 class SkillInput(BaseModel):
     """Input schema for the Skill tool."""
 
@@ -168,7 +170,9 @@ class SkillRegistry:
         return "\n\n<available_skills>\n" + "\n".join(entries) + "\n</available_skills>"
 
     def populate_filesystem(
-        self, filesystem: VirtualFilesystem, base_path: str = "/skills",
+        self,
+        filesystem: VirtualFilesystem,
+        base_path: str = "/skills",
     ) -> None:
         """Load all skill files into a :class:`VirtualFilesystem`.
 
@@ -229,4 +233,3 @@ class SkillRegistry:
             args_schema=SkillInput,
             handle_tool_error=True,
         )
-

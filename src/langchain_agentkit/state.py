@@ -30,7 +30,8 @@ _LIST_KEYS = ("blocked_by", "blocks")
 
 
 def _merge_task_pair(
-    existing: dict[str, Any], incoming: dict[str, Any],
+    existing: dict[str, Any],
+    incoming: dict[str, Any],
 ) -> dict[str, Any]:
     """Merge two versions of the same task (same ID).
 
@@ -57,7 +58,8 @@ def _merge_task_pair(
 
 
 def _merge_tasks(
-    left: list[dict[str, Any]], right: list[dict[str, Any]],
+    left: list[dict[str, Any]],
+    right: list[dict[str, Any]],
 ) -> list[dict[str, Any]]:
     """Reducer that merges task lists by ID.
 

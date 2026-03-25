@@ -102,9 +102,7 @@ WRITE_TOOL_DATASET = [
 EDIT_TOOL_DATASET = [
     {
         "description": "Agent edits a file with exact string replacement",
-        "inputs": (
-            "In /workspace/config.json, replace 'debug: true' with 'debug: false'"
-        ),
+        "inputs": ("In /workspace/config.json, replace 'debug: true' with 'debug: false'"),
         "reference_trajectory": [
             _assistant_with_tools(
                 _tool_call(
@@ -211,9 +209,7 @@ TASK_CREATE_DATASET = [
 TASK_LIFECYCLE_DATASET = [
     {
         "description": "Agent creates task and marks it completed",
-        "inputs": (
-            "Create a task 'Write unit tests' and then mark it done."
-        ),
+        "inputs": ("Create a task 'Write unit tests' and then mark it done."),
         "reference_trajectory": [
             _assistant_with_tools(
                 _tool_call("TaskCreate", subject="Write unit tests", description=""),

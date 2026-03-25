@@ -91,24 +91,22 @@ class _TaskUpdateInput(BaseModel):
         description='Updated imperative title (e.g., "Run tests").',
     )
     description: str | None = Field(
-        default=None, description="Updated requirements/context.",
+        default=None,
+        description="Updated requirements/context.",
     )
     active_form: str | None = Field(
         default=None,
         description=(
-            "Present continuous form shown in spinner when "
-            'in_progress (e.g., "Running tests").'
+            'Present continuous form shown in spinner when in_progress (e.g., "Running tests").'
         ),
     )
     owner: str | None = Field(
-        default=None, description="Set the task owner (agent name).",
+        default=None,
+        description="Set the task owner (agent name).",
     )
     metadata: dict[str, Any] | None = Field(
         default=None,
-        description=(
-            "Metadata keys to merge into the task. "
-            "Set a key to null to delete it."
-        ),
+        description=("Metadata keys to merge into the task. Set a key to null to delete it."),
     )
     add_blocked_by: list[str] | None = Field(
         default=None,
@@ -147,8 +145,7 @@ def _compute_blocks(task_id: str, tasks: list[dict[str, Any]]) -> list[str]:
     return [
         t["id"]
         for t in tasks
-        if task_id in t.get("blocked_by", [])
-        and t.get("status") not in ("completed", "deleted")
+        if task_id in t.get("blocked_by", []) and t.get("status") not in ("completed", "deleted")
     ]
 
 
@@ -183,7 +180,8 @@ def _task_create(
 
 
 def _merge_metadata(
-    task: dict[str, Any], metadata: dict[str, Any],
+    task: dict[str, Any],
+    metadata: dict[str, Any],
 ) -> None:
     """Merge metadata into task, removing keys set to None."""
     existing = dict(task.get("metadata") or {})
@@ -196,7 +194,9 @@ def _merge_metadata(
 
 
 def _apply_blocks(
-    task_id: str, tasks: list[dict[str, Any]], target_ids: list[str],
+    task_id: str,
+    tasks: list[dict[str, Any]],
+    target_ids: list[str],
 ) -> None:
     """For each target, add *task_id* to its blocked_by list."""
     for target_id in target_ids:

@@ -26,9 +26,7 @@ class TestDatasetFormat:
         for entry in dataset:
             assert "description" in entry, f"Missing 'description' in {name}"
             assert "inputs" in entry, f"Missing 'inputs' in {name}"
-            assert "reference_trajectory" in entry, (
-                f"Missing 'reference_trajectory' in {name}"
-            )
+            assert "reference_trajectory" in entry, f"Missing 'reference_trajectory' in {name}"
 
     @pytest.mark.parametrize("name,dataset", list(ALL_DATASETS.items()))
     def test_inputs_are_strings(self, name, dataset):
@@ -137,7 +135,10 @@ class TestMatchToolCallsStrict:
         expected = [{"name": "Read", "args": {"file_path": "/b.txt"}}]
 
         passed, _ = match_tool_calls(
-            actual, expected, mode="strict", tool_args_mode="ignore",
+            actual,
+            expected,
+            mode="strict",
+            tool_args_mode="ignore",
         )
 
         assert passed
@@ -147,7 +148,10 @@ class TestMatchToolCallsStrict:
         expected = [{"name": "Read", "args": {"file_path": "/b.txt"}}]
 
         passed, _ = match_tool_calls(
-            actual, expected, mode="strict", tool_args_mode="exact",
+            actual,
+            expected,
+            mode="strict",
+            tool_args_mode="exact",
         )
 
         assert not passed
@@ -297,7 +301,10 @@ class TestMatchEdgeCases:
         expected = [{"name": "Grep", "args": {"pattern": "TODO"}}]
 
         passed, _ = match_tool_calls(
-            actual, expected, mode="strict", tool_args_mode="subset",
+            actual,
+            expected,
+            mode="strict",
+            tool_args_mode="subset",
         )
 
         assert passed
@@ -307,7 +314,10 @@ class TestMatchEdgeCases:
         expected = [{"name": "Grep", "args": {"pattern": "TODO"}}]
 
         passed, _ = match_tool_calls(
-            actual, expected, mode="strict", tool_args_mode="subset",
+            actual,
+            expected,
+            mode="strict",
+            tool_args_mode="subset",
         )
 
         assert not passed

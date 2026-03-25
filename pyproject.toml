@@ -1,6 +1,6 @@
 [project]
 name = "langchain-agentkit"
-version = "0.8.0"
+version = "0.9.0"
 description = "Composable middleware framework for LangGraph agents"
 readme = "README.md"
 requires-python = ">=3.11"
@@ -25,6 +25,11 @@ eval = [
     "openevals>=0.1",
     "langchain-openai>=0.3",
 ]
+
+[project.urls]
+Homepage = "https://github.com/rsmdt/langchain-agentkit"
+Repository = "https://github.com/rsmdt/langchain-agentkit"
+Issues = "https://github.com/rsmdt/langchain-agentkit/issues"
 
 [build-system]
 requires = ["hatchling"]

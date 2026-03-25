@@ -72,7 +72,8 @@ class SkillsMiddleware:
             self._owns_filesystem = True
 
         self._registry.populate_filesystem(
-            self._filesystem, base_path=skills_base_path,
+            self._filesystem,
+            base_path=skills_base_path,
         )
         self._tools_cache: list[BaseTool] | None = None
 
