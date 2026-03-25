@@ -1,6 +1,6 @@
 """Root graph with checkpointer — enables interrupt() for multi-turn conversations.
 
-When a node metaclass is the root graph (no parent), pass a checkpointer
+When an agent metaclass is the root graph (no parent), pass a checkpointer
 to .compile() so interrupt() can persist state between turns.
 """
 
@@ -12,10 +12,10 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command, interrupt
 
-from langchain_agentkit import node
+from langchain_agentkit import agent
 
 
-class advisor(node):
+class advisor(agent):
     llm = ChatOpenAI(model="gpt-4o")
 
     async def handler(state, *, llm):

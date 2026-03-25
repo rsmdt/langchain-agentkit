@@ -218,26 +218,17 @@ class MyMiddleware:
 
 The state key will be automatically included when the middleware is composed via `AgentKit`.
 
-## Running Tests
-
-```bash
-# Unit tests
-pytest tests/unit/ -q
-
-# Eval framework tests (no LLM needed)
-pytest tests/evals/ -m "not eval" -q
-
-# LLM integration evals (requires OPENAI_API_KEY in .env)
-pytest tests/evals/ -m eval -v
-```
-
 ## Contributing
 
 ```bash
 git clone https://github.com/rsmdt/langchain-agentkit.git
 cd langchain-agentkit
-uv sync --extra dev --extra eval
-uv run pytest tests/ -m "not eval" -q
+uv sync --extra dev
+uv run pytest tests/unit/ -q
 uv run ruff check src/ tests/
 uv run mypy src/
+
+# LLM integration evals (requires OPENAI_API_KEY in .env)
+uv sync --extra eval
+uv run pytest tests/evals/ -m eval -v
 ```

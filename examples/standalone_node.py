@@ -1,15 +1,15 @@
 # ruff: noqa: N801, N805
-"""Standalone node — the simplest way to use langchain-agentkit.
+"""Standalone agent — the simplest way to use langchain-agentkit.
 
-Declare a class with the node metaclass and get a complete ReAct agent
-with skill support. The result is a StateGraph — call .compile() to run it.
+Declare a class with the agent metaclass and get a complete ReAct agent
+with middleware support. The result is a StateGraph — call .compile() to run it.
 """
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from langchain_agentkit import node
+from langchain_agentkit import SkillsMiddleware, agent
 
 
 @tool
@@ -18,14 +18,16 @@ def web_search(query: str) -> str:
     return f"Results for: {query}"
 
 
-class researcher(node):
+class researcher(agent):
     llm = ChatOpenAI(model="gpt-4o")
     tools = [web_search]
-    skills = "skills/"
+    middleware = [SkillsMiddleware(skills="skills/")]
+    prompt = "You are a research assistant."
 
-    async def handler(state, *, llm):
-        response = await llm.ainvoke(state["messages"])
-        return {"messages": [response], "sender": "researcher"}
+    async def handler(state, *, llm, prompt):
+        messages = [SystemMessage(content=prompt)] + state["messages"]
+        response = await llm.ainvoke(messages)
+        return {"messages": [response]}
 
 
 # researcher is a StateGraph — compile and invoke

@@ -1,7 +1,7 @@
 # ruff: noqa: N801, N805
 """Subgraph checkpointer inheritance — interrupt() works without configuration.
 
-When a node metaclass is used as a subgraph inside a parent graph,
+When an agent metaclass is used as a subgraph inside a parent graph,
 it inherits the parent's checkpointer automatically. The subgraph
 does not need its own checkpointer — just compile() with no arguments.
 """
@@ -14,10 +14,10 @@ from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
 from langgraph.types import Command, interrupt
 
-from langchain_agentkit import AgentState, node
+from langchain_agentkit import AgentKitState, agent
 
 
-class researcher(node):
+class researcher(agent):
     llm = ChatOpenAI(model="gpt-4o")
 
     async def handler(state, *, llm):
@@ -33,7 +33,7 @@ class researcher(node):
 
 
 # Build parent graph — the parent owns the checkpointer
-workflow = StateGraph(AgentState)
+workflow = StateGraph(AgentKitState)
 workflow.add_node("researcher", researcher.compile())  # no checkpointer needed
 workflow.add_edge(START, "researcher")
 workflow.add_edge("researcher", END)

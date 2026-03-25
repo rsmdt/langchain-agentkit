@@ -7,20 +7,22 @@ Usage::
 
     from langchain_agentkit import FilesystemMiddleware
 
+    # Empty filesystem
     mw = FilesystemMiddleware()
-    mw.tools   # [Read, Write, Edit, Glob, Grep]
 
-Pre-populate with files::
+    # Pre-populate from a dict
+    mw = FilesystemMiddleware(files={"/config.json": '{"key": "value"}'})
 
-    from langchain_agentkit.vfs import VirtualFilesystem
+    # Pre-populate from a directory
+    mw = FilesystemMiddleware(files="./data")
 
-    vfs = VirtualFilesystem()
-    vfs.write("/data/config.json", '{"key": "value"}')
-    mw = FilesystemMiddleware(vfs)
+    # Pre-configured VFS
+    mw = FilesystemMiddleware(filesystem=vfs)
 """
 
 from __future__ import annotations
 
+from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
@@ -38,12 +40,30 @@ class FilesystemMiddleware:
     :class:`VirtualFilesystem`.
 
     Args:
-        filesystem: Optional pre-configured filesystem. If ``None``,
-            creates an empty one.
+        filesystem: Optional pre-configured VirtualFilesystem. Mutually
+            exclusive with ``files``.
+        files: Optional initial files to load. Accepts:
+
+            - ``dict[str, str]`` — mapping of virtual path to content
+            - ``str`` or ``Path`` — real directory to load recursively
     """
 
-    def __init__(self, filesystem: VirtualFilesystem | None = None) -> None:
-        self.filesystem = filesystem or VirtualFilesystem()
+    def __init__(
+        self,
+        filesystem: VirtualFilesystem | None = None,
+        files: dict[str, str] | str | Path | None = None,
+    ) -> None:
+        if filesystem is not None and files is not None:
+            msg = "Cannot pass both 'filesystem' and 'files'"
+            raise ValueError(msg)
+
+        if filesystem is not None:
+            self.filesystem = filesystem
+        else:
+            self.filesystem = VirtualFilesystem()
+            if files is not None:
+                _load_files(self.filesystem, files)
+
         self._tools_cache: list[BaseTool] | None = None
 
     @property
@@ -58,7 +78,9 @@ class FilesystemMiddleware:
             self._tools_cache = create_filesystem_tools(self.filesystem)
         return self._tools_cache
 
-    def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str | None:
+    def prompt(
+        self, state: dict[str, Any], runtime: ToolRuntime | None = None,
+    ) -> str | None:
         """Return filesystem prompt section, or ``None`` if no files loaded."""
         file_count = len(self.filesystem)
         if file_count == 0:
@@ -75,5 +97,19 @@ class FilesystemMiddleware:
             f"## Virtual Filesystem\n\n"
             f"You have access to a virtual filesystem with {file_count} file(s) "
             f"in: {dir_listing}\n\n"
-            f"Use the Read, Write, Edit, Glob, and Grep tools to interact with files."
+            f"Use the Read, Write, Edit, Glob, and Grep tools to "
+            f"interact with files."
         )
+
+
+def _load_files(
+    vfs: VirtualFilesystem, files: dict[str, str] | str | Path,
+) -> None:
+    """Load files into a VFS from a dict or directory path."""
+    if isinstance(files, dict):
+        vfs.load_dict(files)
+    elif isinstance(files, (str, Path)):
+        vfs.load_directory(files)
+    else:
+        msg = f"'files' must be dict, str, or Path, got {type(files).__name__}"
+        raise TypeError(msg)

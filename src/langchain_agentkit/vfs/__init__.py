@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import fnmatch
 import re
+from pathlib import Path
 
 
 def _glob_to_regex(pattern: str) -> str:
@@ -63,6 +64,59 @@ class VirtualFilesystem:
 
     def __init__(self) -> None:
         self._files: dict[str, str] = {}
+
+    def load_dict(self, files: dict[str, str]) -> None:
+        """Load files from a ``{path: content}`` mapping.
+
+        Example::
+
+            vfs.load_dict({
+                "/data/config.json": '{"key": "value"}',
+                "/data/notes.txt": "some notes",
+            })
+        """
+        for path, content in files.items():
+            self.write(path, content)
+
+    def load_directory(
+        self, source: str | Path, base_path: str = "/",
+    ) -> int:
+        """Recursively load a real directory into the VFS.
+
+        Text files are read as strings. Binary files that fail UTF-8
+        decoding are stored as ``"(binary file: <name>)"``.
+
+        Args:
+            source: Real filesystem directory to load from.
+            base_path: Virtual path prefix. Default ``"/"``.
+
+        Returns:
+            Number of files loaded.
+
+        Example::
+
+            vfs.load_directory("./data", base_path="/data")
+            # ./data/config.json → /data/config.json
+            # ./data/sub/file.txt → /data/sub/file.txt
+        """
+        source_path = Path(source).resolve()
+        if not source_path.is_dir():
+            msg = f"Not a directory: {source}"
+            raise NotADirectoryError(msg)
+
+        count = 0
+        for file_path in sorted(source_path.rglob("*")):
+            if not file_path.is_file():
+                continue
+            relative = file_path.relative_to(source_path)
+            vfs_path = f"{base_path.rstrip('/')}/{relative.as_posix()}"
+            try:
+                content = file_path.read_text()
+            except UnicodeDecodeError:
+                content = f"(binary file: {file_path.name})"
+            self.write(vfs_path, content)
+            count += 1
+        return count
 
     @staticmethod
     def normalize_path(path: str) -> str:

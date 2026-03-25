@@ -1,16 +1,17 @@
-"""Manual wiring — use SkillRegistry as a standalone toolkit.
+"""Manual wiring — use AgentKit for full control over graph topology.
 
-Use this approach when you want full control over your LangGraph graph
-and just need the Skill + SkillRead tools added to your tool list.
+Use this approach when you need custom routing, multi-node graphs,
+or a shared ToolNode. AgentKit composes tools, prompts, and state
+schema from middleware.
 """
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from langchain_agentkit import AgentState, SkillRegistry
+from langchain_agentkit import AgentKit, SkillsMiddleware, TasksMiddleware
 
 
 @tool
@@ -19,29 +20,33 @@ def web_search(query: str) -> str:
     return f"Results for: {query}"
 
 
-llm = ChatOpenAI(model="gpt-4o")
-kit = SkillRegistry("skills/")
+kit = AgentKit([
+    SkillsMiddleware(skills="skills/"),
+    TasksMiddleware(),
+])
 
-# Combine your tools with skill tools
+llm = ChatOpenAI(model="gpt-4o")
 all_tools = [web_search] + kit.tools
 bound_llm = llm.bind_tools(all_tools)
 
 
-async def researcher(state: AgentState) -> dict:
+async def researcher(state: dict) -> dict:
     """Research node that uses skills for methodology."""
-    response = await bound_llm.ainvoke(state["messages"])
-    return {"messages": [response], "sender": "researcher"}
+    prompt = kit.prompt(state)
+    messages = [SystemMessage(content=prompt)] + state["messages"]
+    response = await bound_llm.ainvoke(messages)
+    return {"messages": [response]}
 
 
-def should_continue(state: AgentState) -> str:
+def should_continue(state: dict) -> str:
     last = state["messages"][-1]
     if hasattr(last, "tool_calls") and last.tool_calls:
         return "tools"
     return END
 
 
-# Build the graph manually
-workflow = StateGraph(AgentState)
+# State schema composed from middleware (includes messages + tasks)
+workflow = StateGraph(kit.state_schema)
 workflow.add_node("researcher", researcher)
 workflow.add_node("tools", ToolNode(all_tools))
 

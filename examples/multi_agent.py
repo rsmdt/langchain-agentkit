@@ -1,16 +1,16 @@
 # ruff: noqa: N801, N805
-"""Multi-agent graph — compose multiple node subclasses.
+"""Multi-agent graph — compose multiple agent subclasses.
 
-Each node metaclass produces a self-contained ReAct subgraph with its own
-tools and skill access. Compose them in a parent graph for multi-agent workflows.
+Each agent metaclass produces a self-contained ReAct subgraph with its own
+tools and middleware. Compose them in a parent graph for multi-agent workflows.
 """
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 
-from langchain_agentkit import AgentState, node
+from langchain_agentkit import AgentKit, SkillsMiddleware, agent
 
 
 @tool
@@ -28,31 +28,36 @@ def sql_query(query: str) -> str:
 @tool
 def calculate(expression: str) -> str:
     """Evaluate a mathematical expression."""
-    return str(eval(expression))
+    return str(eval(expression))  # noqa: S307
 
 
-class researcher(node):
+class researcher(agent):
     llm = ChatOpenAI(model="gpt-4o")
     tools = [web_search]
-    skills = "skills/"
+    middleware = [SkillsMiddleware(skills="skills/")]
+    prompt = "You are a research assistant."
 
-    async def handler(state, *, llm):
-        response = await llm.ainvoke(state["messages"])
-        return {"messages": [response], "sender": "researcher"}
+    async def handler(state, *, llm, prompt):
+        messages = [SystemMessage(content=prompt)] + state["messages"]
+        response = await llm.ainvoke(messages)
+        return {"messages": [response]}
 
 
-class analyst(node):
+class analyst(agent):
     llm = ChatOpenAI(model="gpt-4o")
     tools = [sql_query, calculate]
-    skills = "skills/"
+    prompt = "You are a data analyst."
 
-    async def handler(state, *, llm):
-        response = await llm.ainvoke(state["messages"])
-        return {"messages": [response], "sender": "analyst"}
+    async def handler(state, *, llm, prompt):
+        messages = [SystemMessage(content=prompt)] + state["messages"]
+        response = await llm.ainvoke(messages)
+        return {"messages": [response]}
 
 
-# Compose in a parent graph
-workflow = StateGraph(AgentState)
+# Compose in a parent graph — use AgentKit to get the combined state schema
+kit = AgentKit([SkillsMiddleware(skills="skills/")])
+
+workflow = StateGraph(kit.state_schema)
 workflow.add_node("researcher", researcher.compile())
 workflow.add_node("analyst", analyst.compile())
 

@@ -1,8 +1,12 @@
 """Tests for VirtualFilesystem."""
 
+from pathlib import Path
+
 import pytest
 
 from langchain_agentkit.vfs import VirtualFilesystem
+
+FIXTURES = Path(__file__).parent.parent.parent / "fixtures"
 
 # --- Path Normalization ---
 
@@ -557,3 +561,98 @@ class TestFilesProperty:
         assert len(files) == 2
         assert files["/a.txt"] == "a"
         assert files["/b.txt"] == "b"
+
+
+# --- load_dict ---
+
+
+class TestLoadDict:
+    def test_loads_all_entries(self):
+        vfs = VirtualFilesystem()
+        vfs.load_dict({"/a.txt": "alpha", "/b.txt": "beta"})
+
+        assert vfs.read("/a.txt") == "alpha"
+        assert vfs.read("/b.txt") == "beta"
+
+    def test_normalizes_paths(self):
+        vfs = VirtualFilesystem()
+        vfs.load_dict({"foo/bar.txt": "content"})
+
+        assert vfs.exists("/foo/bar.txt")
+
+    def test_empty_dict(self):
+        vfs = VirtualFilesystem()
+        vfs.load_dict({})
+
+        assert len(vfs) == 0
+
+    def test_overwrites_existing(self):
+        vfs = VirtualFilesystem()
+        vfs.write("/f.txt", "old")
+        vfs.load_dict({"/f.txt": "new"})
+
+        assert vfs.read("/f.txt") == "new"
+
+
+# --- load_directory ---
+
+
+class TestLoadDirectory:
+    def test_loads_skill_files(self):
+        vfs = VirtualFilesystem()
+        count = vfs.load_directory(
+            FIXTURES / "skills" / "market-sizing", base_path="/skill",
+        )
+
+        assert count >= 2
+        assert vfs.exists("/skill/SKILL.md")
+        assert vfs.exists("/skill/calculator.py")
+
+    def test_content_matches_real_file(self):
+        vfs = VirtualFilesystem()
+        vfs.load_directory(
+            FIXTURES / "skills" / "market-sizing", base_path="/s",
+        )
+
+        real = (FIXTURES / "skills" / "market-sizing" / "SKILL.md").read_text()
+        assert vfs.read("/s/SKILL.md") == real
+
+    def test_default_base_path_is_root(self):
+        vfs = VirtualFilesystem()
+        vfs.load_directory(FIXTURES / "skills" / "market-sizing")
+
+        assert vfs.exists("/SKILL.md")
+
+    def test_raises_on_non_directory(self, tmp_path):
+        f = tmp_path / "file.txt"
+        f.write_text("x")
+
+        vfs = VirtualFilesystem()
+        with pytest.raises(NotADirectoryError):
+            vfs.load_directory(f)
+
+    def test_raises_on_nonexistent(self):
+        vfs = VirtualFilesystem()
+        with pytest.raises(NotADirectoryError):
+            vfs.load_directory("/nonexistent/path")
+
+    def test_recursive_subdirectories(self, tmp_path):
+        (tmp_path / "sub").mkdir()
+        (tmp_path / "a.txt").write_text("top")
+        (tmp_path / "sub" / "b.txt").write_text("nested")
+
+        vfs = VirtualFilesystem()
+        count = vfs.load_directory(tmp_path, base_path="/data")
+
+        assert count == 2
+        assert vfs.read("/data/a.txt") == "top"
+        assert vfs.read("/data/sub/b.txt") == "nested"
+
+    def test_returns_file_count(self, tmp_path):
+        (tmp_path / "a.txt").write_text("a")
+        (tmp_path / "b.txt").write_text("b")
+
+        vfs = VirtualFilesystem()
+        count = vfs.load_directory(tmp_path)
+
+        assert count == 2
