@@ -46,7 +46,7 @@ class QwantSearchTool(BaseTool):
     locale: str = "en_US"
     safesearch: int = 1  # 0=off, 1=moderate, 2=strict
 
-    def _run(self, query: str, **kwargs: Any) -> str:
+    def _run(self, query: str) -> str:
         """Sync search via Qwant API using urllib (no external deps)."""
         params = urllib.parse.urlencode(
             {
@@ -76,7 +76,7 @@ class QwantSearchTool(BaseTool):
             results.append(f"- [{title}]({url}): {snippet}")
         return "\n".join(results)
 
-    async def _arun(self, query: str, **kwargs: Any) -> str:
+    async def _arun(self, query: str) -> str:
         """Async version — runs sync in executor (urllib has no async)."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._run, query)
@@ -91,7 +91,7 @@ class _WebSearchTool(BaseTool):
     description: str = "Search the web using multiple search providers simultaneously."
     providers: list[BaseTool]
 
-    async def _arun(self, query: str, **kwargs: Any) -> str:
+    async def _arun(self, query: str) -> str:
         """Fan out to all providers concurrently, capturing errors per-provider."""
         results = await asyncio.gather(*[self._call_provider(p, query) for p in self.providers])
         return "\n\n".join(f"## {name}\n{result}" for name, result in results)
@@ -103,7 +103,7 @@ class _WebSearchTool(BaseTool):
         except Exception as e:
             return (provider.name, f"Error: {e}")
 
-    def _run(self, query: str, **kwargs: Any) -> str:
+    def _run(self, query: str) -> str:
         """Sync fallback — sequential provider calls."""
         sections = []
         for provider in self.providers:

@@ -30,13 +30,15 @@ Two layers:
     from langchain_agentkit import SkillRegistry
 
     registry = SkillRegistry("skills/")
-    tools = registry.tools  # [Skill, SkillRead]
+    tools = registry.tools  # [Skill]
 """
 
 from langgraph.prebuilt import ToolRuntime
 
 from langchain_agentkit.agent import agent
 from langchain_agentkit.agent_kit import AgentKit
+from langchain_agentkit.filesystem_middleware import FilesystemMiddleware
+from langchain_agentkit.filesystem_tools import create_filesystem_tools
 from langchain_agentkit.hitl_middleware import HITLMiddleware
 from langchain_agentkit.middleware import Middleware
 from langchain_agentkit.skill_registry import SkillRegistry
@@ -44,6 +46,7 @@ from langchain_agentkit.skills_middleware import SkillsMiddleware
 from langchain_agentkit.state import AgentState
 from langchain_agentkit.task_tools import Task, TaskStatus, create_task_tools
 from langchain_agentkit.tasks_middleware import TasksMiddleware
+from langchain_agentkit.virtual_filesystem import VirtualFilesystem
 from langchain_agentkit.web_search_middleware import QwantSearchTool, WebSearchMiddleware
 
 __all__ = [
@@ -56,17 +59,20 @@ __all__ = [
     # Standalone
     "SkillRegistry",
     # Middleware implementations
+    "FilesystemMiddleware",
     "HITLMiddleware",
     "SkillsMiddleware",
     "TasksMiddleware",
     "WebSearchMiddleware",
     # Tools
     "QwantSearchTool",
+    "create_filesystem_tools",
     # Task tools
     "create_task_tools",
     # Types
     "Task",
     "TaskStatus",
+    "VirtualFilesystem",
     # State
     "AgentState",
 ]
