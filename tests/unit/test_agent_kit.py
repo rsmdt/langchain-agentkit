@@ -12,7 +12,7 @@ from langchain_agentkit.agent_kit import AgentKit
 if TYPE_CHECKING:
     from langchain_agentkit.middleware import Middleware
 
-FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURES = Path(__file__).parent.parent / "fixtures"
 
 
 def _make_tool(name: str, description: str = "stub") -> StructuredTool:

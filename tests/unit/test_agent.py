@@ -16,7 +16,7 @@ from langchain_agentkit.agent import (
 )
 from langchain_agentkit.state import AgentState
 
-FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURES = Path(__file__).parent.parent / "fixtures"
 
 
 class TestValidateHandlerSignature:

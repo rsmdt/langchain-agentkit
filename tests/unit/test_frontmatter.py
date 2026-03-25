@@ -6,7 +6,7 @@ import pytest
 
 from langchain_agentkit.frontmatter import parse_frontmatter
 
-FIXTURES = Path(__file__).parent / "fixtures"
+FIXTURES = Path(__file__).parent.parent / "fixtures"
 
 
 class TestParseFrontmatter:

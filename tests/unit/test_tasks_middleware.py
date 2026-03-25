@@ -31,6 +31,7 @@ class TestTasksMiddlewareTools:
         assert "TaskUpdate" in tool_names
         assert "TaskList" in tool_names
         assert "TaskGet" in tool_names
+        assert "TaskStop" in tool_names
 
     def test_constructor_with_custom_tools_uses_those(self):
         tool_a = MagicMock(spec=BaseTool)
