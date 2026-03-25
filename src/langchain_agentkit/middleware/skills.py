@@ -1,18 +1,20 @@
-"""SkillsMiddleware — skills + virtual filesystem for LangGraph agents.
+"""SkillsMiddleware — skill loading with optional filesystem integration.
 
-Loads skills from real filesystem into a virtual filesystem, then provides:
-- ``Skill`` tool for loading skill instructions (progressive disclosure)
-- ``Read``, ``Write``, ``Edit``, ``Glob``, ``Grep`` tools on the virtual filesystem
+Provides the ``Skill`` tool for progressive disclosure of skill instructions.
+Optionally includes filesystem tools (Read, Write, Edit, Glob, Grep) when
+no external VFS is provided.
 
 Usage::
 
-    from langchain_agentkit import SkillsMiddleware
-
-    mw = SkillsMiddleware("skills/")
+    # Convenience: auto-includes filesystem tools
+    mw = SkillsMiddleware(skills="skills/")
     mw.tools   # [Skill, Read, Write, Edit, Glob, Grep]
-    mw.prompt(state, runtime)  # Skills system prompt with skill list
 
-Reference files are accessible via ``Read("/skills/market-sizing/calculator.py")``.
+    # Explicit: provide shared VFS, manage filesystem tools separately
+    vfs = VirtualFilesystem()
+    mw = SkillsMiddleware(skills="skills/", filesystem=vfs)
+    mw.tools   # [Skill] only
+    fs = FilesystemMiddleware(vfs)  # provides Read, Write, Edit, Glob, Grep
 """
 
 from __future__ import annotations
@@ -37,48 +39,61 @@ _skills_system_prompt = PromptTemplate.from_file(_PROMPTS_DIR / "skills_system.m
 
 
 class SkillsMiddleware:
-    """Middleware providing skill tools and virtual filesystem access.
+    """Middleware providing skill tools and optional filesystem access.
 
-    Loads skills from real filesystem directories into an in-memory
-    :class:`VirtualFilesystem` at ``/skills/{name}/``. Provides:
-
-    - **Skill**: Load skill instructions (progressive disclosure shortcut)
-    - **Read, Write, Edit, Glob, Grep**: Virtual filesystem tools
-
-    The ``SkillRead`` tool is replaced by ``Read`` — reference files are
-    accessible at ``/skills/{skill_name}/{filename}``.
+    Loads skills from real filesystem directories into a
+    :class:`VirtualFilesystem`. The ``Skill`` tool is always provided.
+    Filesystem tools are included only when no external VFS is given.
 
     Args:
-        skills_dirs: Path(s) to directories containing skill subdirectories.
-        filesystem: Optional pre-configured VirtualFilesystem. If ``None``,
-            creates a new one and populates it with skill files.
+        skills: Path(s) to directories containing skill subdirectories.
+        filesystem: Optional shared VirtualFilesystem. When provided,
+            skills are populated into it but filesystem tools are NOT
+            included — the caller manages file tools via
+            ``FilesystemMiddleware(filesystem)``. When ``None``, an
+            internal VFS is created and filesystem tools are bundled.
         skills_base_path: Virtual path prefix for skills. Default ``/skills``.
-
-    Example::
-
-        mw = SkillsMiddleware("skills/")
-        mw.tools   # [Skill, Read, Write, Edit, Glob, Grep]
     """
 
     def __init__(
         self,
-        skills_dirs: str | Path | list[str | Path],
+        skills: str | Path | list[str | Path],
         filesystem: VirtualFilesystem | None = None,
         skills_base_path: str = "/skills",
     ) -> None:
-        self._registry = SkillRegistry(skills_dirs)
+        self._registry = SkillRegistry(skills)
         self._skills_base_path = skills_base_path
-        self.filesystem = filesystem or VirtualFilesystem()
-        self._registry.populate_filesystem(self.filesystem, base_path=skills_base_path)
+
+        if filesystem is not None:
+            self._filesystem = filesystem
+            self._owns_filesystem = False
+        else:
+            self._filesystem = VirtualFilesystem()
+            self._owns_filesystem = True
+
+        self._registry.populate_filesystem(
+            self._filesystem, base_path=skills_base_path,
+        )
         self._tools_cache: list[BaseTool] | None = None
 
     @property
+    def filesystem(self) -> VirtualFilesystem:
+        """The VirtualFilesystem containing skill files."""
+        return self._filesystem
+
+    @property
+    def state_schema(self) -> None:
+        """No additional state keys — skills are in-memory."""
+        return None
+
+    @property
     def tools(self) -> list[BaseTool]:
-        """Tools: ``[Skill, Read, Write, Edit, Glob, Grep]``."""
+        """Skill tool, plus filesystem tools if VFS is internally owned."""
         if self._tools_cache is None:
-            skill_tools = self._registry.tools
-            fs_tools = create_filesystem_tools(self.filesystem)
-            self._tools_cache = skill_tools + fs_tools
+            tools = list(self._registry.tools)
+            if self._owns_filesystem:
+                tools.extend(create_filesystem_tools(self._filesystem))
+            self._tools_cache = tools
         return self._tools_cache
 
     def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:

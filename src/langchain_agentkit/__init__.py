@@ -49,7 +49,7 @@ from langchain_agentkit.middleware import (
     TasksMiddleware,
     WebSearchMiddleware,
 )
-from langchain_agentkit.state import AgentState
+from langchain_agentkit.state import AgentKitState, AgentState, TasksState
 
 # Tools
 from langchain_agentkit.tools import (
@@ -66,8 +66,10 @@ from langchain_agentkit.vfs import VirtualFilesystem
 __all__ = [
     # Core
     "AgentKit",
+    "AgentKitState",
     "AgentState",
     "Middleware",
+    "TasksState",
     "ToolRuntime",
     "VirtualFilesystem",
     "agent",

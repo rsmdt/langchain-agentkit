@@ -1,10 +1,30 @@
-"""Agent state definition for LangGraph."""
+"""Composable state schemas for LangGraph agents.
+
+``AgentKitState`` is the minimal base — just messages and sender.
+Middleware adds state keys via mixins (e.g., ``TasksState``).
+
+Usage::
+
+    from langchain_agentkit.state import AgentKitState, TasksState
+
+    # Compose manually
+    class MyState(AgentKitState, TasksState):
+        my_field: str
+
+    # Or let AgentKit compose from middleware automatically
+    kit = AgentKit([TasksMiddleware()])
+    kit.state_schema  # → composed TypedDict with messages + tasks
+"""
 
 from __future__ import annotations
 
 from typing import Annotated, Any, TypedDict
 
 from langgraph.graph.message import add_messages
+
+# ---------------------------------------------------------------------------
+# Task list reducer
+# ---------------------------------------------------------------------------
 
 _LIST_KEYS = ("blocked_by", "blocks")
 
@@ -68,20 +88,30 @@ def _merge_tasks(
     return [by_id[tid] for tid in order if tid in by_id]
 
 
-class AgentState(TypedDict, total=False):
-    """Minimal state for multi-agent graphs.
+# ---------------------------------------------------------------------------
+# State schemas
+# ---------------------------------------------------------------------------
 
-    Extend with your own fields::
 
-        class MyState(AgentState):
-            my_custom_field: str
+class AgentKitState(TypedDict, total=False):
+    """Minimal base state — always present in any agentkit graph.
 
-    Fields:
-        messages: Conversation history with LangGraph message aggregation.
-        sender: Name of the last node that called tools (for routing back).
-        tasks: Task list managed by TasksMiddleware tools.
+    Contains only the fields required for the ReAct loop to function.
+    Middleware adds additional keys via mixin TypedDicts.
     """
 
     messages: Annotated[list[Any], add_messages]
     sender: str
+
+
+class TasksState(TypedDict, total=False):
+    """State mixin for task management.
+
+    Added to the graph state when ``TasksMiddleware`` is used.
+    """
+
     tasks: Annotated[list[dict[str, Any]], _merge_tasks]
+
+
+# Backward-compat alias
+AgentState = AgentKitState

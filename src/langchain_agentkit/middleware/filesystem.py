@@ -47,6 +47,11 @@ class FilesystemMiddleware:
         self._tools_cache: list[BaseTool] | None = None
 
     @property
+    def state_schema(self) -> None:
+        """No additional state keys — VFS is in-memory."""
+        return None
+
+    @property
     def tools(self) -> list[BaseTool]:
         """Filesystem tools: ``[Read, Write, Edit, Glob, Grep]``."""
         if self._tools_cache is None:

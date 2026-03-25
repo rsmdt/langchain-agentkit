@@ -31,7 +31,7 @@ if TYPE_CHECKING:
 
 
 class Middleware(Protocol):
-    """Protocol for middleware that contributes tools and prompts to an agent."""
+    """Protocol for middleware that contributes tools, prompts, and state to an agent."""
 
     @property
     def tools(self) -> list[BaseTool]:
@@ -42,6 +42,23 @@ class Middleware(Protocol):
         """Prompt section to inject into the system prompt.
 
         Called on every LLM invocation. Return None to skip injection.
+        """
+        ...
+
+    @property
+    def state_schema(self) -> type | None:
+        """TypedDict mixin for this middleware's state requirements.
+
+        Return a TypedDict class to add keys to the graph state, or
+        ``None`` if no additional state keys are needed.
+
+        Example::
+
+            from langchain_agentkit.state import TasksState
+
+            @property
+            def state_schema(self) -> type:
+                return TasksState
         """
         ...
 

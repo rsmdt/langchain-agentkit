@@ -15,12 +15,9 @@ Skip with::
 
 import os
 from pathlib import Path
-from typing import Annotated, Any, TypedDict
 
 import pytest
-from langgraph.graph.message import add_messages
 
-from langchain_agentkit.state import _merge_tasks
 from tests.evals.datasets import (
     MULTI_STEP_DATASET,
     READ_TOOL_DATASET,
@@ -52,88 +49,53 @@ except ImportError:
 skip_reason = "Requires OPENAI_API_KEY and langchain-openai"
 
 
-# State schemas at module level for Python 3.14 get_type_hints() compatibility
-class _SkillsEvalState(TypedDict, total=False):
-    messages: Annotated[list[Any], add_messages]
+def _build_agent(middleware_list):
+    """Build a minimal ReAct agent from middleware, using composed state schema."""
+    from langchain_core.messages import SystemMessage
+    from langgraph.graph import END, START, StateGraph
+    from langgraph.prebuilt import ToolNode
 
+    from langchain_agentkit import AgentKit
 
-class _TasksEvalState(TypedDict, total=False):
-    messages: Annotated[list[Any], add_messages]
-    tasks: Annotated[list[dict[str, Any]], _merge_tasks]
+    kit = AgentKit(middleware_list)
+    state_schema = kit.state_schema
+
+    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    bound_llm = llm.bind_tools(kit.tools)
+
+    def agent_node(state: dict) -> dict:
+        system = SystemMessage(content=kit.prompt(state))
+        messages = [system] + state["messages"]
+        return {"messages": [bound_llm.invoke(messages)]}
+
+    def should_continue(state: dict) -> str:
+        last = state["messages"][-1]
+        if hasattr(last, "tool_calls") and last.tool_calls:
+            return "tools"
+        return END
+
+    graph = StateGraph(state_schema)
+    graph.add_node("agent", agent_node)
+    graph.add_node("tools", ToolNode(kit.tools))
+    graph.add_edge(START, "agent")
+    graph.add_conditional_edges(
+        "agent", should_continue, {"tools": "tools", END: END},
+    )
+    graph.add_edge("tools", "agent")
+
+    return graph.compile()
 
 
 def _build_skills_agent():
-    """Build a ReAct agent with skills + filesystem tools."""
-    from langchain_core.messages import SystemMessage
-    from langgraph.graph import END, START, StateGraph
-    from langgraph.prebuilt import ToolNode
+    from langchain_agentkit import SkillsMiddleware
 
-    from langchain_agentkit import AgentKit, SkillsMiddleware
-
-    mw = SkillsMiddleware(str(FIXTURES / "skills"))
-    kit = AgentKit([mw])
-
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-    bound_llm = llm.bind_tools(kit.tools)
-
-    def agent_node(state: _SkillsEvalState) -> dict:
-        system = SystemMessage(content=kit.prompt(state))
-        messages = [system] + state["messages"]
-        return {"messages": [bound_llm.invoke(messages)]}
-
-    def should_continue(state: _SkillsEvalState) -> str:
-        last = state["messages"][-1]
-        if hasattr(last, "tool_calls") and last.tool_calls:
-            return "tools"
-        return END
-
-    graph = StateGraph(_SkillsEvalState)
-    graph.add_node("agent", agent_node)
-    graph.add_node("tools", ToolNode(kit.tools))
-    graph.add_edge(START, "agent")
-    graph.add_conditional_edges(
-        "agent", should_continue, {"tools": "tools", END: END},
-    )
-    graph.add_edge("tools", "agent")
-
-    return graph.compile()
+    return _build_agent([SkillsMiddleware(skills=str(FIXTURES / "skills"))])
 
 
 def _build_tasks_agent():
-    """Build a ReAct agent with task management tools."""
-    from langchain_core.messages import SystemMessage
-    from langgraph.graph import END, START, StateGraph
-    from langgraph.prebuilt import ToolNode
+    from langchain_agentkit import TasksMiddleware
 
-    from langchain_agentkit import AgentKit, TasksMiddleware
-
-    mw = TasksMiddleware()
-    kit = AgentKit([mw])
-
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
-    bound_llm = llm.bind_tools(kit.tools)
-
-    def agent_node(state: _TasksEvalState) -> dict:
-        system = SystemMessage(content=kit.prompt(state))
-        messages = [system] + state["messages"]
-        return {"messages": [bound_llm.invoke(messages)]}
-
-    def should_continue(state: _TasksEvalState) -> str:
-        last = state["messages"][-1]
-        if hasattr(last, "tool_calls") and last.tool_calls:
-            return "tools"
-        return END
-
-    graph = StateGraph(_TasksEvalState)
-    graph.add_node("agent", agent_node)
-    graph.add_node("tools", ToolNode(kit.tools))
-    graph.add_edge(START, "agent")
-    graph.add_conditional_edges(
-        "agent", should_continue, {"tools": "tools", END: END},
-    )
-    graph.add_edge("tools", "agent")
-
-    return graph.compile()
+    return _build_agent([TasksMiddleware()])
 
 
 # ---------------------------------------------------------------------------
@@ -143,15 +105,11 @@ def _build_tasks_agent():
 
 @pytest.mark.skipif(not _HAS_OPENAI, reason=skip_reason)
 class TestSkillLoadingEval:
-    """Verify agent loads skills for domain-specific requests."""
-
     def test_skill_loading_dataset(self):
         agent = _build_skills_agent()
         results = run_eval(
-            agent=agent,
-            dataset=SKILL_LOADING_DATASET,
-            trajectory_mode="subset",
-            tool_args_mode="ignore",
+            agent=agent, dataset=SKILL_LOADING_DATASET,
+            trajectory_mode="subset", tool_args_mode="ignore",
         )
         print_eval_results(results)
         for r in results:
@@ -160,15 +118,11 @@ class TestSkillLoadingEval:
 
 @pytest.mark.skipif(not _HAS_OPENAI, reason=skip_reason)
 class TestReadToolEval:
-    """Verify agent uses Read tool for file access."""
-
     def test_read_tool_dataset(self):
         agent = _build_skills_agent()
         results = run_eval(
-            agent=agent,
-            dataset=READ_TOOL_DATASET,
-            trajectory_mode="subset",
-            tool_args_mode="subset",
+            agent=agent, dataset=READ_TOOL_DATASET,
+            trajectory_mode="subset", tool_args_mode="subset",
         )
         print_eval_results(results)
         for r in results:
@@ -177,21 +131,16 @@ class TestReadToolEval:
 
 @pytest.mark.skipif(not _HAS_OPENAI, reason=skip_reason)
 class TestMultiStepEval:
-    """Verify agent chains multiple tool calls correctly."""
-
     def test_multi_step_dataset(self):
         agent = _build_skills_agent()
         results = run_eval(
-            agent=agent,
-            dataset=MULTI_STEP_DATASET,
-            trajectory_mode="subset",
-            tool_args_mode="ignore",
+            agent=agent, dataset=MULTI_STEP_DATASET,
+            trajectory_mode="subset", tool_args_mode="ignore",
         )
         print_eval_results(results)
         passed = sum(1 for r in results if r["score"])
-        total = len(results)
-        assert passed >= total * 0.5, (
-            f"Only {passed}/{total} multi-step evals passed"
+        assert passed >= len(results) * 0.5, (
+            f"Only {passed}/{len(results)} multi-step evals passed"
         )
 
 
@@ -202,15 +151,11 @@ class TestMultiStepEval:
 
 @pytest.mark.skipif(not _HAS_OPENAI, reason=skip_reason)
 class TestTaskCreateEval:
-    """Verify agent creates tasks for multi-step requests."""
-
     def test_creates_tasks_for_list(self):
         agent = _build_tasks_agent()
         results = run_eval(
-            agent=agent,
-            dataset=TASK_CREATE_DATASET,
-            trajectory_mode="subset",
-            tool_args_mode="ignore",
+            agent=agent, dataset=TASK_CREATE_DATASET,
+            trajectory_mode="subset", tool_args_mode="ignore",
         )
         print_eval_results(results)
         for r in results:
@@ -219,15 +164,11 @@ class TestTaskCreateEval:
 
 @pytest.mark.skipif(not _HAS_OPENAI, reason=skip_reason)
 class TestTaskLifecycleEval:
-    """Verify agent follows task lifecycle: create → in_progress → completed."""
-
     def test_task_lifecycle(self):
         agent = _build_tasks_agent()
         results = run_eval(
-            agent=agent,
-            dataset=TASK_LIFECYCLE_DATASET,
-            trajectory_mode="subset",
-            tool_args_mode="ignore",
+            agent=agent, dataset=TASK_LIFECYCLE_DATASET,
+            trajectory_mode="subset", tool_args_mode="ignore",
         )
         print_eval_results(results)
         for r in results:
@@ -236,36 +177,26 @@ class TestTaskLifecycleEval:
 
 @pytest.mark.skipif(not _HAS_OPENAI, reason=skip_reason)
 class TestTaskDependenciesEval:
-    """Verify agent creates tasks with dependency ordering."""
-
     def test_task_dependencies(self):
         agent = _build_tasks_agent()
         results = run_eval(
-            agent=agent,
-            dataset=TASK_DEPENDENCIES_DATASET,
-            trajectory_mode="subset",
-            tool_args_mode="ignore",
+            agent=agent, dataset=TASK_DEPENDENCIES_DATASET,
+            trajectory_mode="subset", tool_args_mode="ignore",
         )
         print_eval_results(results)
-        # Dependencies are hard — allow some flexibility
         passed = sum(1 for r in results if r["score"])
-        total = len(results)
-        assert passed >= total * 0.5, (
-            f"Only {passed}/{total} dependency evals passed"
+        assert passed >= len(results) * 0.5, (
+            f"Only {passed}/{len(results)} dependency evals passed"
         )
 
 
 @pytest.mark.skipif(not _HAS_OPENAI, reason=skip_reason)
 class TestTaskListEval:
-    """Verify agent lists tasks when asked for status."""
-
     def test_task_list(self):
         agent = _build_tasks_agent()
         results = run_eval(
-            agent=agent,
-            dataset=TASK_LIST_DATASET,
-            trajectory_mode="subset",
-            tool_args_mode="ignore",
+            agent=agent, dataset=TASK_LIST_DATASET,
+            trajectory_mode="subset", tool_args_mode="ignore",
         )
         print_eval_results(results)
         for r in results:
@@ -274,17 +205,11 @@ class TestTaskListEval:
 
 @pytest.mark.skipif(not _HAS_OPENAI, reason=skip_reason)
 class TestTaskStopEval:
-    """Verify agent stops a running task."""
-
     def test_task_stop(self):
         agent = _build_tasks_agent()
-
-        # Pre-seed state with a running task so TaskStop has something to stop
         results = run_eval(
-            agent=agent,
-            dataset=TASK_STOP_DATASET,
-            trajectory_mode="subset",
-            tool_args_mode="ignore",
+            agent=agent, dataset=TASK_STOP_DATASET,
+            trajectory_mode="subset", tool_args_mode="ignore",
             state_factory=lambda: {
                 "messages": [
                     {"role": "user", "content": TASK_STOP_DATASET[0]["inputs"]},

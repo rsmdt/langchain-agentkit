@@ -29,7 +29,7 @@ from langgraph.prebuilt import ToolNode, ToolRuntime
 
 from langchain_agentkit._handler_validation import validate_handler_signature
 from langchain_agentkit.agent_kit import AgentKit
-from langchain_agentkit.state import AgentState
+from langchain_agentkit.state import AgentKitState
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -50,6 +50,23 @@ def _validate_handler_signature(handler: Any, class_name: str) -> tuple[set[str]
     Delegates to the shared implementation in ``_handler_validation``.
     """
     return validate_handler_signature(handler, class_name, _INJECTABLE_PARAMS, "agent")
+
+
+def _find_wrap_tool_call(
+    middleware: list[Any], name: str,
+) -> Any | None:
+    """Find a single wrap_tool_call callback from middleware list."""
+    wrap_tool_call = None
+    for mw in middleware:
+        wrapper = getattr(mw, "wrap_tool_call", None)
+        if callable(wrapper):
+            if wrap_tool_call is not None:
+                raise ValueError(
+                    f"class {name}(agent): multiple middleware provide wrap_tool_call. "
+                    f"Only one is supported per agent."
+                )
+            wrap_tool_call = wrapper
+    return wrap_tool_call
 
 
 def _build_inject(
@@ -80,7 +97,7 @@ def _build_graph(
     kit: AgentKit,
     all_tools: list[BaseTool],
     injectable: set[str],
-    state_type: type = AgentState,
+    state_type: type = AgentKitState,
     wrap_tool_call: Any | None = None,
 ) -> Any:
     """Build the ReAct subgraph.
@@ -211,17 +228,11 @@ class _AgentMeta(type):
         kit = AgentKit(list(middleware), prompt=prompt_source)
         all_tools: list[BaseTool] = list(user_tools) + kit.tools
 
-        # Detect wrap_tool_call from middleware (e.g., HITLMiddleware)
-        wrap_tool_call = None
-        for mw in middleware:
-            wrapper = getattr(mw, "wrap_tool_call", None)
-            if callable(wrapper):
-                if wrap_tool_call is not None:
-                    raise ValueError(
-                        f"class {name}(agent): multiple middleware provide wrap_tool_call. "
-                        f"Only one is supported per agent."
-                    )
-                wrap_tool_call = wrapper
+        # Use composed schema from middleware unless handler explicitly annotates state
+        if state_type is AgentKitState:
+            state_type = kit.state_schema
+
+        wrap_tool_call = _find_wrap_tool_call(middleware, name)
 
         return _build_graph(
             name=name,
@@ -303,5 +314,6 @@ class agent(metaclass=_AgentMeta):  # noqa: N801
             async def handler(state: MyState, *, llm, prompt):
                 ...
 
-    Without an annotation, ``AgentState`` is used by default.
+    Without an annotation, the state schema is composed automatically
+    from middleware ``state_schema`` properties.
     """

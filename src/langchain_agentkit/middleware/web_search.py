@@ -176,6 +176,11 @@ class WebSearchMiddleware:
         return PromptTemplate.from_template(str(prompt_template))
 
     @property
+    def state_schema(self) -> None:
+        """No additional state keys."""
+        return None
+
+    @property
     def tools(self) -> list[BaseTool]:
         """Returns [web_search] — same list object on every access."""
         return self._tools

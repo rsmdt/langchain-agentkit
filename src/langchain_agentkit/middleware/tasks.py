@@ -127,6 +127,13 @@ class TasksMiddleware:
         self._formatter = formatter or format_task_context
 
     @property
+    def state_schema(self) -> type:
+        """Tasks require ``TasksState`` in the graph state."""
+        from langchain_agentkit.state import TasksState
+
+        return TasksState
+
+    @property
     def tools(self) -> list[BaseTool]:
         return list(self._tools)
 

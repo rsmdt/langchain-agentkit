@@ -118,6 +118,11 @@ class HITLMiddleware:
         self.interrupt_on = resolved
 
     @property
+    def state_schema(self) -> None:
+        """No additional state keys."""
+        return None
+
+    @property
     def tools(self) -> list[BaseTool]:
         """No tools — HITL is a tool execution wrapper, not a tool provider."""
         return []

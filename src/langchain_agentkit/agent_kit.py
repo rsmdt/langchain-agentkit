@@ -82,6 +82,28 @@ class AgentKit:
             self._tools_cache = tools
         return self._tools_cache
 
+    @property
+    def state_schema(self) -> type:
+        """Compose state schema from ``AgentKitState`` + all middleware schemas.
+
+        Each middleware may declare a ``state_schema`` property returning a
+        TypedDict mixin. These are combined via multiple inheritance into a
+        single composed type. Middleware without ``state_schema`` (or returning
+        ``None``) are skipped.
+        """
+        from langchain_agentkit.state import AgentKitState
+
+        bases: list[type] = [AgentKitState]
+        seen: set[int] = {id(AgentKitState)}
+        for mw in self._middleware:
+            schema = getattr(mw, "state_schema", None)
+            if schema is not None and id(schema) not in seen:
+                seen.add(id(schema))
+                bases.append(schema)
+        if len(bases) == 1:
+            return AgentKitState
+        return type("ComposedState", tuple(bases), {})
+
     def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
         """Compose prompt from template + all middleware sections.
 

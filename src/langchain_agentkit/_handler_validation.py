@@ -20,7 +20,7 @@ def validate_handler_signature(
     Returns a tuple of (injectable_params, state_type).
 
     The state type is inferred from the handler's first parameter annotation.
-    If no annotation is present, defaults to ``AgentState``.
+    If no annotation is present, defaults to ``AgentKitState``.
 
     Args:
         handler: The handler callable to inspect.
@@ -31,7 +31,7 @@ def validate_handler_signature(
     Raises:
         ValueError: If handler has invalid parameters.
     """
-    from langchain_agentkit.state import AgentState
+    from langchain_agentkit.state import AgentKitState
 
     sig = inspect.signature(handler)
     params = list(sig.parameters.values())
@@ -52,7 +52,7 @@ def validate_handler_signature(
             f"positional ('state'), got {first.kind.name}"
         )
 
-    state_type: type = AgentState
+    state_type: type = AgentKitState
     if first.annotation is not inspect.Parameter.empty:
         state_type = first.annotation
 
