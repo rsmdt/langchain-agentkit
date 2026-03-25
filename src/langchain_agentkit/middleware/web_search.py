@@ -32,7 +32,7 @@ if TYPE_CHECKING:
 
     from langgraph.prebuilt import ToolRuntime
 
-_PROMPTS_DIR = Path(__file__).parent / "prompts"
+_PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 _web_search_system_prompt = PromptTemplate.from_file(_PROMPTS_DIR / "web_search_system.md")
 

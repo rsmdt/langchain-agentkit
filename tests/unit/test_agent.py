@@ -146,7 +146,7 @@ class TestAgentMetaclass:
     def test_agent_with_middleware_produces_state_graph(self):
         from langgraph.graph import StateGraph
 
-        from langchain_agentkit.skills_middleware import SkillsMiddleware
+        from langchain_agentkit.middleware.skills import SkillsMiddleware
 
         mock_llm = MagicMock()
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
@@ -354,7 +354,7 @@ class TestAgentInvocation:
 
     def test_hitl_middleware_wrap_tool_call_passed_to_tool_node(self):
         """Verify agent detects wrap_tool_call from HITLMiddleware."""
-        from langchain_agentkit.hitl_middleware import HITLMiddleware
+        from langchain_agentkit.middleware.hitl import HITLMiddleware
 
         mock_llm = MagicMock()
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
@@ -384,7 +384,7 @@ class TestAgentInvocation:
 
     def test_multiple_wrap_tool_call_raises(self):
         """Only one middleware can provide wrap_tool_call."""
-        from langchain_agentkit.hitl_middleware import HITLMiddleware
+        from langchain_agentkit.middleware.hitl import HITLMiddleware
 
         mock_llm = MagicMock()
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)

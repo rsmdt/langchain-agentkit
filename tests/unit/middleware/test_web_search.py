@@ -7,7 +7,7 @@ import pytest
 from langchain_core.tools import BaseTool
 from langgraph.prebuilt import ToolRuntime
 
-from langchain_agentkit.web_search_middleware import QwantSearchTool, WebSearchMiddleware
+from langchain_agentkit.middleware.web_search import QwantSearchTool, WebSearchMiddleware
 
 _TEST_RUNTIME = ToolRuntime(
     state={},

@@ -8,10 +8,10 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from langchain_agentkit.skills_middleware import SkillsMiddleware
+from langchain_agentkit.middleware.skills import SkillsMiddleware
 
 if TYPE_CHECKING:
-    from langchain_agentkit.virtual_filesystem import VirtualFilesystem
+    from langchain_agentkit.vfs import VirtualFilesystem
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 

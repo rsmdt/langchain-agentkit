@@ -8,7 +8,7 @@ from langchain_core.tools import ToolException
 from langgraph.types import Command
 
 from langchain_agentkit.state import _merge_task_pair, _merge_tasks
-from langchain_agentkit.task_tools import (
+from langchain_agentkit.tools.task import (
     Task,
     TaskStatus,
     _compute_blocks,

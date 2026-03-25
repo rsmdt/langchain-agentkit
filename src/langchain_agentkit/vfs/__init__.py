@@ -5,7 +5,7 @@ All paths are normalized to absolute form (leading ``/``).
 
 Usage::
 
-    from langchain_agentkit.virtual_filesystem import VirtualFilesystem
+    from langchain_agentkit.vfs import VirtualFilesystem
 
     vfs = VirtualFilesystem()
     vfs.write("/skills/web-research/SKILL.md", "# Web Research\\n...")

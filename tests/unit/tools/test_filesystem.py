@@ -1,11 +1,11 @@
 """Tests for filesystem tools (Read, Write, Edit, Glob, Grep)."""
 
 
-from langchain_agentkit.filesystem_tools import (
+from langchain_agentkit.tools.filesystem import (
     _format_with_line_numbers,
     create_filesystem_tools,
 )
-from langchain_agentkit.virtual_filesystem import VirtualFilesystem
+from langchain_agentkit.vfs import VirtualFilesystem
 
 
 class TestCreateFilesystemTools:

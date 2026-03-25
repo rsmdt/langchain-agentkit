@@ -35,30 +35,43 @@ Two layers:
 
 from langgraph.prebuilt import ToolRuntime
 
+# Core
 from langchain_agentkit.agent import agent
 from langchain_agentkit.agent_kit import AgentKit
-from langchain_agentkit.filesystem_middleware import FilesystemMiddleware
-from langchain_agentkit.filesystem_tools import create_filesystem_tools
-from langchain_agentkit.hitl_middleware import HITLMiddleware
-from langchain_agentkit.middleware import Middleware
-from langchain_agentkit.skill_registry import SkillRegistry
-from langchain_agentkit.skills_middleware import SkillsMiddleware
+
+# Middleware
+from langchain_agentkit.middleware import (
+    FilesystemMiddleware,
+    HITLMiddleware,
+    Middleware,
+    QwantSearchTool,
+    SkillsMiddleware,
+    TasksMiddleware,
+    WebSearchMiddleware,
+)
 from langchain_agentkit.state import AgentState
-from langchain_agentkit.task_tools import Task, TaskStatus, create_task_tools
-from langchain_agentkit.tasks_middleware import TasksMiddleware
-from langchain_agentkit.virtual_filesystem import VirtualFilesystem
-from langchain_agentkit.web_search_middleware import QwantSearchTool, WebSearchMiddleware
+
+# Tools
+from langchain_agentkit.tools import (
+    SkillRegistry,
+    Task,
+    TaskStatus,
+    create_filesystem_tools,
+    create_task_tools,
+)
+
+# VFS
+from langchain_agentkit.vfs import VirtualFilesystem
 
 __all__ = [
-    # Primitive
+    # Core
     "AgentKit",
+    "AgentState",
     "Middleware",
     "ToolRuntime",
-    # Convenience
+    "VirtualFilesystem",
     "agent",
-    # Standalone
-    "SkillRegistry",
-    # Middleware implementations
+    # Middleware
     "FilesystemMiddleware",
     "HITLMiddleware",
     "SkillsMiddleware",
@@ -66,13 +79,9 @@ __all__ = [
     "WebSearchMiddleware",
     # Tools
     "QwantSearchTool",
-    "create_filesystem_tools",
-    # Task tools
-    "create_task_tools",
-    # Types
+    "SkillRegistry",
     "Task",
     "TaskStatus",
-    "VirtualFilesystem",
-    # State
-    "AgentState",
+    "create_filesystem_tools",
+    "create_task_tools",
 ]

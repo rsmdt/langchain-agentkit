@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 from langchain_core.messages import ToolMessage
 from langgraph.prebuilt import ToolRuntime
 
-from langchain_agentkit.hitl_middleware import HITLMiddleware
+from langchain_agentkit.middleware.hitl import HITLMiddleware
 
 _TEST_RUNTIME = ToolRuntime(
     state={},

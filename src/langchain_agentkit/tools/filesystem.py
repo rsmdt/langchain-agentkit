@@ -4,8 +4,8 @@ Provides five tools: ``Read``, ``Write``, ``Edit``, ``Glob``, ``Grep``.
 
 Usage::
 
-    from langchain_agentkit.virtual_filesystem import VirtualFilesystem
-    from langchain_agentkit.filesystem_tools import create_filesystem_tools
+    from langchain_agentkit.vfs import VirtualFilesystem
+    from langchain_agentkit.tools.filesystem import create_filesystem_tools
 
     vfs = VirtualFilesystem()
     tools = create_filesystem_tools(vfs)
@@ -21,7 +21,7 @@ from pydantic import BaseModel, Field
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
-    from langchain_agentkit.virtual_filesystem import VirtualFilesystem
+    from langchain_agentkit.vfs import VirtualFilesystem
 
 
 class _ReadInput(BaseModel):

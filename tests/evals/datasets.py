@@ -210,17 +210,13 @@ TASK_CREATE_DATASET = [
 
 TASK_LIFECYCLE_DATASET = [
     {
-        "description": "Agent creates task, marks in_progress, then completed",
+        "description": "Agent creates task and marks it completed",
         "inputs": (
-            "Create a task 'Write unit tests' and then immediately start working on it "
-            "and mark it done."
+            "Create a task 'Write unit tests' and then mark it done."
         ),
         "reference_trajectory": [
             _assistant_with_tools(
                 _tool_call("TaskCreate", subject="Write unit tests", description=""),
-            ),
-            _assistant_with_tools(
-                _tool_call("TaskUpdate", status="in_progress"),
             ),
             _assistant_with_tools(
                 _tool_call("TaskUpdate", status="completed"),

@@ -4,8 +4,8 @@ from pathlib import Path
 
 from langgraph.prebuilt import ToolRuntime
 
-from langchain_agentkit.skills_middleware import SkillsMiddleware
-from langchain_agentkit.virtual_filesystem import VirtualFilesystem
+from langchain_agentkit.middleware.skills import SkillsMiddleware
+from langchain_agentkit.vfs import VirtualFilesystem
 
 _TEST_RUNTIME = ToolRuntime(
     state={},
@@ -16,7 +16,7 @@ _TEST_RUNTIME = ToolRuntime(
     store=None,
 )
 
-FIXTURES = Path(__file__).parent.parent / "fixtures"
+FIXTURES = Path(__file__).parent.parent.parent / "fixtures"
 
 
 class TestTools:

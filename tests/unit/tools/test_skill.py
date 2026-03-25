@@ -2,10 +2,10 @@
 
 from pathlib import Path
 
-from langchain_agentkit.skill_registry import SkillRegistry
-from langchain_agentkit.virtual_filesystem import VirtualFilesystem
+from langchain_agentkit.tools.skill import SkillRegistry
+from langchain_agentkit.vfs import VirtualFilesystem
 
-FIXTURES = Path(__file__).parent.parent / "fixtures"
+FIXTURES = Path(__file__).parent.parent.parent / "fixtures"
 
 
 class TestInit:

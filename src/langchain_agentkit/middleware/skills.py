@@ -22,16 +22,16 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_core.prompts import PromptTemplate
 
-from langchain_agentkit.filesystem_tools import create_filesystem_tools
-from langchain_agentkit.skill_registry import SkillRegistry
+from langchain_agentkit.tools.filesystem import create_filesystem_tools
+from langchain_agentkit.tools.skill import SkillRegistry
 from langchain_agentkit.types import SkillConfig
-from langchain_agentkit.virtual_filesystem import VirtualFilesystem
+from langchain_agentkit.vfs import VirtualFilesystem
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
 
-_PROMPTS_DIR = Path(__file__).parent / "prompts"
+_PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 _skills_system_prompt = PromptTemplate.from_file(_PROMPTS_DIR / "skills_system.md")
 

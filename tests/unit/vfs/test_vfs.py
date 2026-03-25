@@ -2,7 +2,7 @@
 
 import pytest
 
-from langchain_agentkit.virtual_filesystem import VirtualFilesystem
+from langchain_agentkit.vfs import VirtualFilesystem
 
 # --- Path Normalization ---
 

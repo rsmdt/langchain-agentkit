@@ -14,7 +14,7 @@ Usage::
     tools = registry.tools  # → [Skill]
 
     # Populate a virtual filesystem with skill files
-    from langchain_agentkit.virtual_filesystem import VirtualFilesystem
+    from langchain_agentkit.vfs import VirtualFilesystem
     vfs = VirtualFilesystem()
     registry.populate_filesystem(vfs)
 
@@ -39,7 +39,7 @@ from pydantic import BaseModel, Field
 from langchain_agentkit.types import SkillConfig
 
 if TYPE_CHECKING:
-    from langchain_agentkit.virtual_filesystem import VirtualFilesystem
+    from langchain_agentkit.vfs import VirtualFilesystem
 
 # AgentSkills.io: 1-64 chars, lowercase + digits + hyphens, no leading/trailing/consecutive hyphens
 SKILL_NAME_PATTERN = re.compile(r"^[a-z](?:[a-z0-9]|-(?!-)){0,62}[a-z0-9]$|^[a-z]$")

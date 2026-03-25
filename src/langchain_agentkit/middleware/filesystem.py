@@ -12,7 +12,7 @@ Usage::
 
 Pre-populate with files::
 
-    from langchain_agentkit.virtual_filesystem import VirtualFilesystem
+    from langchain_agentkit.vfs import VirtualFilesystem
 
     vfs = VirtualFilesystem()
     vfs.write("/data/config.json", '{"key": "value"}')
@@ -27,8 +27,8 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
 
-from langchain_agentkit.filesystem_tools import create_filesystem_tools
-from langchain_agentkit.virtual_filesystem import VirtualFilesystem
+from langchain_agentkit.tools.filesystem import create_filesystem_tools
+from langchain_agentkit.vfs import VirtualFilesystem
 
 
 class FilesystemMiddleware:

@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
 
-_PROMPTS_DIR = Path(__file__).parent / "prompts"
+_PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 _base_agent_prompt = PromptTemplate.from_file(_PROMPTS_DIR / "base_agent.md")
 _task_management_prompt = PromptTemplate.from_file(_PROMPTS_DIR / "task_management.md")
@@ -121,7 +121,7 @@ class TasksMiddleware:
         if task_tools is not None:
             self._tools = list(task_tools)
         else:
-            from langchain_agentkit.task_tools import create_task_tools
+            from langchain_agentkit.tools.task import create_task_tools
 
             self._tools = create_task_tools()
         self._formatter = formatter or format_task_context
