@@ -79,7 +79,9 @@ class FilesystemMiddleware:
         return self._tools_cache
 
     def prompt(
-        self, state: dict[str, Any], runtime: ToolRuntime | None = None,
+        self,
+        state: dict[str, Any],
+        runtime: ToolRuntime | None = None,
     ) -> str | None:
         """Return filesystem prompt section, or ``None`` if no files loaded."""
         file_count = len(self.filesystem)
@@ -103,7 +105,8 @@ class FilesystemMiddleware:
 
 
 def _load_files(
-    vfs: VirtualFilesystem, files: dict[str, str] | str | Path,
+    vfs: VirtualFilesystem,
+    files: dict[str, str] | str | Path,
 ) -> None:
     """Load files into a VFS from a dict or directory path."""
     if isinstance(files, dict):

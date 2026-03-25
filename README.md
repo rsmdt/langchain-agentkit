@@ -44,9 +44,14 @@ The state schema is composed automatically from middleware — `TasksMiddleware`
 
 ### `AgentKit` for manual graph wiring
 
-Use `AgentKit` when you need full control over graph topology:
+Use `AgentKit` when you need full control over graph topology — custom routing, multi-node graphs, or a shared `ToolNode`:
 
 ```python
+from langchain_core.messages import HumanMessage, SystemMessage
+from langchain_openai import ChatOpenAI
+from langgraph.graph import END, START, StateGraph
+from langgraph.prebuilt import ToolNode
+
 from langchain_agentkit import AgentKit, SkillsMiddleware, TasksMiddleware
 
 kit = AgentKit([
@@ -54,9 +59,31 @@ kit = AgentKit([
     TasksMiddleware(),
 ])
 
-all_tools = my_tools + kit.tools
-system_prompt = kit.prompt(state, runtime)
-state_schema = kit.state_schema  # composed from middleware
+llm = ChatOpenAI(model="gpt-4o")
+all_tools = kit.tools
+bound_llm = llm.bind_tools(all_tools)
+
+def agent_node(state):
+    prompt = kit.prompt(state)
+    messages = [SystemMessage(content=prompt)] + state["messages"]
+    return {"messages": [bound_llm.invoke(messages)]}
+
+def should_continue(state):
+    last = state["messages"][-1]
+    if hasattr(last, "tool_calls") and last.tool_calls:
+        return "tools"
+    return END
+
+# State schema composed automatically from middleware
+graph = StateGraph(kit.state_schema)
+graph.add_node("agent", agent_node)
+graph.add_node("tools", ToolNode(all_tools))
+graph.add_edge(START, "agent")
+graph.add_conditional_edges("agent", should_continue, {"tools": "tools", END: END})
+graph.add_edge("tools", "agent")
+
+app = graph.compile()
+result = app.invoke({"messages": [HumanMessage("Size the B2B SaaS market")]})
 ```
 
 ## Middleware

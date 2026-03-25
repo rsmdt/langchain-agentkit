@@ -601,7 +601,8 @@ class TestLoadDirectory:
     def test_loads_skill_files(self):
         vfs = VirtualFilesystem()
         count = vfs.load_directory(
-            FIXTURES / "skills" / "market-sizing", base_path="/skill",
+            FIXTURES / "skills" / "market-sizing",
+            base_path="/skill",
         )
 
         assert count >= 2
@@ -611,7 +612,8 @@ class TestLoadDirectory:
     def test_content_matches_real_file(self):
         vfs = VirtualFilesystem()
         vfs.load_directory(
-            FIXTURES / "skills" / "market-sizing", base_path="/s",
+            FIXTURES / "skills" / "market-sizing",
+            base_path="/s",
         )
 
         real = (FIXTURES / "skills" / "market-sizing" / "SKILL.md").read_text()

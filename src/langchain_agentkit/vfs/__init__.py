@@ -79,7 +79,9 @@ class VirtualFilesystem:
             self.write(path, content)
 
     def load_directory(
-        self, source: str | Path, base_path: str = "/",
+        self,
+        source: str | Path,
+        base_path: str = "/",
     ) -> int:
         """Recursively load a real directory into the VFS.
 

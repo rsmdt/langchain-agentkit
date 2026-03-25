@@ -36,10 +36,12 @@ class TestConstructor:
         assert mw.filesystem.exists("/a.txt")
 
     def test_with_files_dict(self):
-        mw = FilesystemMiddleware(files={
-            "/config.json": '{"key": "value"}',
-            "/data.txt": "data",
-        })
+        mw = FilesystemMiddleware(
+            files={
+                "/config.json": '{"key": "value"}',
+                "/data.txt": "data",
+            }
+        )
 
         assert mw.filesystem.exists("/config.json")
         assert mw.filesystem.exists("/data.txt")
@@ -110,10 +112,12 @@ class TestPrompt:
         assert "/data/" in result
 
     def test_multiple_dirs_listed(self):
-        mw = FilesystemMiddleware(files={
-            "/data/a.txt": "",
-            "/config/b.txt": "",
-        })
+        mw = FilesystemMiddleware(
+            files={
+                "/data/a.txt": "",
+                "/config/b.txt": "",
+            }
+        )
 
         result = mw.prompt({}, _TEST_RUNTIME)
 

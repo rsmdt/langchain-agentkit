@@ -367,20 +367,44 @@ class TestGlobTool:
         assert lines[0] == "/a.txt"
         assert lines[1] == "/z.txt"
 
+    def test_path_param_scopes_search(self):
+        vfs = VirtualFilesystem()
+        vfs.write("/a/file.md", "")
+        vfs.write("/b/file.md", "")
+        tool = create_filesystem_tools(vfs)[3]
+
+        result = tool.invoke({"pattern": "*.md", "path": "/a"})
+
+        assert "/a/file.md" in result
+        assert "/b/file.md" not in result
+
+    def test_path_param_with_absolute_pattern(self):
+        vfs = VirtualFilesystem()
+        vfs.write("/a/file.md", "")
+        tool = create_filesystem_tools(vfs)[3]
+
+        # Absolute pattern ignores path
+        result = tool.invoke({"pattern": "/a/*.md", "path": "/b"})
+
+        assert "/a/file.md" in result
+
 
 # --- Grep Tool ---
 
 
 class TestGrepTool:
-    def test_finds_matches(self):
+    """Tests for Grep tool — default output_mode is files_with_matches."""
+
+    def test_default_mode_returns_file_paths(self):
         vfs = VirtualFilesystem()
         vfs.write("/f.txt", "hello world\ngoodbye")
         tool = create_filesystem_tools(vfs)[4]
 
         result = tool.invoke({"pattern": "hello"})
 
-        assert "/f.txt:1:" in result
-        assert "hello world" in result
+        assert "/f.txt" in result
+        # Default mode should NOT include line content
+        assert "hello world" not in result
 
     def test_no_matches(self):
         vfs = VirtualFilesystem()
@@ -390,6 +414,47 @@ class TestGrepTool:
         result = tool.invoke({"pattern": "missing"})
 
         assert "No matches" in result
+
+    def test_files_with_matches_deduplicates(self):
+        vfs = VirtualFilesystem()
+        vfs.write("/f.txt", "match\nmatch\nmatch")
+        tool = create_filesystem_tools(vfs)[4]
+
+        result = tool.invoke({"pattern": "match"})
+
+        # File should appear only once
+        assert result.strip() == "/f.txt"
+
+    def test_content_mode(self):
+        vfs = VirtualFilesystem()
+        vfs.write("/f.txt", "hello world\ngoodbye")
+        tool = create_filesystem_tools(vfs)[4]
+
+        result = tool.invoke(
+            {
+                "pattern": "hello",
+                "output_mode": "content",
+            }
+        )
+
+        assert "/f.txt:1:" in result
+        assert "hello world" in result
+
+    def test_count_mode(self):
+        vfs = VirtualFilesystem()
+        vfs.write("/a.txt", "match\nmatch\nmatch")
+        vfs.write("/b.txt", "match")
+        tool = create_filesystem_tools(vfs)[4]
+
+        result = tool.invoke(
+            {
+                "pattern": "match",
+                "output_mode": "count",
+            }
+        )
+
+        assert "/a.txt: 3 match(es)" in result
+        assert "/b.txt: 1 match(es)" in result
 
     def test_path_restriction(self):
         vfs = VirtualFilesystem()
@@ -407,7 +472,13 @@ class TestGrepTool:
         vfs.write("/f.txt", "Hello World")
         tool = create_filesystem_tools(vfs)[4]
 
-        result = tool.invoke({"pattern": "hello", "ignore_case": True})
+        result = tool.invoke(
+            {
+                "pattern": "hello",
+                "ignore_case": True,
+                "output_mode": "content",
+            }
+        )
 
         assert "Hello World" in result
 
@@ -422,18 +493,59 @@ class TestGrepTool:
         assert "/d/a.py" in result
         assert "/d/b.md" not in result
 
-    def test_regex_pattern(self):
+    def test_context_lines(self):
         vfs = VirtualFilesystem()
-        vfs.write("/f.txt", "foo123\nbar456\nbaz")
+        vfs.write("/f.txt", "line1\nline2\nTARGET\nline4\nline5")
         tool = create_filesystem_tools(vfs)[4]
 
-        result = tool.invoke({"pattern": r"\d+"})
+        result = tool.invoke(
+            {
+                "pattern": "TARGET",
+                "output_mode": "content",
+                "context": 1,
+            }
+        )
 
-        assert "foo123" in result
-        assert "bar456" in result
-        assert "baz" not in result
+        assert "line2" in result
+        assert "TARGET" in result
+        assert "line4" in result
 
-    def test_multiple_files(self):
+    def test_head_limit_files_mode(self):
+        vfs = VirtualFilesystem()
+        vfs.write("/a.txt", "match")
+        vfs.write("/b.txt", "match")
+        vfs.write("/c.txt", "match")
+        tool = create_filesystem_tools(vfs)[4]
+
+        result = tool.invoke(
+            {
+                "pattern": "match",
+                "head_limit": 2,
+            }
+        )
+
+        lines = result.strip().split("\n")
+        # 2 file paths + 1 "more" line
+        assert len([x for x in lines if x.startswith("/")]) == 2
+        assert "1 more" in result
+
+    def test_head_limit_content_mode(self):
+        vfs = VirtualFilesystem()
+        vfs.write("/f.txt", "a\nb\nc\nd\ne")
+        tool = create_filesystem_tools(vfs)[4]
+
+        result = tool.invoke(
+            {
+                "pattern": "[a-e]",
+                "output_mode": "content",
+                "head_limit": 2,
+            }
+        )
+
+        lines = [x for x in result.strip().split("\n") if x.startswith("/")]
+        assert len(lines) == 2
+
+    def test_multiple_files_default_mode(self):
         vfs = VirtualFilesystem()
         vfs.write("/a.txt", "match here")
         vfs.write("/b.txt", "match there")
@@ -442,6 +554,6 @@ class TestGrepTool:
 
         result = tool.invoke({"pattern": "match"})
 
-        assert "/a.txt:1:" in result
-        assert "/b.txt:1:" in result
+        assert "/a.txt" in result
+        assert "/b.txt" in result
         assert "/c.txt" not in result
