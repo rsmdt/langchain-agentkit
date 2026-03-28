@@ -28,7 +28,24 @@ def validate_agent_list(agents: list[Any]) -> dict[str, Any]:
     if len(set(names)) != len(names):
         dupes = [n for n in names if names.count(n) > 1]
         raise ValueError(f"Duplicate agent names: {set(dupes)}")
-    return {getattr(g, "agentkit_name"): g for g in agents}
+    return {g.agentkit_name: g for g in agents}
+
+
+def resolve_agent(agent_name: str, agents_by_name: dict[str, Any]) -> Any:
+    """Look up an agent by name, raising a descriptive error if not found.
+
+    Returns the agent graph on success. Raises ``ToolException`` with
+    available agent names on failure.
+    """
+    from langchain_core.tools import ToolException
+
+    if agent_name not in agents_by_name:
+        available = ", ".join(sorted(agents_by_name.keys()))
+        raise ToolException(
+            f"Agent '{agent_name}' not found. Available agents: {available}"
+        )
+    return agents_by_name[agent_name]
+
 
 from langchain_agentkit.middleware.agents import AgentMiddleware as AgentMiddleware
 from langchain_agentkit.middleware.filesystem import FilesystemMiddleware as FilesystemMiddleware

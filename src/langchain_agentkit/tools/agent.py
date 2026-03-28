@@ -1,4 +1,4 @@
-"""Command-based agent delegation tools for LangGraph agents.
+"""Unified Agent tool for LangGraph agent delegation.
 
 Tools return ``Command(update={"messages": [ToolMessage(...)]})`` to
 propagate delegation results. Compatible with LangGraph's ``ToolNode``
@@ -40,15 +40,37 @@ if TYPE_CHECKING:
 
 
 # ---------------------------------------------------------------------------
+# Agent reference types (discriminated by field shape)
+# ---------------------------------------------------------------------------
+
+
+class Predefined(BaseModel):
+    """Select a pre-defined agent from the roster."""
+
+    id: str = Field(description="Agent name from the available roster.")
+
+
+class Dynamic(BaseModel):
+    """Create an on-the-fly reasoning agent."""
+
+    prompt: str = Field(
+        description="System prompt defining the agent's role and behavior.",
+    )
+
+
+# ---------------------------------------------------------------------------
 # Input schemas
 # ---------------------------------------------------------------------------
 
 
-class _DelegateInput(BaseModel):
-    agent: str = Field(description="Name of the agent to delegate to.")
+class _AgentInputBase(BaseModel):
+    name: str | None = Field(
+        default=None,
+        description="Human-readable label for this delegation (shown in UI).",
+    )
     message: str = Field(
         description=(
-            "Clear, specific task for the subagent. Include all necessary "
+            "Clear, specific task for the agent. Include all necessary "
             "context — the agent has no access to your conversation history."
         ),
     )
@@ -56,18 +78,23 @@ class _DelegateInput(BaseModel):
     tool_call_id: Annotated[str, InjectedToolCallId]
 
 
-class _DelegateEphemeralInput(BaseModel):
-    message: str = Field(
-        description="Task for the ephemeral agent to perform.",
+class _AgentInput(_AgentInputBase):
+    """Input schema when only pre-defined agents are available."""
+
+    agent: Predefined = Field(
+        description="The pre-defined agent to delegate to.",
     )
-    instructions: str = Field(
+
+
+class _AgentDynamicInput(_AgentInputBase):
+    """Input schema when both pre-defined and dynamic agents are available."""
+
+    agent: Predefined | Dynamic = Field(
         description=(
-            "System prompt defining the ephemeral agent's role and behavior. "
-            "Must be non-empty."
+            "The agent to delegate to. Use {id} for a pre-defined agent "
+            "from the roster, or {prompt} to create a custom reasoning agent."
         ),
     )
-    state: Annotated[dict[str, Any], InjectedState]
-    tool_call_id: Annotated[str, InjectedToolCallId]
 
 
 # ---------------------------------------------------------------------------
@@ -109,14 +136,10 @@ def _compile_agent(
     if getattr(graph, "agentkit_tools_inherit", False) and parent_tools_getter is not None:
         parent_tools = parent_tools_getter()
         if parent_tools:
-            # Rebuild the graph's ToolNode with parent tools
-            # The graph is a StateGraph — add tools before compiling
             tool_node = ToolNode(parent_tools)
-            # Check if there's already a tools node to replace
             if "tools" in graph.nodes:
                 graph.nodes["tools"] = tool_node
             else:
-                # Add tool node and wire edges for the ReAct loop
                 graph.add_node("tools", tool_node)
                 agent_node_name = name
                 graph.add_conditional_edges(
@@ -150,7 +173,7 @@ async def _run_delegation(
     """Invoke a compiled graph with timeout and error handling."""
     try:
         result = await asyncio.wait_for(compiled.ainvoke(scoped_state), timeout=timeout)
-    except asyncio.TimeoutError:
+    except TimeoutError:
         return Command(update={
             "messages": [
                 ToolMessage(
@@ -179,66 +202,104 @@ async def _run_delegation(
 
 
 # ---------------------------------------------------------------------------
-# Tool implementations
+# Unified tool implementation
 # ---------------------------------------------------------------------------
 
 
-async def _delegate(
-    agent: str,
+async def _agent_tool(
+    agent: dict[str, Any] | Predefined | Dynamic,
     message: str,
     state: dict[str, Any],
     tool_call_id: str,
+    name: str | None = None,
     *,
     agents_by_name: dict[str, Any],
     compiled_cache: dict[str, Any],
     delegation_timeout: float,
     parent_tools_getter: Callable[[], list[BaseTool]] | None,
+    ephemeral: bool,
+    parent_llm_getter: Callable[[], Any] | None,
 ) -> Any:
-    """Delegate a task to a named subagent."""
-    if agent not in agents_by_name:
-        available = ", ".join(sorted(agents_by_name.keys()))
-        raise ToolException(
-            f"Agent '{agent}' not found. Available agents: {available}"
+    """Delegate a task to a pre-defined or dynamically created agent."""
+    # Normalise to dict — LangChain may pass a Pydantic model or a raw dict
+    agent_ref = agent if isinstance(agent, dict) else agent.model_dump()
+
+    if "id" in agent_ref:
+        return await _delegate_predefined(
+            agent_id=agent_ref["id"],
+            message=message,
+            agents_by_name=agents_by_name,
+            compiled_cache=compiled_cache,
+            delegation_timeout=delegation_timeout,
+            parent_tools_getter=parent_tools_getter,
+            tool_call_id=tool_call_id,
         )
 
-    graph = agents_by_name[agent]
+    if "prompt" in agent_ref:
+        if not ephemeral:
+            raise ToolException(
+                "Dynamic agents are not enabled. "
+                "Set ephemeral=True on AgentMiddleware to allow custom agents."
+            )
+        return await _delegate_dynamic(
+            prompt=agent_ref["prompt"],
+            message=message,
+            delegation_timeout=delegation_timeout,
+            parent_llm_getter=parent_llm_getter,
+            tool_call_id=tool_call_id,
+        )
+
+    raise ToolException(
+        "Invalid agent reference. Provide {id} for a pre-defined agent "
+        "or {prompt} for a custom agent."
+    )
+
+
+async def _delegate_predefined(
+    agent_id: str,
+    message: str,
+    agents_by_name: dict[str, Any],
+    compiled_cache: dict[str, Any],
+    delegation_timeout: float,
+    parent_tools_getter: Callable[[], list[BaseTool]] | None,
+    tool_call_id: str,
+) -> Any:
+    """Delegate a task to a named pre-defined agent."""
+    from langchain_agentkit.middleware import resolve_agent
+
+    graph = resolve_agent(agent_id, agents_by_name)
     compiled = _compile_agent(graph, compiled_cache, parent_tools_getter)
     scoped_state = _build_scoped_state(message)
 
     return await _run_delegation(
         compiled=compiled,
         scoped_state=scoped_state,
-        agent=agent,
+        agent=agent_id,
         timeout=delegation_timeout,
         tool_call_id=tool_call_id,
     )
 
 
-async def _delegate_ephemeral(
+async def _delegate_dynamic(
+    prompt: str,
     message: str,
-    instructions: str,
-    state: dict[str, Any],
-    tool_call_id: str,
-    *,
     delegation_timeout: float,
-    parent_llm_getter: Callable[[], Any],
+    parent_llm_getter: Callable[[], Any] | None,
+    tool_call_id: str,
 ) -> Any:
-    """Delegate a task to a dynamically-created agent.
+    """Delegate a task to a dynamically created reasoning agent."""
+    if not prompt or not prompt.strip():
+        raise ToolException("Agent prompt cannot be empty.")
 
-    Builds a real ``StateGraph`` identical to what the ``agent`` metaclass
-    produces — the ephemeral agent has the same lifecycle and capabilities
-    as a regular agent, just created at runtime with custom instructions.
-    """
-    if not instructions or not instructions.strip():
-        raise ToolException("instructions cannot be empty")
+    if parent_llm_getter is None:
+        raise ToolException("Dynamic agents require a parent LLM.")
 
     llm = parent_llm_getter()
-    ephemeral_name = "ephemeral"
+    ephemeral_name = "dynamic"
 
     from langchain_agentkit._graph_builder import build_graph
     from langchain_agentkit.agent_kit import AgentKit
 
-    # Build a real agent graph using the same build_graph as the metaclass
     async def _ephemeral_handler(
         state_inner: dict[str, Any],
         *,
@@ -254,7 +315,7 @@ async def _delegate_ephemeral(
         return {"messages": [response], "sender": ephemeral_name}
 
     try:
-        kit = AgentKit([], prompt=instructions)
+        kit = AgentKit([], prompt=prompt)
         graph = build_graph(
             name=ephemeral_name,
             handler=_ephemeral_handler,
@@ -266,7 +327,7 @@ async def _delegate_ephemeral(
         compiled = graph.compile()
     except Exception as exc:
         raise ToolException(
-            f"Failed to create ephemeral agent: {exc}"
+            f"Failed to create dynamic agent: {exc}"
         ) from exc
 
     scoped_state = _build_scoped_state(message)
@@ -281,17 +342,17 @@ async def _delegate_ephemeral(
 
 
 # ---------------------------------------------------------------------------
-# Tool descriptions
+# Tool description
 # ---------------------------------------------------------------------------
 
 
-_DELEGATE_DESCRIPTION = """\
-Delegate a task to a specialist agent and wait for the result.
+_AGENT_DESCRIPTION = """\
+Delegate a task to an agent and wait for the result.
 
 Use when:
 - The task requires specialized tools you don't have
 - The task is independent and can be done in isolation
-- You need multiple things done in parallel (call Delegate multiple times in one turn)
+- You need multiple things done in parallel (call Agent multiple times in one turn)
 - The task would benefit from focused, context-isolated execution
 
 Do NOT use when:
@@ -301,18 +362,6 @@ Do NOT use when:
 
 Provide a clear, self-contained message. The agent receives ONLY your message — \
 it has no access to your conversation history.\
-"""
-
-_DELEGATE_EPHEMERAL_DESCRIPTION = """\
-Create a temporary reasoning-only agent with custom instructions and delegate a task to it.
-
-Use when:
-- You need analysis or reasoning with a specific perspective or role
-- No existing specialist agent fits the need
-- The task is purely analytical (no tools needed)
-
-The ephemeral agent is reasoning-only — it cannot use tools. It receives your \
-instructions as its system prompt and your message as the task.\
 """
 
 
@@ -329,56 +378,41 @@ def create_agent_tools(
     ephemeral: bool,
     parent_llm_getter: Callable[[], Any] | None,
 ) -> list[BaseTool]:
-    """Create delegation tools for agent-to-agent communication.
+    """Create the unified Agent tool for agent-to-agent delegation.
 
-    Returns a list containing the Delegate tool and optionally
-    the DelegateEphemeral tool (if ``ephemeral=True``).
+    Returns a list containing the Agent tool. When ``ephemeral=True``,
+    the tool schema includes the Dynamic agent variant.
 
     Args:
         agents_by_name: Dict mapping agent name to its StateGraph.
         compiled_cache: Shared cache for compiled graphs (mutated in place).
         delegation_timeout: Max seconds to wait for a subagent response.
         parent_tools_getter: Callable returning parent's tools (for inherit).
-        ephemeral: Whether to include the DelegateEphemeral tool.
-        parent_llm_getter: Callable returning the parent LLM (for ephemeral).
+        ephemeral: Whether to include the Dynamic agent variant in the schema.
+        parent_llm_getter: Callable returning the parent LLM (for dynamic).
     """
+    if ephemeral and parent_llm_getter is None:
+        msg = "parent_llm_getter is required when ephemeral=True"
+        raise ValueError(msg)
 
-    bound_delegate = partial(
-        _delegate,
+    schema = _AgentDynamicInput if ephemeral else _AgentInput
+
+    bound = partial(
+        _agent_tool,
         agents_by_name=agents_by_name,
         compiled_cache=compiled_cache,
         delegation_timeout=delegation_timeout,
         parent_tools_getter=parent_tools_getter,
+        ephemeral=ephemeral,
+        parent_llm_getter=parent_llm_getter,
     )
 
-    delegate_tool = StructuredTool.from_function(
-        coroutine=bound_delegate,
-        name="Delegate",
-        description=_DELEGATE_DESCRIPTION,
-        args_schema=_DelegateInput,
+    tool = StructuredTool.from_function(
+        coroutine=bound,
+        name="Agent",
+        description=_AGENT_DESCRIPTION,
+        args_schema=schema,
         handle_tool_error=True,
     )
 
-    tools: list[BaseTool] = [delegate_tool]
-
-    if ephemeral:
-        if parent_llm_getter is None:
-            msg = "parent_llm_getter is required when ephemeral=True"
-            raise ValueError(msg)
-
-        bound_delegate_ephemeral = partial(
-            _delegate_ephemeral,
-            delegation_timeout=delegation_timeout,
-            parent_llm_getter=parent_llm_getter,
-        )
-
-        ephemeral_tool = StructuredTool.from_function(
-            coroutine=bound_delegate_ephemeral,
-            name="DelegateEphemeral",
-            description=_DELEGATE_EPHEMERAL_DESCRIPTION,
-            args_schema=_DelegateEphemeralInput,
-            handle_tool_error=True,
-        )
-        tools.append(ephemeral_tool)
-
-    return tools
+    return [tool]

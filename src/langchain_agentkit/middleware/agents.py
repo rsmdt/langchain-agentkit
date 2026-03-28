@@ -15,7 +15,7 @@ Usage::
         middleware = [AgentMiddleware([researcher])]
         async def handler(state, *, llm, tools, prompt): ...
 
-Parallel delegation: the LLM calls Delegate multiple times in one turn.
+Parallel delegation: the LLM calls Agent multiple times in one turn.
 LangGraph's ToolNode executes them concurrently.
 """
 
@@ -39,17 +39,24 @@ _CONCISENESS_DIRECTIVE = (
     "Synthesize the key findings — don't repeat the subagent's full response verbatim."
 )
 
+_DYNAMIC_SECTION = """\
+**To a custom agent** — define its role with a system prompt:
+```
+Agent(agent={prompt: "You are a legal expert..."}, message="...")
+```
+Custom agents are reasoning-only — they cannot use tools."""
+
 
 class AgentMiddleware:
-    """Middleware providing blocking subagent delegation.
+    """Middleware providing blocking subagent delegation via the Agent tool.
 
-    Parallel delegation: LLM calls multiple Delegate tools in one turn.
+    Parallel delegation: LLM calls multiple Agent tools in one turn.
     LangGraph's ToolNode executes them concurrently.
 
     Args:
         agents: List of StateGraph objects created via the ``agent`` metaclass.
             Each must have ``agentkit_name`` and ``agentkit_description`` attrs.
-        ephemeral: Enable the DelegateEphemeral tool for ad-hoc reasoning agents.
+        ephemeral: Enable dynamic (on-the-fly) agents in the Agent tool schema.
         default_conciseness: Append conciseness directive to delegation prompt.
         delegation_timeout: Max seconds to wait for a subagent response.
 
@@ -78,13 +85,13 @@ class AgentMiddleware:
         self._compiled_cache: dict[str, Any] = {}
 
         # Placeholder — resolved lazily by tools when parent context is available
-        self._parent_tools_getter: Any = lambda: []
+        self._parent_tools_getter: Any = list
         self._parent_llm_getter: Any = None
 
         self._tools = tuple(self._create_tools())
 
     def _create_tools(self) -> list[BaseTool]:
-        """Create delegation tools with closures over middleware state."""
+        """Create the unified Agent tool with closures over middleware state."""
         from langchain_agentkit.tools.agent import create_agent_tools
 
         return create_agent_tools(
@@ -108,13 +115,13 @@ class AgentMiddleware:
         """Set the callable that returns the parent agent's LLM.
 
         Called by the framework when wiring up the agent graph,
-        enabling DelegateEphemeral to use the parent's LLM.
+        enabling dynamic agents to use the parent's LLM.
         """
         self._parent_llm_getter = getter
 
     @property
     def tools(self) -> list[BaseTool]:
-        """Delegation tools provided by this middleware."""
+        """The Agent tool provided by this middleware."""
         return self._tools
 
     def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
@@ -128,10 +135,10 @@ class AgentMiddleware:
             roster_lines.append(f"- **{name}**: {description}")
 
         roster = "\n".join(roster_lines)
-        result = template.format(agent_roster=roster)
+        dynamic_section = _DYNAMIC_SECTION if self._ephemeral else ""
+        result = template.format(agent_roster=roster, dynamic_section=dynamic_section)
 
         if self._default_conciseness:
             result += _CONCISENESS_DIRECTIVE
 
         return result
-

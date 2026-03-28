@@ -2,7 +2,7 @@
 """Real-LLM integration evals for AgentMiddleware delegation pipeline.
 
 Tests exercise the FULL compiled graph flow: lead agent receives a message,
-decides to delegate via the Delegate tool, LangGraph's ToolNode executes the
+decides to delegate via the Agent tool, LangGraph's ToolNode executes the
 delegation, the subagent processes with a real LLM, and the result propagates
 back through the lead's ReAct loop.
 
@@ -49,10 +49,6 @@ def _get_llm():
 # ---------------------------------------------------------------------------
 # Subagent definitions
 # ---------------------------------------------------------------------------
-
-# NOTE: These are defined at module level (not inside functions) because the
-# metaclass creates a StateGraph, and the class body needs `llm` resolved.
-# We use a factory to defer LLM construction until test time.
 
 
 def _build_calculator():
@@ -113,7 +109,7 @@ def _build_lead_with_middleware(mw: AgentMiddleware):
         middleware = [mw]
         prompt = (
             "You are a lead agent. You MUST delegate tasks to specialist agents. "
-            "NEVER answer questions yourself. ALWAYS use the Delegate tool. "
+            "NEVER answer questions yourself. ALWAYS use the Agent tool. "
             "After receiving the delegation result, report it to the user verbatim."
         )
 
@@ -146,7 +142,6 @@ class TestDelegationFullFlow:
             {"messages": [HumanMessage(content="What is 2+2?")]}
         )
 
-        # Verify final response contains the answer
         final = result["messages"][-1].content
         assert "4" in final, f"Expected '4' in final response, got: {final}"
 
@@ -189,33 +184,29 @@ class TestMultiAgentDelegation:
 
 
 # ---------------------------------------------------------------------------
-# Test 3: Ephemeral delegation
+# Test 3: Dynamic delegation
 # ---------------------------------------------------------------------------
 
 
-class TestEphemeralDelegation:
+class TestDynamicDelegation:
     """Lead agent with ephemeral=True can create ad-hoc agents."""
 
-    async def test_ephemeral_delegation(self):
-        """Lead delegates to an ephemeral reasoning agent."""
+    async def test_dynamic_delegation(self):
+        """Lead delegates to a dynamic reasoning agent."""
         calculator = _build_calculator()
         mw = AgentMiddleware([calculator], ephemeral=True)
 
-        # Set parent LLM getter for ephemeral agents
         mw.set_parent_llm_getter(_get_llm)
 
-        lead = _build_lead_with_middleware(mw)
-
-        # Override prompt to encourage ephemeral usage
         _llm = _get_llm()
 
-        class ephemeral_lead(agent):
+        class dynamic_lead(agent):
             llm = _llm
             middleware = [mw]
             prompt = (
-                "You are a lead agent. Use the DelegateEphemeral tool to create "
-                "a temporary analyst. Set instructions to 'You are a poet. Write "
-                "a one-line poem about the topic.' and pass the user's message."
+                "You are a lead agent. Use the Agent tool to create a custom agent. "
+                "Set agent to {prompt: 'You are a poet. Write a one-line poem about "
+                "the topic.'} and pass the user's message."
             )
 
             async def handler(state, *, llm, prompt):
@@ -223,16 +214,15 @@ class TestEphemeralDelegation:
 
                 messages = [SystemMessage(content=prompt)] + state["messages"]
                 response = await llm.ainvoke(messages)
-                return {"messages": [response], "sender": "ephemeral_lead"}
+                return {"messages": [response], "sender": "dynamic_lead"}
 
-        graph = ephemeral_lead.compile()
+        graph = dynamic_lead.compile()
         result = await graph.ainvoke(
             {"messages": [HumanMessage(content="Write about the ocean")]}
         )
 
-        # Verify we got a response (ephemeral agent ran successfully)
         final = result["messages"][-1].content
-        assert final, "Expected non-empty response from ephemeral delegation"
+        assert final, "Expected non-empty response from dynamic delegation"
 
 
 # ---------------------------------------------------------------------------
@@ -251,15 +241,11 @@ class TestScopedContext:
 
         graph = lead.compile()
 
-        # Include unrelated prior conversation in messages
         result = await graph.ainvoke({
             "messages": [
                 HumanMessage(content="What is 9+1?"),
             ],
         })
 
-        # The final response should contain "10"
         final = result["messages"][-1].content
         assert "10" in final, f"Expected '10' in final response, got: {final}"
-
-

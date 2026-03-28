@@ -140,13 +140,11 @@ async def _spawn_team(
 
     # Validate all agent_types exist
     agents_by_name = middleware._agents_by_name  # noqa: SLF001
+    from langchain_agentkit.middleware import resolve_agent
+
     for member in members:
         agent_type = member["agent_type"] if isinstance(member, dict) else member.agent_type
-        if agent_type not in agents_by_name:
-            available = ", ".join(sorted(agents_by_name.keys()))
-            raise ToolException(
-                f"Agent type '{agent_type}' not found. Available: {available}"
-            )
+        resolve_agent(agent_type, agents_by_name)
 
     # Create message bus and register all members + lead
     bus = TeamMessageBus()

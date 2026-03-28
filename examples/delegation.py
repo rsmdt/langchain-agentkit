@@ -3,20 +3,20 @@
 
 AgentMiddleware enables a lead agent to delegate work to specialist
 subagents at runtime. The lead decides when and to whom to delegate
-via the Delegate tool. Subagents run in isolation (scoped context)
+via the Agent tool. Subagents run in isolation (scoped context)
 and return concise results.
 
 Key concepts:
 
 - **Blocking delegation**: The lead waits for the subagent to finish.
   The tool-calling loop stays alive naturally.
-- **Parallel delegation**: The LLM can call Delegate multiple times
+- **Parallel delegation**: The LLM can call Agent multiple times
   in one turn — LangGraph's ToolNode runs them concurrently.
 - **Scoped context**: Subagents receive only the task message, not
   the lead's full conversation history.
 - **tools="inherit"**: Subagents can opt into receiving the parent's
   tools at delegation time.
-- **Ephemeral agents**: With ``ephemeral=True``, the lead can create
+- **Dynamic agents**: With ``ephemeral=True``, the lead can create
   one-shot agents with custom instructions at runtime.
 
 Run::
@@ -86,7 +86,7 @@ class lead(agent):
         TasksMiddleware(),
         AgentMiddleware(
             [researcher, analyst],
-            ephemeral=True,           # enable DelegateEphemeral
+            ephemeral=True,           # enable dynamic agents
             delegation_timeout=60.0,  # 60s max per delegation
         ),
     ]

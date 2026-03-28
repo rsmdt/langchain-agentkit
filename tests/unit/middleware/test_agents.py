@@ -46,23 +46,21 @@ class TestAgentMiddlewareConstruction:
 
 
 class TestAgentMiddlewareTools:
-    def test_tools_returns_delegate_without_ephemeral(self):
+    def test_tools_returns_single_agent_tool(self):
         agent_a = _make_mock_agent("researcher")
 
         mw = AgentMiddleware([agent_a], ephemeral=False)
 
-        tool_names = [t.name for t in mw.tools]
-        assert "Delegate" in tool_names
-        assert "DelegateEphemeral" not in tool_names
+        assert len(mw.tools) == 1
+        assert mw.tools[0].name == "Agent"
 
-    def test_tools_returns_delegate_and_ephemeral_when_enabled(self):
+    def test_tools_returns_single_agent_tool_with_ephemeral(self):
         agent_a = _make_mock_agent("researcher")
 
         mw = AgentMiddleware([agent_a], ephemeral=True)
 
-        tool_names = [t.name for t in mw.tools]
-        assert "Delegate" in tool_names
-        assert "DelegateEphemeral" in tool_names
+        assert len(mw.tools) == 1
+        assert mw.tools[0].name == "Agent"
 
     def test_tools_returns_immutable_tuple(self):
         agent_a = _make_mock_agent("researcher")
@@ -96,6 +94,14 @@ class TestAgentMiddlewarePrompt:
 
         assert "Delegation Guidelines" in result
 
+    def test_prompt_references_agent_tool(self):
+        agent_a = _make_mock_agent("researcher")
+
+        mw = AgentMiddleware([agent_a])
+        result = mw.prompt({})
+
+        assert "Agent" in result
+
     def test_prompt_includes_conciseness_directive_by_default(self):
         agent_a = _make_mock_agent("researcher")
 
@@ -110,7 +116,6 @@ class TestAgentMiddlewarePrompt:
         mw = AgentMiddleware([agent_a], default_conciseness=False)
         result = mw.prompt({})
 
-        # The conciseness directive is the specific appended text
         assert "Synthesize the key findings" not in result
 
     def test_prompt_shows_no_description_for_undescribed_agents(self):
@@ -121,6 +126,23 @@ class TestAgentMiddlewarePrompt:
 
         assert "researcher" in result
         assert "No description" in result
+
+    def test_prompt_includes_dynamic_section_when_ephemeral(self):
+        agent_a = _make_mock_agent("researcher")
+
+        mw = AgentMiddleware([agent_a], ephemeral=True)
+        result = mw.prompt({})
+
+        assert "custom agent" in result.lower()
+        assert "prompt" in result
+
+    def test_prompt_excludes_dynamic_section_when_not_ephemeral(self):
+        agent_a = _make_mock_agent("researcher")
+
+        mw = AgentMiddleware([agent_a], ephemeral=False)
+        result = mw.prompt({})
+
+        assert "custom agent" not in result.lower()
 
     def test_prompt_returns_string(self):
         agent_a = _make_mock_agent("researcher")

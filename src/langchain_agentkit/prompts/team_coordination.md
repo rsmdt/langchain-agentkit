@@ -22,7 +22,7 @@ You can manage a team of concurrent agents for complex, multi-step work that req
 - **Unblock teammates**: If a teammate is waiting or stuck, provide guidance via MessageTeammate.
 - **Synthesize at the end**: After all work is complete, dissolve the team and synthesize all results before responding to the user.
 
-### When to Use Teams (vs Delegate)
+### When to Use Teams (vs Agent)
 
 - Work requires **back-and-forth coordination** between specialists
 - Tasks have **dependencies** — one member's output informs another's work
