@@ -212,10 +212,23 @@ class _AgentMeta(type):
                 f"(e.g. llm = ChatOpenAI(model='gpt-4o'))"
             )
 
-        user_tools: list[BaseTool] = namespace.get("tools", [])
-        if not isinstance(user_tools, (list, tuple)):
+        # Extract tools — supports list, "inherit" sentinel, or absent (no tools)
+        user_tools_raw = namespace.get("tools", [])
+        tools_inherit = False
+        if isinstance(user_tools_raw, str):
+            if user_tools_raw != "inherit":
+                raise ValueError(
+                    f"class {name}(agent): tools must be a list or 'inherit', "
+                    f"got string '{user_tools_raw}'"
+                )
+            user_tools: list[BaseTool] = []
+            tools_inherit = True
+        elif isinstance(user_tools_raw, (list, tuple)):
+            user_tools = list(user_tools_raw)
+        else:
             raise ValueError(
-                f"class {name}(agent): tools must be a list, got {type(user_tools).__name__}"
+                f"class {name}(agent): tools must be a list or 'inherit', "
+                f"got {type(user_tools_raw).__name__}"
             )
 
         middleware: list[Middleware] = namespace.get("middleware", [])
@@ -225,6 +238,7 @@ class _AgentMeta(type):
             )
 
         prompt_source: str | Path | list[str | Path] | None = namespace.get("prompt")
+        description: str = namespace.get("description", "")
 
         kit = AgentKit(list(middleware), prompt=prompt_source)
         all_tools: list[BaseTool] = list(user_tools) + kit.tools
@@ -235,7 +249,7 @@ class _AgentMeta(type):
 
         wrap_tool_call = _find_wrap_tool_call(middleware, name)
 
-        return _build_graph(
+        graph = _build_graph(
             name=name,
             handler=handler,
             llm=llm,
@@ -246,6 +260,13 @@ class _AgentMeta(type):
             state_type=state_type,
             wrap_tool_call=wrap_tool_call,
         )
+
+        # Attach metadata for AgentMiddleware discovery
+        graph.agentkit_name = name  # type: ignore[attr-defined]
+        graph.agentkit_description = description  # type: ignore[attr-defined]
+        graph.agentkit_tools_inherit = tools_inherit  # type: ignore[attr-defined]
+
+        return graph
 
 
 class agent(metaclass=_AgentMeta):  # noqa: N801
