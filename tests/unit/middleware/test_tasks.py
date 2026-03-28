@@ -39,9 +39,9 @@ class TestTasksMiddlewareTools:
 
         mw = TasksMiddleware(task_tools=[tool_a, tool_b])
 
-        assert mw.tools == [tool_a, tool_b]
+        assert mw.tools == (tool_a, tool_b)
 
-    def test_tools_returns_defensive_copy(self):
+    def test_tools_returns_immutable_tuple(self):
         tool_a = MagicMock(spec=BaseTool)
         mw = TasksMiddleware(task_tools=[tool_a])
 
@@ -49,7 +49,7 @@ class TestTasksMiddlewareTools:
         second_call = mw.tools
 
         assert first_call == second_call
-        assert first_call is not second_call
+        assert isinstance(first_call, tuple)
 
 
 class TestTasksMiddlewarePrompt:
@@ -213,8 +213,8 @@ class TestTasksMiddlewareProtocol:
         assert hasattr(mw, "tools")
         assert callable(mw.prompt)
 
-        # Verify the tools property returns a list
-        assert isinstance(mw.tools, list)
+        # Verify the tools property returns a sequence
+        assert isinstance(mw.tools, (list, tuple))
 
         # Verify prompt accepts (state, config) and returns str
         result = mw.prompt({}, _TEST_RUNTIME)

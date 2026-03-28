@@ -65,7 +65,7 @@ class TestAgentMiddlewareTools:
         assert "Delegate" in tool_names
         assert "DelegateEphemeral" in tool_names
 
-    def test_tools_returns_defensive_copy(self):
+    def test_tools_returns_immutable_tuple(self):
         agent_a = _make_mock_agent("researcher")
         mw = AgentMiddleware([agent_a])
 
@@ -73,7 +73,7 @@ class TestAgentMiddlewareTools:
         second = mw.tools
 
         assert first == second
-        assert first is not second
+        assert isinstance(first, tuple)
 
 
 class TestAgentMiddlewarePrompt:
@@ -148,5 +148,5 @@ class TestAgentMiddlewareProtocol:
 
         assert hasattr(mw, "tools")
         assert callable(mw.prompt)
-        assert isinstance(mw.tools, list)
+        assert isinstance(mw.tools, (list, tuple))
         assert isinstance(mw.prompt({}), str)

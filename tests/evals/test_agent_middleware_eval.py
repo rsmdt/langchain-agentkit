@@ -151,7 +151,7 @@ class TestDelegationFullFlow:
         assert len(delegation_log) >= 1, (
             f"Expected at least one delegation, got: {delegation_log}"
         )
-        assert delegation_log[0]["agent_name"] == "calculator"
+        assert delegation_log[0]["agent"] == "calculator"
         assert delegation_log[0]["message"]  # non-empty task message
         assert delegation_log[0]["duration_seconds"] > 0
 
@@ -172,7 +172,7 @@ class TestDelegationFullFlow:
 
         delegation_log = result.get("delegation_log", [])
         assert len(delegation_log) >= 1
-        assert delegation_log[0]["agent_name"] == "calculator"
+        assert delegation_log[0]["agent"] == "calculator"
 
         final = result["messages"][-1].content
         assert "56" in final, f"Expected '56' in final response, got: {final}"
@@ -201,7 +201,7 @@ class TestMultiAgentDelegation:
         delegation_log = result.get("delegation_log", [])
         assert len(delegation_log) >= 1
         # Should route to calculator, not greeter
-        assert delegation_log[0]["agent_name"] == "calculator"
+        assert delegation_log[0]["agent"] == "calculator"
         assert "8" in result["messages"][-1].content
 
 
@@ -249,7 +249,7 @@ class TestEphemeralDelegation:
 
         delegation_log = result.get("delegation_log", [])
         assert len(delegation_log) >= 1
-        assert delegation_log[0]["agent_name"] == "ephemeral"
+        assert delegation_log[0]["agent"] == "ephemeral"
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +277,7 @@ class TestScopedContext:
 
         delegation_log = result.get("delegation_log", [])
         assert len(delegation_log) >= 1
-        assert delegation_log[0]["agent_name"] == "calculator"
+        assert delegation_log[0]["agent"] == "calculator"
 
         # The calculator's result should contain "10"
         summary = delegation_log[0]["result_summary"]
@@ -293,7 +293,7 @@ class TestDelegationLogStructure:
     """Verify delegation log entries have all required fields."""
 
     async def test_log_entry_has_required_fields(self):
-        """Verify timestamp, duration, agent_name, message, result_summary."""
+        """Verify timestamp, duration, agent, message, result_summary."""
         calculator = _build_calculator()
         mw = AgentMiddleware([calculator])
         lead = _build_lead_with_middleware(mw)
@@ -307,11 +307,11 @@ class TestDelegationLogStructure:
         assert len(delegation_log) >= 1
 
         entry = delegation_log[0]
-        assert "agent_name" in entry
+        assert "agent" in entry
         assert "message" in entry
         assert "result_summary" in entry
         assert "timestamp" in entry
         assert "duration_seconds" in entry
         assert isinstance(entry["duration_seconds"], (int, float))
         assert entry["duration_seconds"] > 0
-        assert entry["agent_name"] == "calculator"
+        assert entry["agent"] == "calculator"

@@ -202,14 +202,18 @@ class TestAgentTeamMiddlewareConstruction:
 
 
 class TestAgentTeamMiddlewareTools:
-    def test_tools_returns_five_tools(self):
+    def test_returns_five_team_tools(self):
         agent_a = _make_mock_agent("researcher")
 
         mw = AgentTeamMiddleware([agent_a])
+        tool_names = [t.name for t in mw.tools]
 
+        # 5 team tools only — task tools come from TasksMiddleware if user adds it
         assert len(mw.tools) == 5
+        assert "SpawnTeam" in tool_names
+        assert "TaskCreate" not in tool_names
 
-    def test_tool_names(self):
+    def test_tool_names_include_team_tools(self):
         agent_a = _make_mock_agent("researcher")
 
         mw = AgentTeamMiddleware([agent_a])
@@ -221,14 +225,15 @@ class TestAgentTeamMiddlewareTools:
         assert "CheckTeammates" in tool_names
         assert "DissolveTeam" in tool_names
 
-    def test_tools_returns_defensive_copy(self):
+    def test_tools_returns_immutable_tuple(self):
         agent_a = _make_mock_agent("researcher")
         mw = AgentTeamMiddleware([agent_a])
 
         first = mw.tools
         second = mw.tools
 
-        assert first is not second
+        assert first == second
+        assert isinstance(first, tuple)
 
 
 class TestAgentTeamMiddlewarePrompt:
@@ -291,8 +296,67 @@ class TestAgentTeamMiddlewareStateSchema:
         agent_a = _make_mock_agent("researcher")
 
         mw = AgentTeamMiddleware([agent_a])
+        schema = mw.state_schema
 
-        assert mw.state_schema is TeamState
+        # state_schema returns TeamState only; TasksState comes via
+        # dependency resolution in AgentKit (TasksMiddleware auto-added)
+        assert schema is TeamState
+
+
+class TestAgentTeamMiddlewareDependencies:
+    def test_dependencies_returns_tasks_middleware(self):
+        from langchain_agentkit.middleware.tasks import TasksMiddleware
+
+        agent_a = _make_mock_agent("researcher")
+        mw = AgentTeamMiddleware([agent_a])
+
+        deps = mw.dependencies()
+
+        assert len(deps) == 1
+        assert isinstance(deps[0], TasksMiddleware)
+
+    def test_agentkit_resolves_tasks_middleware_dependency(self):
+        from langchain_agentkit.agent_kit import AgentKit
+        from langchain_agentkit.middleware.tasks import TasksMiddleware
+
+        agent_a = _make_mock_agent("researcher")
+        team_mw = AgentTeamMiddleware([agent_a])
+
+        kit = AgentKit([team_mw])
+
+        # TasksMiddleware should be auto-added
+        mw_types = [type(mw) for mw in kit._middleware]
+        assert AgentTeamMiddleware in mw_types
+        assert TasksMiddleware in mw_types
+
+    def test_agentkit_deduplicates_tasks_middleware(self):
+        from langchain_agentkit.agent_kit import AgentKit
+        from langchain_agentkit.middleware.tasks import TasksMiddleware
+
+        agent_a = _make_mock_agent("researcher")
+        team_mw = AgentTeamMiddleware([agent_a])
+        tasks_mw = TasksMiddleware()
+
+        # User explicitly adds TasksMiddleware AND AgentTeamMiddleware
+        kit = AgentKit([tasks_mw, team_mw])
+
+        # TasksMiddleware should NOT be duplicated
+        tasks_count = sum(1 for mw in kit._middleware if isinstance(mw, TasksMiddleware))
+        assert tasks_count == 1
+
+    def test_agentkit_composed_schema_includes_tasks_via_dependency(self):
+        from langchain_agentkit.agent_kit import AgentKit
+
+        agent_a = _make_mock_agent("researcher")
+        team_mw = AgentTeamMiddleware([agent_a])
+
+        kit = AgentKit([team_mw])
+        schema = kit.state_schema
+        annotations = schema.__annotations__
+
+        # Both TeamState and TasksState keys present via composition
+        assert "team_members" in annotations
+        assert "tasks" in annotations
 
 
 class TestAgentTeamMiddlewareProtocol:
@@ -302,5 +366,5 @@ class TestAgentTeamMiddlewareProtocol:
 
         assert hasattr(mw, "tools")
         assert callable(mw.prompt)
-        assert isinstance(mw.tools, list)
+        assert isinstance(mw.tools, (list, tuple))
         assert isinstance(mw.prompt({}), str)

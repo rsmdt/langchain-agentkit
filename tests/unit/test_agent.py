@@ -10,11 +10,16 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import StructuredTool, tool
 from langgraph.graph.message import add_messages
 
-from langchain_agentkit.agent import (
-    _validate_handler_signature,
-    agent,
-)
-from langchain_agentkit.state import AgentState
+from langchain_agentkit.agent import _validate_handler_signature as validate_handler_signature, agent
+from langchain_agentkit.state import AgentKitState as AgentState
+
+# Valid injectable parameter names — mirrors agent.py's _INJECTABLE_PARAMS
+_INJECTABLE_PARAMS = frozenset({"llm", "tools", "prompt", "runtime"})
+
+
+def _validate_handler_signature(handler, class_name):
+    """Test helper wrapping validate_handler_signature with agent defaults."""
+    return validate_handler_signature(handler, class_name, _INJECTABLE_PARAMS, "agent")
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
@@ -24,18 +29,17 @@ class TestValidateHandlerSignature:
         def handler(state):
             pass
 
-        injectable, state_type = _validate_handler_signature(handler, "test")
+        state_type = _validate_handler_signature(handler, "test")
 
-        assert injectable == set()
         assert state_type is AgentState
 
     def test_accepts_all_injectables(self):
         def handler(state, *, llm, tools, prompt, runtime):
             pass
 
-        injectable, state_type = _validate_handler_signature(handler, "test")
+        state_type = _validate_handler_signature(handler, "test")
 
-        assert injectable == {"llm", "tools", "prompt", "runtime"}
+        assert state_type is AgentState
 
     def test_rejects_unknown_keyword_param(self):
         def handler(state, *, unknown):
@@ -59,16 +63,15 @@ class TestValidateHandlerSignature:
         def handler(state: CustomState, *, llm):
             pass
 
-        injectable, state_type = _validate_handler_signature(handler, "test")
+        state_type = _validate_handler_signature(handler, "test")
 
-        assert injectable == {"llm"}
         assert state_type is CustomState
 
     def test_defaults_to_agent_state(self):
         def handler(state, *, llm):
             pass
 
-        _, state_type = _validate_handler_signature(handler, "test")
+        state_type = _validate_handler_signature(handler, "test")
 
         assert state_type is AgentState
 

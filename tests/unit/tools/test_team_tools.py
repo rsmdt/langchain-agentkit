@@ -226,14 +226,18 @@ class TestAssignTask:
         result = await _assign_task(
             member_name="researcher",
             task_description="Find information about X",
-            state={"tasks": []},
+            state={},
             tool_call_id=FAKE_TOOL_CALL_ID,
             middleware=mw,
         )
 
         assert isinstance(result, Command)
         content = json.loads(result.update["messages"][0].content)
-        assert content["assigned_to"] == "researcher"
+        assert content["sent_to"] == "researcher"
+        assert content["task"] == "Find information about X"
+
+        # No tasks in update — AssignTask only sends messages now
+        assert "tasks" not in result.update
 
         # Verify message was sent to bus
         msg = await mw._active_team.bus.receive("researcher", timeout=1.0)

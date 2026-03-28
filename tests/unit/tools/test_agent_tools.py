@@ -58,8 +58,13 @@ class TestBuildScopedState:
         assert len(state["messages"]) == 1
         assert state["messages"][0].content == "do something"
 
-    def test_sets_sender_to_lead(self):
+    def test_sets_sender_to_parent_by_default(self):
         state = _build_scoped_state("task")
+
+        assert state["sender"] == "parent"
+
+    def test_sets_custom_sender(self):
+        state = _build_scoped_state("task", sender="lead")
 
         assert state["sender"] == "lead"
 
@@ -96,7 +101,7 @@ class TestBuildLogEntry:
     def test_builds_entry_with_required_fields(self):
         entry = _build_log_entry("researcher", "do research", "found stuff", 1.5)
 
-        assert entry["agent_name"] == "researcher"
+        assert entry["agent"] == "researcher"
         assert entry["message"] == "do research"
         assert entry["result_summary"] == "found stuff"
         assert entry["duration_seconds"] == 1.5
@@ -138,7 +143,7 @@ class TestDelegate:
 
         assert isinstance(result, Command)
         assert len(result.update["delegation_log"]) == 1
-        assert result.update["delegation_log"][0]["agent_name"] == "researcher"
+        assert result.update["delegation_log"][0]["agent"] == "researcher"
         # ToolMessage with the response
         assert result.update["messages"][0].content == "research result"
         assert result.update["messages"][0].tool_call_id == FAKE_TOOL_CALL_ID
@@ -265,7 +270,7 @@ class TestDelegateEphemeral:
         )
 
         assert isinstance(result, Command)
-        assert result.update["delegation_log"][0]["agent_name"] == "ephemeral"
+        assert result.update["delegation_log"][0]["agent"] == "ephemeral"
         assert result.update["messages"][0].content == "analysis result"
 
 
