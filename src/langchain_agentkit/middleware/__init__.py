@@ -14,10 +14,12 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any, Protocol
 
+from langchain_agentkit.middleware.agents import AgentMiddleware as AgentMiddleware
 from langchain_agentkit.middleware.filesystem import FilesystemMiddleware as FilesystemMiddleware
 from langchain_agentkit.middleware.hitl import HITLMiddleware as HITLMiddleware
 from langchain_agentkit.middleware.skills import SkillsMiddleware as SkillsMiddleware
 from langchain_agentkit.middleware.tasks import TasksMiddleware as TasksMiddleware
+from langchain_agentkit.middleware.teams import AgentTeamMiddleware as AgentTeamMiddleware
 from langchain_agentkit.middleware.web_search import (
     DuckDuckGoSearchProvider as DuckDuckGoSearchProvider,
 )
@@ -67,6 +69,8 @@ class Middleware(Protocol):
 
 
 __all__ = [
+    "AgentMiddleware",
+    "AgentTeamMiddleware",
     "DuckDuckGoSearchProvider",
     "FilesystemMiddleware",
     "HITLMiddleware",
