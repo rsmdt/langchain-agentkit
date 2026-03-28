@@ -23,12 +23,14 @@ from __future__ import annotations
 import asyncio
 import time
 from datetime import datetime, timezone
+from functools import partial
 from typing import TYPE_CHECKING, Annotated, Any
 
 from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.tools import InjectedToolCallId, StructuredTool, ToolException
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import InjectedState, ToolNode
+from langgraph.types import Command
 from pydantic import BaseModel, Field
 
 from langchain_agentkit.state import AgentKitState
@@ -75,11 +77,11 @@ class _DelegateEphemeralInput(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _build_scoped_state(message: str) -> dict[str, Any]:
+def _build_scoped_state(message: str, sender: str = "parent") -> dict[str, Any]:
     """Build an isolated state with only the delegation message."""
     return {
         "messages": [HumanMessage(content=message)],
-        "sender": "lead",
+        "sender": sender,
     }
 
 
@@ -94,7 +96,7 @@ def _extract_final_response(result: dict[str, Any]) -> str:
 
 
 def _build_log_entry(
-    agent_name: str,
+    agent: str,
     message: str,
     result_summary: str,
     duration: float,
@@ -103,7 +105,7 @@ def _build_log_entry(
 ) -> dict[str, Any]:
     """Build a delegation log entry."""
     entry: dict[str, Any] = {
-        "agent_name": agent_name,
+        "agent": agent,
         "message": message,
         "result_summary": result_summary[:200],
         "timestamp": datetime.now(tz=timezone.utc).isoformat(),
@@ -157,6 +159,64 @@ def _compile_agent(
 
 
 # ---------------------------------------------------------------------------
+# Shared delegation runner
+# ---------------------------------------------------------------------------
+
+
+async def _run_delegation(
+    compiled: Any,
+    scoped_state: dict[str, Any],
+    agent: str,
+    message: str,
+    timeout: float,
+    tool_call_id: str,
+) -> Any:
+    """Invoke a compiled graph with timeout, error handling, and delegation log."""
+    start = time.monotonic()
+    try:
+        result = await asyncio.wait_for(compiled.ainvoke(scoped_state), timeout=timeout)
+    except asyncio.TimeoutError:
+        duration = time.monotonic() - start
+        log_entry = _build_log_entry(
+            agent, message, "", duration, error=f"Timed out after {timeout}s"
+        )
+        return Command(update={
+            "delegation_log": [log_entry],
+            "messages": [
+                ToolMessage(
+                    content=f"Delegation to '{agent}' timed out after {timeout}s",
+                    tool_call_id=tool_call_id,
+                ),
+            ],
+        })
+    except Exception as exc:
+        duration = time.monotonic() - start
+        error_msg = f"{type(exc).__name__}: {exc}"
+        log_entry = _build_log_entry(
+            agent, message, error_msg[:200], duration, error=error_msg
+        )
+        return Command(update={
+            "delegation_log": [log_entry],
+            "messages": [
+                ToolMessage(
+                    content=f"Delegation failed: {error_msg}",
+                    tool_call_id=tool_call_id,
+                ),
+            ],
+        })
+
+    duration = time.monotonic() - start
+    response = _extract_final_response(result)
+    log_entry = _build_log_entry(agent, message, response, duration)
+    return Command(update={
+        "delegation_log": [log_entry],
+        "messages": [
+            ToolMessage(content=response, tool_call_id=tool_call_id),
+        ],
+    })
+
+
+# ---------------------------------------------------------------------------
 # Tool implementations
 # ---------------------------------------------------------------------------
 
@@ -183,53 +243,13 @@ async def _delegate(
     compiled = _compile_agent(graph, compiled_cache, parent_tools_getter)
     scoped_state = _build_scoped_state(message)
 
-    start = time.monotonic()
-    try:
-        result = await asyncio.wait_for(
-            compiled.ainvoke(scoped_state),
-            timeout=delegation_timeout,
-        )
-    except asyncio.TimeoutError:
-        duration = time.monotonic() - start
-        log_entry = _build_log_entry(
-            agent, message, "(timeout)", duration, error="timeout"
-        )
-        raise ToolException(
-            f"Agent '{agent}' timed out after {delegation_timeout}s"
-        ) from None
-    except Exception as exc:
-        duration = time.monotonic() - start
-        error_msg = f"{type(exc).__name__}: {exc}"
-        log_entry = _build_log_entry(
-            agent, message, error_msg[:200], duration, error=error_msg
-        )
-        from langgraph.types import Command
-
-        return Command(
-            update={
-                "delegation_log": [log_entry],
-                "messages": [
-                    ToolMessage(
-                        content=f"Delegation to '{agent}' failed: {error_msg}",
-                        tool_call_id=tool_call_id,
-                    ),
-                ],
-            }
-        )
-
-    duration = time.monotonic() - start
-    response = _extract_final_response(result)
-    log_entry = _build_log_entry(agent, message, response, duration)
-
-    from langgraph.types import Command
-
-    return Command(
-        update={
-            "delegation_log": [log_entry],
-            "messages": [
-                ToolMessage(content=response, tool_call_id=tool_call_id),
-            ],
-        }
+    return await _run_delegation(
+        compiled=compiled,
+        scoped_state=scoped_state,
+        agent=agent,
+        message=message,
+        timeout=delegation_timeout,
+        tool_call_id=tool_call_id,
     )
 
 
@@ -242,32 +262,47 @@ async def _delegate_ephemeral(
     delegation_timeout: float,
     parent_llm_getter: Callable[[], Any],
 ) -> Any:
-    """Delegate a task to a temporary reasoning-only agent."""
+    """Delegate a task to a dynamically-created agent.
+
+    Builds a real ``StateGraph`` identical to what the ``agent`` metaclass
+    produces — the ephemeral agent has the same lifecycle and capabilities
+    as a regular agent, just created at runtime with custom instructions.
+    """
     if not instructions or not instructions.strip():
         raise ToolException("instructions cannot be empty")
 
     llm = parent_llm_getter()
     ephemeral_name = "ephemeral"
 
-    # Build a minimal reasoning-only ReAct graph
-    async def _ephemeral_node(
+    from langchain_agentkit._graph_builder import build_graph
+    from langchain_agentkit.agent_kit import AgentKit
+
+    # Build a real agent graph using the same build_graph as the metaclass
+    async def _ephemeral_handler(
         state_inner: dict[str, Any],
-        **kwargs: Any,
+        *,
+        llm: Any,
+        prompt: str,
     ) -> dict[str, Any]:
         from langchain_core.messages import SystemMessage
 
-        msgs = [SystemMessage(content=instructions)] + list(
+        msgs = [SystemMessage(content=prompt)] + list(
             state_inner.get("messages", [])
         )
         response = await llm.ainvoke(msgs)
         return {"messages": [response], "sender": ephemeral_name}
 
     try:
-        workflow: StateGraph[Any] = StateGraph(AgentKitState)
-        workflow.add_node(ephemeral_name, _ephemeral_node)
-        workflow.set_entry_point(ephemeral_name)
-        workflow.add_edge(ephemeral_name, END)
-        compiled = workflow.compile()
+        kit = AgentKit([], prompt=instructions)
+        graph = build_graph(
+            name=ephemeral_name,
+            handler=_ephemeral_handler,
+            llm=llm,
+            user_tools=[],
+            kit=kit,
+            state_type=AgentKitState,
+        )
+        compiled = graph.compile()
     except Exception as exc:
         raise ToolException(
             f"Failed to create ephemeral agent: {exc}"
@@ -275,50 +310,13 @@ async def _delegate_ephemeral(
 
     scoped_state = _build_scoped_state(message)
 
-    start = time.monotonic()
-    try:
-        result = await asyncio.wait_for(
-            compiled.ainvoke(scoped_state),
-            timeout=delegation_timeout,
-        )
-    except asyncio.TimeoutError:
-        duration = time.monotonic() - start
-        raise ToolException(
-            f"Ephemeral agent timed out after {delegation_timeout}s"
-        ) from None
-    except Exception as exc:
-        duration = time.monotonic() - start
-        error_msg = f"{type(exc).__name__}: {exc}"
-        log_entry = _build_log_entry(
-            ephemeral_name, message, error_msg[:200], duration, error=error_msg
-        )
-        from langgraph.types import Command
-
-        return Command(
-            update={
-                "delegation_log": [log_entry],
-                "messages": [
-                    ToolMessage(
-                        content=f"Ephemeral delegation failed: {error_msg}",
-                        tool_call_id=tool_call_id,
-                    ),
-                ],
-            }
-        )
-
-    duration = time.monotonic() - start
-    response = _extract_final_response(result)
-    log_entry = _build_log_entry(ephemeral_name, message, response, duration)
-
-    from langgraph.types import Command
-
-    return Command(
-        update={
-            "delegation_log": [log_entry],
-            "messages": [
-                ToolMessage(content=response, tool_call_id=tool_call_id),
-            ],
-        }
+    return await _run_delegation(
+        compiled=compiled,
+        scoped_state=scoped_state,
+        agent=ephemeral_name,
+        message=message,
+        timeout=delegation_timeout,
+        tool_call_id=tool_call_id,
     )
 
 
@@ -385,25 +383,16 @@ def create_agent_tools(
         parent_llm_getter: Callable returning the parent LLM (for ephemeral).
     """
 
-    async def _delegate_fn(
-        agent: str,
-        message: str,
-        state: dict[str, Any],
-        tool_call_id: str,
-    ) -> Any:
-        return await _delegate(
-            agent=agent,
-            message=message,
-            state=state,
-            tool_call_id=tool_call_id,
-            agents_by_name=agents_by_name,
-            compiled_cache=compiled_cache,
-            delegation_timeout=delegation_timeout,
-            parent_tools_getter=parent_tools_getter,
-        )
+    bound_delegate = partial(
+        _delegate,
+        agents_by_name=agents_by_name,
+        compiled_cache=compiled_cache,
+        delegation_timeout=delegation_timeout,
+        parent_tools_getter=parent_tools_getter,
+    )
 
     delegate_tool = StructuredTool.from_function(
-        coroutine=_delegate_fn,
+        coroutine=bound_delegate,
         name="Delegate",
         description=_DELEGATE_DESCRIPTION,
         args_schema=_DelegateInput,
@@ -417,23 +406,14 @@ def create_agent_tools(
             msg = "parent_llm_getter is required when ephemeral=True"
             raise ValueError(msg)
 
-        async def _delegate_ephemeral_fn(
-            message: str,
-            instructions: str,
-            state: dict[str, Any],
-            tool_call_id: str,
-        ) -> Any:
-            return await _delegate_ephemeral(
-                message=message,
-                instructions=instructions,
-                state=state,
-                tool_call_id=tool_call_id,
-                delegation_timeout=delegation_timeout,
-                parent_llm_getter=parent_llm_getter,
-            )
+        bound_delegate_ephemeral = partial(
+            _delegate_ephemeral,
+            delegation_timeout=delegation_timeout,
+            parent_llm_getter=parent_llm_getter,
+        )
 
         ephemeral_tool = StructuredTool.from_function(
-            coroutine=_delegate_ephemeral_fn,
+            coroutine=bound_delegate_ephemeral,
             name="DelegateEphemeral",
             description=_DELEGATE_EPHEMERAL_DESCRIPTION,
             args_schema=_DelegateEphemeralInput,

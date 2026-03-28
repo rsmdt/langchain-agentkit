@@ -24,143 +24,76 @@ from __future__ import annotations
 import inspect
 from typing import TYPE_CHECKING, Any
 
-from langgraph.graph import END, StateGraph
-from langgraph.prebuilt import ToolNode, ToolRuntime
-
-from langchain_agentkit._handler_validation import validate_handler_signature
+from langchain_agentkit._graph_builder import _find_wrap_tool_call, build_graph
 from langchain_agentkit.agent_kit import AgentKit
 from langchain_agentkit.state import AgentKitState
 
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from langchain_core.language_models import BaseChatModel
-    from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
 
     from langchain_agentkit.middleware import Middleware
 
+
+def _validate_handler_signature(
+    handler: Any,
+    class_name: str,
+    valid_params: frozenset[str],
+    label: str,
+) -> type:
+    """Validate handler signature and extract state type.
+
+    Returns the state type inferred from the handler's first parameter
+    annotation. If no annotation is present, defaults to ``AgentKitState``.
+    """
+    sig = inspect.signature(handler)
+    params = list(sig.parameters.values())
+
+    if not params:
+        raise ValueError(
+            f"class {class_name}({label}): handler must accept at least "
+            f"'state' as its first parameter"
+        )
+
+    first = params[0]
+    if first.kind not in (
+        inspect.Parameter.POSITIONAL_ONLY,
+        inspect.Parameter.POSITIONAL_OR_KEYWORD,
+    ):
+        raise ValueError(
+            f"class {class_name}({label}): handler's first parameter must be "
+            f"positional ('state'), got {first.kind.name}"
+        )
+
+    state_type: type = AgentKitState
+    if first.annotation is not inspect.Parameter.empty:
+        state_type = first.annotation
+
+    for param in params[1:]:
+        if param.kind == inspect.Parameter.VAR_KEYWORD:
+            continue
+        if param.kind == inspect.Parameter.KEYWORD_ONLY:
+            if param.name not in valid_params:
+                raise ValueError(
+                    f"class {class_name}({label}): unknown handler parameter "
+                    f"'{param.name}'. Valid parameters: state, "
+                    f"{', '.join(sorted(valid_params))}"
+                )
+        elif param.kind in (
+            inspect.Parameter.POSITIONAL_ONLY,
+            inspect.Parameter.POSITIONAL_OR_KEYWORD,
+        ):
+            raise ValueError(
+                f"class {class_name}({label}): handler parameter '{param.name}' "
+                f"must be keyword-only (after *). "
+                f"Signature should be: handler(state, *, {param.name}, ...)"
+            )
+
+    return state_type
+
 # Valid injectable parameter names for handler (besides 'state')
 _INJECTABLE_PARAMS = frozenset({"llm", "tools", "prompt", "runtime"})
-
-
-def _validate_handler_signature(handler: Any, class_name: str) -> tuple[set[str], type]:
-    """Validate handler signature, extract injectables and state type.
-
-    Delegates to the shared implementation in ``_handler_validation``.
-    """
-    return validate_handler_signature(handler, class_name, _INJECTABLE_PARAMS, "agent")
-
-
-def _find_wrap_tool_call(
-    middleware: list[Any],
-    name: str,
-) -> Any | None:
-    """Find a single wrap_tool_call callback from middleware list."""
-    wrap_tool_call = None
-    for mw in middleware:
-        wrapper = getattr(mw, "wrap_tool_call", None)
-        if callable(wrapper):
-            if wrap_tool_call is not None:
-                raise ValueError(
-                    f"class {name}(agent): multiple middleware provide wrap_tool_call. "
-                    f"Only one is supported per agent."
-                )
-            wrap_tool_call = wrapper
-    return wrap_tool_call
-
-
-def _build_inject(
-    injectable: set[str],
-    bound_llm: Any,
-    all_tools: list[Any],
-    composed_prompt: str,
-    runtime: ToolRuntime,
-) -> dict[str, Any]:
-    """Build the injection dict for the handler based on requested params."""
-    inject: dict[str, Any] = {}
-    if "llm" in injectable:
-        inject["llm"] = bound_llm
-    if "tools" in injectable:
-        inject["tools"] = list(all_tools)
-    if "prompt" in injectable:
-        inject["prompt"] = composed_prompt
-    if "runtime" in injectable:
-        inject["runtime"] = runtime
-    return inject
-
-
-def _build_graph(
-    name: str,
-    handler: Any,
-    llm: BaseChatModel,
-    user_tools: list[BaseTool],
-    kit: AgentKit,
-    all_tools: list[BaseTool],
-    injectable: set[str],
-    state_type: type = AgentKitState,
-    wrap_tool_call: Any | None = None,
-) -> Any:
-    """Build the ReAct subgraph.
-
-    Returns an uncompiled ``StateGraph``. Call ``.compile()`` on the
-    result to get a runnable graph, optionally passing a checkpointer
-    for ``interrupt()`` support.
-    """
-    node_name = name
-
-    async def _agent_node(
-        state: dict[str, Any], config: RunnableConfig, **kwargs: Any
-    ) -> dict[str, Any]:
-        runtime = ToolRuntime(
-            state=state,
-            context=kwargs.get("context"),
-            config=config,
-            stream_writer=kwargs.get("stream_writer", lambda _: None),
-            tool_call_id=None,
-            store=kwargs.get("store"),
-        )
-        composed_prompt = kit.prompt(state, runtime)
-        bound_llm = llm.bind_tools(all_tools) if all_tools else llm
-        inject = _build_inject(injectable, bound_llm, all_tools, composed_prompt, runtime)
-
-        result = handler(state, **inject)
-        if inspect.isawaitable(result):
-            result = await result
-
-        return result  # type: ignore[no-any-return]
-
-    _agent_node.__name__ = node_name
-    _agent_node.__qualname__ = f"agent.<locals>.{node_name}"
-
-    workflow: StateGraph[Any] = StateGraph(state_type)
-    workflow.add_node(node_name, _agent_node)  # type: ignore[type-var]
-
-    if all_tools:
-        tool_node_kwargs: dict[str, Any] = {}
-        if wrap_tool_call is not None:
-            tool_node_kwargs["wrap_tool_call"] = wrap_tool_call
-        tool_node = ToolNode(all_tools, **tool_node_kwargs)
-        workflow.add_node("tools", tool_node)
-
-        def _should_continue(state: dict[str, Any]) -> str:
-            last = state["messages"][-1]
-            if hasattr(last, "tool_calls") and last.tool_calls:
-                return "tools"
-            return END
-
-        workflow.set_entry_point(node_name)
-        workflow.add_conditional_edges(
-            node_name,
-            _should_continue,
-            {"tools": "tools", END: END},
-        )
-        workflow.add_edge("tools", node_name)
-    else:
-        workflow.set_entry_point(node_name)
-        workflow.add_edge(node_name, END)
-
-    return workflow
 
 
 class _AgentMeta(type):
@@ -202,7 +135,7 @@ class _AgentMeta(type):
             )
 
         # Validate handler signature and extract state type
-        injectable, state_type = _validate_handler_signature(handler, name)
+        state_type = _validate_handler_signature(handler, name, _INJECTABLE_PARAMS, "agent")
 
         # Extract class attributes
         llm = namespace.get("llm")
@@ -241,7 +174,6 @@ class _AgentMeta(type):
         description: str = namespace.get("description", "")
 
         kit = AgentKit(list(middleware), prompt=prompt_source)
-        all_tools: list[BaseTool] = list(user_tools) + kit.tools
 
         # Use composed schema from middleware unless handler explicitly annotates state
         if state_type is AgentKitState:
@@ -249,14 +181,12 @@ class _AgentMeta(type):
 
         wrap_tool_call = _find_wrap_tool_call(middleware, name)
 
-        graph = _build_graph(
+        graph = build_graph(
             name=name,
             handler=handler,
             llm=llm,
             user_tools=list(user_tools),
             kit=kit,
-            all_tools=all_tools,
-            injectable=injectable,
             state_type=state_type,
             wrap_tool_call=wrap_tool_call,
         )

@@ -119,11 +119,11 @@ class TasksMiddleware:
         formatter: Callable[[list[dict[str, Any]]], str] | None = None,
     ) -> None:
         if task_tools is not None:
-            self._tools = list(task_tools)
+            self._tools = tuple(task_tools)
         else:
             from langchain_agentkit.tools.task import create_task_tools
 
-            self._tools = create_task_tools()
+            self._tools = tuple(create_task_tools())
         self._formatter = formatter or format_task_context
 
     @property
@@ -135,7 +135,7 @@ class TasksMiddleware:
 
     @property
     def tools(self) -> list[BaseTool]:
-        return list(self._tools)
+        return self._tools
 
     def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
         sections = [BASE_AGENT_PROMPT]

@@ -213,13 +213,13 @@ class WebSearchMiddleware:
         providers: List of search providers. Each is a BaseTool instance
             or a callable with signature ``(query: str) -> str``.
             Callables are auto-wrapped into BaseTool via @tool.
-            When ``None`` or empty, defaults to the built-in DuckDuckGo provider.
+            When ``None`` or empty, defaults to the built-in Qwant provider.
         prompt_template: Optional custom prompt template path or string.
             Defaults to built-in search guidance.
 
     Example::
 
-        mw = WebSearchMiddleware()  # uses built-in DuckDuckGo provider
+        mw = WebSearchMiddleware()  # uses built-in Qwant provider
         mw = WebSearchMiddleware(providers=[my_search_tool])
         mw.tools   # [WebSearch]
         mw.prompt(state, runtime)  # Search guidance with provider names

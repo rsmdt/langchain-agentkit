@@ -54,7 +54,6 @@ from langchain_agentkit.middleware import (
 )
 from langchain_agentkit.state import (
     AgentKitState,
-    AgentState,
     SubAgentState,
     TasksState,
     TeamState,
@@ -76,7 +75,6 @@ __all__ = [
     # Core
     "AgentKit",
     "AgentKitState",
-    "AgentState",
     "Middleware",
     "SubAgentState",
     "TasksState",

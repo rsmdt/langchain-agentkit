@@ -183,7 +183,3 @@ class TeamState(TypedDict, total=False):
     team_members: Annotated[list[dict[str, Any]], _merge_team_members]
     team_messages: Annotated[list[dict[str, Any]], _append_messages]
     team_name: str | None
-
-
-# Backward-compat alias
-AgentState = AgentKitState
