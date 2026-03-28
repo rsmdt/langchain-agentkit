@@ -1,8 +1,8 @@
 """Command-based agent delegation tools for LangGraph agents.
 
-Tools use ``InjectedState`` to access graph state and return
-``Command(update={"delegation_log": [...]})`` to record delegation
-results. Compatible with LangGraph's ``ToolNode`` out of the box.
+Tools return ``Command(update={"messages": [ToolMessage(...)]})`` to
+propagate delegation results. Compatible with LangGraph's ``ToolNode``
+out of the box.
 
 Usage::
 
@@ -21,14 +21,12 @@ Usage::
 from __future__ import annotations
 
 import asyncio
-import time
-from datetime import datetime, timezone
 from functools import partial
 from typing import TYPE_CHECKING, Annotated, Any
 
 from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.tools import InjectedToolCallId, StructuredTool, ToolException
-from langgraph.graph import END, StateGraph
+from langgraph.graph import END
 from langgraph.prebuilt import InjectedState, ToolNode
 from langgraph.types import Command
 from pydantic import BaseModel, Field
@@ -95,27 +93,6 @@ def _extract_final_response(result: dict[str, Any]) -> str:
     return content if content else "(empty response)"
 
 
-def _build_log_entry(
-    agent: str,
-    message: str,
-    result_summary: str,
-    duration: float,
-    *,
-    error: str | None = None,
-) -> dict[str, Any]:
-    """Build a delegation log entry."""
-    entry: dict[str, Any] = {
-        "agent": agent,
-        "message": message,
-        "result_summary": result_summary[:200],
-        "timestamp": datetime.now(tz=timezone.utc).isoformat(),
-        "duration_seconds": round(duration, 3),
-    }
-    if error is not None:
-        entry["error"] = error
-    return entry
-
-
 def _compile_agent(
     graph: Any,
     compiled_cache: dict[str, Any],
@@ -167,21 +144,14 @@ async def _run_delegation(
     compiled: Any,
     scoped_state: dict[str, Any],
     agent: str,
-    message: str,
     timeout: float,
     tool_call_id: str,
 ) -> Any:
-    """Invoke a compiled graph with timeout, error handling, and delegation log."""
-    start = time.monotonic()
+    """Invoke a compiled graph with timeout and error handling."""
     try:
         result = await asyncio.wait_for(compiled.ainvoke(scoped_state), timeout=timeout)
     except asyncio.TimeoutError:
-        duration = time.monotonic() - start
-        log_entry = _build_log_entry(
-            agent, message, "", duration, error=f"Timed out after {timeout}s"
-        )
         return Command(update={
-            "delegation_log": [log_entry],
             "messages": [
                 ToolMessage(
                     content=f"Delegation to '{agent}' timed out after {timeout}s",
@@ -190,13 +160,8 @@ async def _run_delegation(
             ],
         })
     except Exception as exc:
-        duration = time.monotonic() - start
         error_msg = f"{type(exc).__name__}: {exc}"
-        log_entry = _build_log_entry(
-            agent, message, error_msg[:200], duration, error=error_msg
-        )
         return Command(update={
-            "delegation_log": [log_entry],
             "messages": [
                 ToolMessage(
                     content=f"Delegation failed: {error_msg}",
@@ -205,11 +170,8 @@ async def _run_delegation(
             ],
         })
 
-    duration = time.monotonic() - start
     response = _extract_final_response(result)
-    log_entry = _build_log_entry(agent, message, response, duration)
     return Command(update={
-        "delegation_log": [log_entry],
         "messages": [
             ToolMessage(content=response, tool_call_id=tool_call_id),
         ],
@@ -247,7 +209,6 @@ async def _delegate(
         compiled=compiled,
         scoped_state=scoped_state,
         agent=agent,
-        message=message,
         timeout=delegation_timeout,
         tool_call_id=tool_call_id,
     )
@@ -314,7 +275,6 @@ async def _delegate_ephemeral(
         compiled=compiled,
         scoped_state=scoped_state,
         agent=ephemeral_name,
-        message=message,
         timeout=delegation_timeout,
         tool_call_id=tool_call_id,
     )

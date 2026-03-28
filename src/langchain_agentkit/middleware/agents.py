@@ -135,9 +135,3 @@ class AgentMiddleware:
 
         return result
 
-    @property
-    def state_schema(self) -> type:
-        """SubAgentState adds delegation_log to graph state."""
-        from langchain_agentkit.state import SubAgentState
-
-        return SubAgentState

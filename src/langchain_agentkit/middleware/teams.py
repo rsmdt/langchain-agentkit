@@ -190,7 +190,6 @@ class ActiveTeam:
     bus: TeamMessageBus
     members: dict[str, asyncio.Task[str]]  # name → asyncio.Task
     member_types: dict[str, str]  # name → agent_type
-    iteration_count: int = field(default=0)
 
 
 # ---------------------------------------------------------------------------
@@ -210,7 +209,6 @@ class AgentTeamMiddleware:
             ``.agentkit_description`` attributes (from the agent metaclass).
         max_team_size: Maximum number of team members allowed.
         router_timeout: Seconds to wait for messages in the Router Node.
-        max_iterations: Safety limit for Router Node re-invocations.
 
     Note:
         ``AssignTask`` writes to the shared ``tasks`` state. Add
@@ -233,7 +231,6 @@ class AgentTeamMiddleware:
         agents: list[Any],
         max_team_size: int = 5,
         router_timeout: float = 30.0,
-        max_iterations: int = 50,
     ) -> None:
         from langchain_agentkit.middleware import validate_agent_list
 
@@ -243,7 +240,6 @@ class AgentTeamMiddleware:
         self._agents_by_name: dict[str, Any] = validate_agent_list(agents)
         self._max_team_size = max_team_size
         self._router_timeout = router_timeout
-        self._max_iterations = max_iterations
         self._active_team: ActiveTeam | None = None
 
         # Build tools bound to this middleware instance
@@ -392,8 +388,6 @@ class AgentTeamMiddleware:
                     ]
                 }
 
-            # Timeout — increment safety counter
-            team.iteration_count += 1
             return {}
 
         def _router_should_continue(state: dict[str, Any]) -> str:
@@ -409,9 +403,6 @@ class AgentTeamMiddleware:
                     # the handler produce a final human-facing response
                     if hasattr(last, "type") and last.type == "tool":
                         return node_name
-                return END
-
-            if team.iteration_count >= mw._max_iterations:
                 return END
 
             # Check if new messages were just injected

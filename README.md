@@ -252,7 +252,6 @@ class lead(agent):
 - `tools="inherit"` — subagent receives the parent's tools at delegation time instead of its own
 - `ephemeral=True` — enables `DelegateEphemeral` for ad-hoc reasoning agents created at runtime
 - `delegation_timeout` — max seconds per delegation (default 300s)
-- Delegation log tracked in `state["delegation_log"]` for observability
 
 See [`examples/delegation.py`](examples/delegation.py) for a complete example.
 

@@ -1,61 +1,12 @@
-"""Tests for SubAgentState, TeamState, and their reducers."""
+"""Tests for TeamState and its reducers."""
 
 from typing import get_type_hints
 
 from langchain_agentkit.state import (
-    SubAgentState,
     TeamState,
     _append_messages,
-    _merge_delegation_log,
     _merge_team_members,
 )
-
-
-class TestMergeDelegationLog:
-    def test_appends_right_to_left(self):
-        left = [{"agent": "a", "result": "x"}]
-        right = [{"agent": "b", "result": "y"}]
-
-        result = _merge_delegation_log(left, right)
-
-        assert len(result) == 2
-        assert result[0]["agent"] == "a"
-        assert result[1]["agent"] == "b"
-
-    def test_empty_left(self):
-        result = _merge_delegation_log([], [{"agent": "a"}])
-
-        assert len(result) == 1
-        assert result[0]["agent"] == "a"
-
-    def test_empty_right(self):
-        result = _merge_delegation_log([{"agent": "a"}], [])
-
-        assert len(result) == 1
-
-    def test_both_empty(self):
-        assert _merge_delegation_log([], []) == []
-
-    def test_none_left(self):
-        result = _merge_delegation_log(None, [{"agent": "a"}])
-
-        assert len(result) == 1
-
-    def test_none_right(self):
-        result = _merge_delegation_log([{"agent": "a"}], None)
-
-        assert len(result) == 1
-
-    def test_both_none(self):
-        assert _merge_delegation_log(None, None) == []
-
-    def test_preserves_order(self):
-        left = [{"id": 1}, {"id": 2}]
-        right = [{"id": 3}, {"id": 4}]
-
-        result = _merge_delegation_log(left, right)
-
-        assert [e["id"] for e in result] == [1, 2, 3, 4]
 
 
 class TestMergeTeamMembers:
@@ -184,21 +135,6 @@ class TestAppendMessages:
         result = _append_messages(left, right)
 
         assert [m["id"] for m in result] == [1, 2, 3]
-
-
-class TestSubAgentStateStructure:
-    def test_has_delegation_log_key(self):
-        hints = get_type_hints(SubAgentState, include_extras=True)
-
-        assert "delegation_log" in hints
-
-    def test_is_total_false(self):
-        assert SubAgentState.__total__ is False
-
-    def test_can_instantiate_as_typed_dict(self):
-        state: SubAgentState = {"delegation_log": []}
-
-        assert state["delegation_log"] == []
 
 
 class TestTeamStateStructure:

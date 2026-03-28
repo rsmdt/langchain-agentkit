@@ -113,13 +113,7 @@ if __name__ == "__main__":
             {"messages": [HumanMessage("What is the global SaaS market size? Calculate 15% growth.")]}
         )
 
-        print("=== Delegation Log ===")
-        for entry in result.get("delegation_log", []):
-            print(f"  [{entry['agent']}] {entry['message'][:60]}...")
-            print(f"    Result: {entry['result_summary'][:80]}...")
-            print(f"    Duration: {entry['duration_seconds']:.1f}s")
-
-        print("\n=== Final Response ===")
+        print("=== Final Response ===")
         print(result["messages"][-1].content)
 
     asyncio.run(main())

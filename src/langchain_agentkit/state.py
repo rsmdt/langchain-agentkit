@@ -116,28 +116,6 @@ class TasksState(TypedDict, total=False):
 
 
 # ---------------------------------------------------------------------------
-# Delegation state
-# ---------------------------------------------------------------------------
-
-
-def _merge_delegation_log(
-    left: list[dict[str, Any]],
-    right: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Append-only reducer for delegation log entries."""
-    return (left or []) + (right or [])
-
-
-class SubAgentState(TypedDict, total=False):
-    """State mixin for agent delegation.
-
-    Added to the graph state when ``AgentMiddleware`` is used.
-    """
-
-    delegation_log: Annotated[list[dict[str, Any]], _merge_delegation_log]
-
-
-# ---------------------------------------------------------------------------
 # Team state
 # ---------------------------------------------------------------------------
 

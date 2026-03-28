@@ -5,7 +5,6 @@ from unittest.mock import MagicMock
 import pytest
 
 from langchain_agentkit.middleware.agents import AgentMiddleware
-from langchain_agentkit.state import SubAgentState
 
 
 def _make_mock_agent(name: str, description: str = "") -> MagicMock:
@@ -132,13 +131,13 @@ class TestAgentMiddlewarePrompt:
         assert isinstance(result, str)
 
 
-class TestAgentMiddlewareStateSchema:
-    def test_state_schema_returns_sub_agent_state(self):
+class TestAgentMiddlewareNoStateSchema:
+    def test_has_no_state_schema(self):
         agent_a = _make_mock_agent("researcher")
 
         mw = AgentMiddleware([agent_a])
 
-        assert mw.state_schema is SubAgentState
+        assert not hasattr(mw, "state_schema")
 
 
 class TestAgentMiddlewareProtocol:

@@ -8,7 +8,6 @@ from langchain_core.tools import ToolException
 from langgraph.types import Command
 
 from langchain_agentkit.tools.agent import (
-    _build_log_entry,
     _build_scoped_state,
     _delegate,
     _delegate_ephemeral,
@@ -93,34 +92,6 @@ class TestExtractFinalResponse:
 
 
 # ---------------------------------------------------------------------------
-# _build_log_entry
-# ---------------------------------------------------------------------------
-
-
-class TestBuildLogEntry:
-    def test_builds_entry_with_required_fields(self):
-        entry = _build_log_entry("researcher", "do research", "found stuff", 1.5)
-
-        assert entry["agent"] == "researcher"
-        assert entry["message"] == "do research"
-        assert entry["result_summary"] == "found stuff"
-        assert entry["duration_seconds"] == 1.5
-        assert "timestamp" in entry
-        assert "error" not in entry
-
-    def test_truncates_result_summary_to_200_chars(self):
-        long_result = "x" * 300
-        entry = _build_log_entry("agent", "msg", long_result, 1.0)
-
-        assert len(entry["result_summary"]) == 200
-
-    def test_includes_error_field_when_provided(self):
-        entry = _build_log_entry("agent", "msg", "fail", 1.0, error="timeout")
-
-        assert entry["error"] == "timeout"
-
-
-# ---------------------------------------------------------------------------
 # _delegate
 # ---------------------------------------------------------------------------
 
@@ -142,9 +113,6 @@ class TestDelegate:
         )
 
         assert isinstance(result, Command)
-        assert len(result.update["delegation_log"]) == 1
-        assert result.update["delegation_log"][0]["agent"] == "researcher"
-        # ToolMessage with the response
         assert result.update["messages"][0].content == "research result"
         assert result.update["messages"][0].tool_call_id == FAKE_TOOL_CALL_ID
 
@@ -216,9 +184,8 @@ class TestDelegate:
         )
 
         assert isinstance(result, Command)
-        log = result.update["delegation_log"][0]
-        assert "error" in log
-        assert "boom" in log["error"]
+        assert "Delegation failed" in result.update["messages"][0].content
+        assert "boom" in result.update["messages"][0].content
 
 
 # ---------------------------------------------------------------------------
@@ -270,7 +237,6 @@ class TestDelegateEphemeral:
         )
 
         assert isinstance(result, Command)
-        assert result.update["delegation_log"][0]["agent"] == "ephemeral"
         assert result.update["messages"][0].content == "analysis result"
 
 
