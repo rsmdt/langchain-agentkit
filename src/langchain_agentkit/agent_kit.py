@@ -60,9 +60,31 @@ class AgentKit:
         middleware: list[Middleware],
         prompt: str | Path | list[str | Path] | None = None,
     ) -> None:
-        self._middleware = list(middleware)
-        self._template = _load_templates(prompt)
+        self._middleware = self._resolve_dependencies(list(middleware))
+        self._prompt = _load_prompt(prompt)
         self._tools_cache: list[BaseTool] | None = None
+
+    @staticmethod
+    def _resolve_dependencies(middleware: list) -> list:
+        """Resolve middleware dependencies. Auto-add missing dependencies.
+
+        Uses isinstance/type for identity. Dependencies declared via
+        the optional dependencies() method are added if not already present.
+        """
+        resolved = list(middleware)
+        seen_types = {type(mw) for mw in resolved}
+
+        # Iterate a copy — resolved may grow during iteration
+        for mw in list(resolved):
+            deps_fn = getattr(mw, "dependencies", None)
+            if not callable(deps_fn):
+                continue
+            for dep in deps_fn():
+                if type(dep) not in seen_types:
+                    resolved.append(dep)
+                    seen_types.add(type(dep))
+
+        return resolved
 
     @property
     def tools(self) -> list[BaseTool]:
@@ -110,7 +132,7 @@ class AgentKit:
         Called on every LLM invocation. Each middleware contributes
         a section in stack order. Sections joined with double newline.
         """
-        sections = [self._template] if self._template else []
+        sections = [self._prompt] if self._prompt else []
         for mw in self._middleware:
             section = mw.prompt(state, runtime)
             if section:
@@ -118,10 +140,10 @@ class AgentKit:
         return "\n\n".join(sections)
 
 
-def _load_template(source: str | Path) -> str:
-    """Load a single prompt template from file path or return inline string.
+def _load_prompt_source(source: str | Path) -> str:
+    """Load a single prompt source from file path or return inline string.
 
-    Security note: Template sources are set at construction time by the
+    Security note: Prompt sources are set at construction time by the
     developer, not by end-user input. If the source string happens to
     match an existing file path, it will be read. This is by design —
     callers control what is passed to ``AgentKit(prompt=...)``.
@@ -132,16 +154,16 @@ def _load_template(source: str | Path) -> str:
     return str(source)
 
 
-def _load_templates(source: str | Path | list[str | Path] | None) -> str:
-    """Load and concatenate prompt templates.
+def _load_prompt(source: str | Path | list[str | Path] | None) -> str:
+    """Load and concatenate prompt sources.
 
-    Accepts a single template or a list. Templates are loaded from file
+    Accepts a single source or a list. Sources are loaded from file
     paths or treated as inline strings, then joined with double newline.
     """
     if source is None:
         return ""
     if isinstance(source, (str, Path)):
-        return _load_template(source)
-    # List of templates
-    parts = [_load_template(s) for s in source]
+        return _load_prompt_source(source)
+    # List of sources
+    parts = [_load_prompt_source(s) for s in source]
     return "\n\n".join(p for p in parts if p)

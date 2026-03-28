@@ -35,6 +35,8 @@ if TYPE_CHECKING:
 
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
+_team_coordination_template = PromptTemplate.from_file(_PROMPTS_DIR / "team_coordination.md")
+
 
 # ---------------------------------------------------------------------------
 # TeamMessage & TeamMessageBus
@@ -133,12 +135,20 @@ async def _teammate_loop(
     member_name: str,
     compiled_graph: Any,
     message_bus: TeamMessageBus,
+    thread_id: str | None = None,
 ) -> str:
     """Event loop for a single teammate.
 
     Blocks on ``receive()``, processes messages via the compiled graph,
     and sends results back to the sender. Exits on ``"__shutdown__"`` signal.
+
+    If the compiled graph has a checkpointer and a ``thread_id`` is provided,
+    conversation history accumulates automatically across messages via
+    LangGraph's state persistence. Each ``ainvoke`` resumes from the
+    previous state on the same thread.
     """
+    config = {"configurable": {"thread_id": thread_id}} if thread_id else {}
+
     while True:
         msg = await message_bus.receive(member_name, timeout=30.0)
         if msg is None:
@@ -146,12 +156,15 @@ async def _teammate_loop(
         if msg.content == "__shutdown__":
             return "shutdown"
 
-        # Execute the full ReAct loop
+        # Execute the full ReAct loop — checkpointer accumulates history
         try:
-            result = await compiled_graph.ainvoke({
-                "messages": [HumanMessage(content=msg.content)],
-                "sender": member_name,
-            })
+            result = await compiled_graph.ainvoke(
+                {
+                    "messages": [HumanMessage(content=msg.content)],
+                    "sender": member_name,
+                },
+                config=config,
+            )
             final = (
                 result["messages"][-1].content
                 if result.get("messages")
@@ -195,68 +208,53 @@ class AgentTeamMiddleware:
     Args:
         agents: List of StateGraph objects with ``.agentkit_name`` and
             ``.agentkit_description`` attributes (from the agent metaclass).
-        ephemeral: Enable ephemeral team members (reserved for future use).
         max_team_size: Maximum number of team members allowed.
         router_timeout: Seconds to wait for messages in the Router Node.
         max_iterations: Safety limit for Router Node re-invocations.
 
+    Note:
+        ``AssignTask`` writes to the shared ``tasks`` state. Add
+        ``TasksMiddleware`` to your middleware list if you want the lead
+        to also have task management tools (TaskCreate, TaskList, etc.).
+        There is one shared task list — no separate task system for teams.
+
     Example::
 
-        from langchain_agentkit import agent, AgentTeamMiddleware
+        from langchain_agentkit import agent, AgentTeamMiddleware, TasksMiddleware
 
         class lead(agent):
             llm = ChatOpenAI(model="gpt-4o")
-            middleware = [AgentTeamMiddleware([researcher, coder])]
-            prompt = "You are a project lead."
-            async def handler(state, *, llm, tools, prompt):
-                response = await llm.ainvoke(state["messages"])
-                return {"messages": [response]}
+            middleware = [TasksMiddleware(), AgentTeamMiddleware([researcher, coder])]
+            ...
     """
 
     def __init__(
         self,
         agents: list[Any],
-        ephemeral: bool = False,
         max_team_size: int = 5,
         router_timeout: float = 30.0,
         max_iterations: int = 50,
     ) -> None:
-        # Validate agents
-        if not agents:
-            raise ValueError("agents list cannot be empty")
-
-        names = [getattr(g, "agentkit_name", None) for g in agents]
-        if any(n is None for n in names):
-            raise ValueError(
-                "All agents must have agentkit_name (use the agent metaclass)"
-            )
-
-        if len(set(names)) != len(names):
-            dupes = [n for n in names if names.count(n) > 1]
-            raise ValueError(f"Duplicate agent names: {set(dupes)}")
+        from langchain_agentkit.middleware import validate_agent_list
 
         if max_team_size < 1:
             raise ValueError("max_team_size must be >= 1")
 
-        self._agents_by_name: dict[str, Any] = {
-            g.agentkit_name: g for g in agents
-        }
-        self._ephemeral = ephemeral
+        self._agents_by_name: dict[str, Any] = validate_agent_list(agents)
         self._max_team_size = max_team_size
         self._router_timeout = router_timeout
         self._max_iterations = max_iterations
         self._active_team: ActiveTeam | None = None
-        self._compiled_cache: dict[str, Any] = {}
 
         # Build tools bound to this middleware instance
         from langchain_agentkit.tools.team import create_team_tools
 
-        self._tools = create_team_tools(self)
+        self._tools = tuple(create_team_tools(self))
 
     @property
     def tools(self) -> list[BaseTool]:
         """Team coordination tools."""
-        return list(self._tools)
+        return self._tools
 
     def prompt(
         self,
@@ -275,13 +273,8 @@ class AgentTeamMiddleware:
             roster_lines.append(f"- **{name}**: {desc}" if desc else f"- **{name}**")
         agent_roster = "\n".join(roster_lines)
 
-        # Load base template
-        template_path = _PROMPTS_DIR / "team_coordination.md"
-        if template_path.exists():
-            template = PromptTemplate.from_file(template_path)
-            base_prompt = template.format(agent_roster=agent_roster)
-        else:
-            base_prompt = f"## Team Coordination\n\n### Available Agents\n\n{agent_roster}"
+        # Use cached template
+        base_prompt = _team_coordination_template.format(agent_roster=agent_roster)
 
         # If team is active, append live status
         if self._active_team is not None:
@@ -317,9 +310,132 @@ class AgentTeamMiddleware:
 
         return base_prompt
 
+    def dependencies(self) -> list:
+        """Team coordination requires TasksMiddleware for task tracking."""
+        from langchain_agentkit.middleware.tasks import TasksMiddleware
+
+        return [TasksMiddleware()]
+
     @property
     def state_schema(self) -> type:
-        """Team coordination requires ``TeamState`` in the graph state."""
+        """Team coordination requires TeamState in the graph state."""
         from langchain_agentkit.state import TeamState
 
         return TeamState
+
+    def graph_modifier(self, workflow: Any, node_name: str) -> Any:
+        """Inject the Router Node into the graph topology.
+
+        Adds a "router" node and its conditional edges. The ``_build_graph``
+        function detects the router node and wires ``tools → router``
+        instead of ``tools → handler``.
+
+        Before (standard ReAct):
+            handler → tools → handler → ... → END
+
+        After (team-aware):
+            handler → tools → router → handler (if messages) → ...
+                                      → END    (if team dissolved or idle)
+        """
+        from langgraph.graph import END
+
+        mw = self  # capture for closure
+
+        async def _router_node(state: dict[str, Any]) -> dict[str, Any]:
+            """Check message bus and inject teammate messages into state."""
+            team = mw._active_team
+            if team is None:
+                # No team active — pass through (let handler synthesize)
+                return {}  # _router_should_continue handles routing
+
+            # Drain all pending messages for the lead
+            messages: list[TeamMessage] = []
+            while True:
+                msg = await team.bus.receive("lead", timeout=0.1)
+                if msg is None:
+                    break
+                messages.append(msg)
+
+            if messages:
+                return {
+                    "messages": [
+                        HumanMessage(
+                            content=f"[Message from teammate '{m.sender}']: {m.content}",
+                            additional_kwargs={
+                                "sender": m.sender,
+                                "type": "teammate_message",
+                            },
+                        )
+                        for m in messages
+                    ]
+                }
+
+            # No messages yet — check if teammates are still working
+            active_count = sum(
+                1 for t in team.members.values() if not t.done()
+            )
+            if active_count == 0:
+                return {}  # all done, _router_should_continue routes to END
+
+            # Teammates still working — wait for a message
+            msg = await team.bus.receive("lead", timeout=mw._router_timeout)
+            if msg is not None:
+                return {
+                    "messages": [
+                        HumanMessage(
+                            content=f"[Message from teammate '{msg.sender}']: {msg.content}",
+                            additional_kwargs={
+                                "sender": msg.sender,
+                                "type": "teammate_message",
+                            },
+                        )
+                    ]
+                }
+
+            # Timeout — increment safety counter
+            team.iteration_count += 1
+            return {}
+
+        def _router_should_continue(state: dict[str, Any]) -> str:
+            """Route after Router Node: back to handler if messages, END if done."""
+            team = mw._active_team
+
+            # Team just dissolved — route back to handler for final synthesis
+            if team is None:
+                msgs = state.get("messages", [])
+                if msgs:
+                    last = msgs[-1]
+                    # If last message is a ToolMessage (from DissolveTeam), let
+                    # the handler produce a final human-facing response
+                    if hasattr(last, "type") and last.type == "tool":
+                        return node_name
+                return END
+
+            if team.iteration_count >= mw._max_iterations:
+                return END
+
+            # Check if new messages were just injected
+            msgs = state.get("messages", [])
+            if msgs:
+                last = msgs[-1]
+                kwargs = getattr(last, "additional_kwargs", {})
+                if kwargs.get("type") == "teammate_message":
+                    return node_name
+
+            # All teammates done and no pending messages → END
+            active_count = sum(1 for t in team.members.values() if not t.done())
+            lead_pending = team.bus.pending_count("lead")
+            if active_count == 0 and lead_pending == 0:
+                return END
+
+            return node_name
+
+        # Add router node — _build_graph detects this and wires tools → router
+        workflow.add_node("router", _router_node)
+        workflow.add_conditional_edges(
+            "router",
+            _router_should_continue,
+            {node_name: node_name, END: END},
+        )
+
+        return workflow

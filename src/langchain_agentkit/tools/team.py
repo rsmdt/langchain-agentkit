@@ -17,7 +17,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
-import uuid
+from functools import partial
 from typing import TYPE_CHECKING, Annotated, Any
 
 from langchain_core.messages import ToolMessage
@@ -162,17 +162,18 @@ async def _spawn_team(
 
         bus.register(member_name)
 
-        # Compile graph (with caching)
+        # Compile graph with a per-member checkpointer for conversation history
         agent_graph = agents_by_name[agent_type]
-        compiled_cache = middleware._compiled_cache  # noqa: SLF001
-        if agent_type not in compiled_cache:
-            compiled_cache[agent_type] = agent_graph.compile()
-        compiled = compiled_cache[agent_type]
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        member_checkpointer = InMemorySaver()
+        compiled = agent_graph.compile(checkpointer=member_checkpointer)
+        thread_id = f"team-{team_name}-{member_name}"
 
         # Create asyncio.Task for the teammate loop
         task = asyncio.create_task(
-            _teammate_loop(member_name, compiled, bus),
-            name=f"team-{team_name}-{member_name}",
+            _teammate_loop(member_name, compiled, bus, thread_id=thread_id),
+            name=thread_id,
         )
         member_tasks[member_name] = task
         member_types[member_name] = agent_type
@@ -219,31 +220,16 @@ async def _assign_task(
     *,
     middleware: AgentTeamMiddleware,
 ) -> Command:  # type: ignore[type-arg]
-    """Create a task and send it to a team member via message bus."""
+    """Send a task to a team member via message bus."""
     _require_member(middleware, member_name)
     team = middleware._active_team  # noqa: SLF001
-
-    # Create task dict (reusing task creation logic)
-    task_dict: dict[str, Any] = {
-        "id": str(uuid.uuid4()),
-        "subject": task_description[:80],
-        "description": task_description,
-        "status": "in_progress",
-        "active_form": f"Working on: {task_description[:60]}",
-        "owner": member_name,
-    }
-
-    tasks = list(state.get("tasks") or [])
-    tasks.append(task_dict)
 
     # Send task to member via bus
     await team.bus.send("lead", member_name, task_description)
 
-    result = {"task_id": task_dict["id"], "assigned_to": member_name}
-
+    result = {"sent_to": member_name, "task": task_description[:80]}
     return Command(
         update={
-            "tasks": tasks,
             "messages": [ToolMessage(content=json.dumps(result), tool_call_id=tool_call_id)],
         }
     )
@@ -285,8 +271,8 @@ async def _check_teammates(
     for name, task in team.members.items():
         if task.done():
             try:
-                result = task.result()
-                status = "completed" if result == "shutdown" else "completed"
+                task.result()
+                status = "completed"
             except asyncio.CancelledError:
                 status = "cancelled"
             except Exception as exc:
@@ -450,15 +436,16 @@ Important:
 """
 
 _ASSIGN_TASK_DESCRIPTION = """\
-Assign a task to a specific team member.
+Send a task to a specific team member via the message bus.
 
-Creates a tracked task and sends the description to the member via the \
-message bus. The member begins working immediately.
+The member receives the message and begins working. To track this task,
+create it first with TaskCreate (set owner to the member name), then
+use AssignTask to send the work description.
 
 Tips:
-- Write clear, specific task descriptions with all needed context
-- Each member should be able to work independently on their task
-- Use CheckTeammates to monitor progress after assigning work\
+- Write clear, specific descriptions with all needed context
+- Use TaskCreate before AssignTask if you want task tracking
+- Use CheckTeammates to monitor progress after assigning\
 """
 
 _MESSAGE_TEAMMATE_DESCRIPTION = """\
@@ -517,82 +504,37 @@ def create_team_tools(middleware: AgentTeamMiddleware) -> list[BaseTool]:
     CheckTeammates, DissolveTeam.
     """
 
-    async def spawn_team(
-        team_name: str,
-        members: list[dict[str, Any]],
-        state: dict[str, Any],
-        tool_call_id: str,
-    ) -> Command:  # type: ignore[type-arg]
-        return await _spawn_team(
-            team_name, members, state, tool_call_id, middleware=middleware,
-        )
-
-    async def assign_task(
-        member_name: str,
-        task_description: str,
-        state: dict[str, Any],
-        tool_call_id: str,
-    ) -> Command:  # type: ignore[type-arg]
-        return await _assign_task(
-            member_name, task_description, state, tool_call_id, middleware=middleware,
-        )
-
-    async def message_teammate(
-        member_name: str,
-        message: str,
-        state: dict[str, Any],
-        tool_call_id: str,
-    ) -> Command:  # type: ignore[type-arg]
-        return await _message_teammate(
-            member_name, message, state, tool_call_id, middleware=middleware,
-        )
-
-    async def check_teammates(
-        state: dict[str, Any],
-        tool_call_id: str,
-    ) -> Command:  # type: ignore[type-arg]
-        return await _check_teammates(state, tool_call_id, middleware=middleware)
-
-    async def dissolve_team(
-        state: dict[str, Any],
-        tool_call_id: str,
-        timeout: float = 30.0,
-    ) -> Command:  # type: ignore[type-arg]
-        return await _dissolve_team(
-            state, tool_call_id, timeout=timeout, middleware=middleware,
-        )
-
     return [
         StructuredTool.from_function(
-            coroutine=spawn_team,
+            coroutine=partial(_spawn_team, middleware=middleware),
             name="SpawnTeam",
             description=_SPAWN_TEAM_DESCRIPTION,
             args_schema=_SpawnTeamInput,
             handle_tool_error=True,
         ),
         StructuredTool.from_function(
-            coroutine=assign_task,
+            coroutine=partial(_assign_task, middleware=middleware),
             name="AssignTask",
             description=_ASSIGN_TASK_DESCRIPTION,
             args_schema=_AssignTaskInput,
             handle_tool_error=True,
         ),
         StructuredTool.from_function(
-            coroutine=message_teammate,
+            coroutine=partial(_message_teammate, middleware=middleware),
             name="MessageTeammate",
             description=_MESSAGE_TEAMMATE_DESCRIPTION,
             args_schema=_MessageTeammateInput,
             handle_tool_error=True,
         ),
         StructuredTool.from_function(
-            coroutine=check_teammates,
+            coroutine=partial(_check_teammates, middleware=middleware),
             name="CheckTeammates",
             description=_CHECK_TEAMMATES_DESCRIPTION,
             args_schema=_CheckTeammatesInput,
             handle_tool_error=True,
         ),
         StructuredTool.from_function(
-            coroutine=dissolve_team,
+            coroutine=partial(_dissolve_team, middleware=middleware),
             name="DissolveTeam",
             description=_DISSOLVE_TEAM_DESCRIPTION,
             args_schema=_DissolveTeamInput,
