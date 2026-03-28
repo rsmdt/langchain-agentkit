@@ -98,6 +98,8 @@ middleware = [
     FilesystemMiddleware(),
     WebSearchMiddleware(),
     HITLMiddleware(interrupt_on={"send_email": True}),
+    AgentMiddleware([researcher, coder]),
+    AgentTeamMiddleware([researcher, coder]),
 ]
 ```
 
@@ -207,6 +209,115 @@ mw = HITLMiddleware(interrupt_on={
 ```
 
 Requires a checkpointer. Resume with `Command(resume={"type": "approve"})`.
+
+### AgentMiddleware
+
+Delegate tasks to specialist subagents at runtime. The lead agent decides when and to whom to delegate via the `Delegate` tool. Subagents run in isolation — they receive only the task message (not the lead's full conversation history) and return a concise result.
+
+```python
+from langchain_agentkit import agent, AgentMiddleware
+
+class researcher(agent):
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    description = "Research specialist for information gathering"
+    tools = [web_search]
+    prompt = "You are a research specialist."
+    async def handler(state, *, llm, tools, prompt): ...
+
+class coder(agent):
+    llm = ChatOpenAI(model="gpt-4o")
+    description = "Code implementation and debugging"
+    tools = [file_read, file_write]
+    prompt = "You are a coding specialist."
+    async def handler(state, *, llm, tools, prompt): ...
+
+class lead(agent):
+    llm = ChatOpenAI(model="gpt-4o")
+    middleware = [AgentMiddleware([researcher, coder])]
+    prompt = "Delegate research to the researcher and coding to the coder."
+    async def handler(state, *, llm, tools, prompt): ...
+```
+
+**How it works:** `Delegate` is a blocking tool call. The lead's ReAct loop stays alive because it's waiting for the tool result. For parallelism, the LLM calls multiple `Delegate` tools in one turn — LangGraph's `ToolNode` executes them concurrently.
+
+**Tools:**
+
+| Tool | Description |
+|------|-------------|
+| `Delegate(agent, message)` | Delegate a task to a named subagent. Blocks until complete. |
+| `DelegateEphemeral(message, instructions)` | Create a one-shot agent with custom instructions. Only available with `ephemeral=True`. |
+
+**Key features:**
+- `description` attribute on agents — used in the prompt roster so the LLM knows what each specialist does
+- `tools="inherit"` — subagent receives the parent's tools at delegation time instead of its own
+- `ephemeral=True` — enables `DelegateEphemeral` for ad-hoc reasoning agents created at runtime
+- `delegation_timeout` — max seconds per delegation (default 300s)
+- Delegation log tracked in `state["delegation_log"]` for observability
+
+See [`examples/delegation.py`](examples/delegation.py) for a complete example.
+
+### AgentTeamMiddleware
+
+Coordinate a team of concurrent agents for complex, multi-step work that requires back-and-forth communication. The lead spawns teammates, assigns tasks, reacts to their results, and can forward information between team members.
+
+```python
+from langchain_agentkit import agent, AgentTeamMiddleware, TasksMiddleware
+
+class lead(agent):
+    llm = ChatOpenAI(model="gpt-4o")
+    middleware = [TasksMiddleware(), AgentTeamMiddleware([researcher, coder])]
+    prompt = "You are a project lead. Coordinate your team."
+    async def handler(state, *, llm, tools, prompt): ...
+```
+
+There is **one shared task list** — the same one `TasksMiddleware` provides. `AssignTask` writes to it, `TaskList` reads from it. No separate task system for teams. `AgentTeamMiddleware` always includes `TasksState` in the state schema so `AssignTask` works even without explicit `TasksMiddleware`:
+
+```python
+# Minimal — AssignTask creates tasks, but lead has no TaskList/TaskCreate tools
+middleware = [AgentTeamMiddleware([researcher, coder])]
+
+# Full — lead also has task management tools (recommended)
+middleware = [TasksMiddleware(), AgentTeamMiddleware([researcher, coder])]
+
+# The LLM drives the lifecycle:
+# 1. SpawnTeam("dev-team", [{"name": "alice", "agent_type": "researcher"}, ...])
+# 2. AssignTask("alice", "Research rate limiting best practices")
+# 3. [alice works, sends result back via message bus]
+# 4. Lead receives alice's result automatically (Router Node)
+# 5. MessageTeammate("bob", "Alice found: use token bucket")
+# 6. DissolveTeam() → synthesize → respond to user
+```
+
+**How it works:** Teammates run as `asyncio.Task`s with their own checkpointers (conversation history persists across messages). A **Router Node** in the graph checks for teammate messages after each tool execution — when a teammate sends a result, the lead is automatically re-invoked with the message. The lead reacts to messages, it doesn't poll.
+
+**Tools:**
+
+| Tool | Description |
+|------|-------------|
+| `SpawnTeam(team_name, members)` | Create a team. Each member gets an asyncio.Task + checkpointer. |
+| `AssignTask(member_name, task_description)` | Assign work — creates a tracked task and sends it to the member. |
+| `MessageTeammate(member_name, message)` | Send guidance, follow-ups, or information from other members. |
+| `CheckTeammates()` | See member statuses, collect pending messages, view task progress. |
+| `DissolveTeam()` | Graceful shutdown — sends shutdown signals, waits, cleans up. |
+
+**Key features:**
+- **Router Node** — automatic message delivery from teammates to the lead (no polling)
+- **Conversation history** — each teammate has its own `InMemorySaver` checkpointer, so multiple messages accumulate context
+- **Shared task list** — one task list, shared with `TasksMiddleware`. `AssignTask` writes to it, `TaskList` reads from it. Add `TasksMiddleware` for full task management tools.
+- `max_team_size` — limit concurrent members (default 5)
+- `router_timeout` — how long the Router waits for messages (default 30s)
+- `max_iterations` — safety limit on Router re-invocations (default 50)
+
+**When to use Teams vs Delegate:**
+
+| | Delegate | Team |
+|---|---|---|
+| Interaction | Single request → result | Multi-turn conversation |
+| Lead during execution | Blocked waiting | Active (coordinating) |
+| Communication | One-way | Bidirectional (messages) |
+| Use case | "Do this and report back" | "Let's work on this together" |
+
+See [`examples/team.py`](examples/team.py) for a complete example.
 
 ## Custom Middleware
 
