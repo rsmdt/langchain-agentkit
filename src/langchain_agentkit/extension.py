@@ -1,0 +1,136 @@
+"""Extension base class for composable agent capabilities.
+
+An Extension bundles tools, prompts, state schema, lifecycle hooks,
+and graph modifications into a cohesive, reusable package.
+
+Simple case — override named methods::
+
+    class SecurityExtension(Extension):
+        async def before_model(self, state, runtime):
+            return sanitize_messages(state)
+
+Advanced case — decorators with per-tool filtering::
+
+    class GovernanceExtension(Extension):
+        @wrap("tool", tools=["delete_file"])
+        async def require_approval(self, request, handler):
+            return interrupt(request)
+"""
+
+from __future__ import annotations
+
+from collections import defaultdict
+from typing import Any
+
+
+# Named method patterns recognized as hooks
+_NAMED_HOOK_METHODS: dict[str, tuple[str, str]] = {
+    "before_run": ("before", "run"),
+    "after_run": ("after", "run"),
+    "on_error": ("on_error", "run"),
+    "before_model": ("before", "model"),
+    "after_model": ("after", "model"),
+    "wrap_model": ("wrap", "model"),
+    "before_tool": ("before", "tool"),
+    "after_tool": ("after", "tool"),
+    "wrap_tool": ("wrap", "tool"),
+}
+
+
+class Extension:
+    """Base class for composable agent capabilities.
+
+    An Extension contributes tools, prompts, state schema, lifecycle hooks,
+    and graph modifications to an agent. Subclass and override what you need.
+
+    Hook registration:
+        - **Named methods**: Override ``before_model``, ``wrap_tool``, etc.
+        - **Decorators**: Use ``@before("model")``, ``@wrap("tool", tools=[...])``, etc.
+          for per-tool filtering and multiple hooks on the same class.
+
+    Both styles can coexist on the same class. Decorated hooks are collected
+    via ``__init_subclass__`` at class definition time.
+    """
+
+    _decorated_hooks: dict[tuple[str, str], list[Any]]
+
+    def __init_subclass__(cls, **kwargs: Any) -> None:
+        super().__init_subclass__(**kwargs)
+        hooks: dict[tuple[str, str], list[Any]] = defaultdict(list)
+        for attr_name in list(vars(cls)):
+            method = vars(cls).get(attr_name)
+            if callable(method) and hasattr(method, "_hook_phase"):
+                key = (method._hook_phase, method._hook_point)
+                hooks[key].append(method)
+        cls._decorated_hooks = dict(hooks)
+
+    # --- Required protocol (with defaults) ---
+
+    @property
+    def tools(self) -> list:
+        """Tools this extension provides to the agent."""
+        return []
+
+    def prompt(self, state: dict[str, Any], runtime: Any | None = None) -> str | None:
+        """Prompt section contributed by this extension.
+
+        Called on every LLM invocation. Return None to skip injection.
+        """
+        return None
+
+    @property
+    def state_schema(self) -> type | None:
+        """TypedDict mixin for this extension's state requirements.
+
+        Return a TypedDict class to add keys to the graph state, or
+        None if no additional state keys are needed.
+        """
+        return None
+
+    def dependencies(self) -> list[Any]:
+        """Optional: extensions this one depends on. Auto-added if missing.
+
+        Return instances of required extensions. The dependency resolver
+        deduplicates by type.
+        """
+        return []
+
+    # --- Hook discovery ---
+
+    @classmethod
+    def _get_named_hooks(cls) -> dict[tuple[str, str], Any]:
+        """Discover named hook methods on this class.
+
+        Returns a dict mapping (phase, point) to the unbound method,
+        only for methods actually overridden on this class (not inherited
+        from Extension base).
+        """
+        result: dict[tuple[str, str], Any] = {}
+        for method_name, key in _NAMED_HOOK_METHODS.items():
+            method = getattr(cls, method_name, None)
+            if method is None:
+                continue
+            # Only include if overridden (not the base Extension class)
+            if method_name not in vars(cls):
+                continue
+            result[key] = method
+        return result
+
+    def get_all_hooks(self) -> dict[tuple[str, str], list[Any]]:
+        """Get all hooks (named methods + decorated) as bound methods.
+
+        Returns a dict mapping (phase, point) to a list of bound methods.
+        Named methods come first, then decorated hooks.
+        """
+        result: dict[tuple[str, str], list[Any]] = defaultdict(list)
+
+        # Named methods first
+        for key, unbound in self.__class__._get_named_hooks().items():
+            result[key].append(getattr(self, unbound.__name__))
+
+        # Then decorated hooks
+        for key, unbound_list in self.__class__._decorated_hooks.items():
+            for unbound in unbound_list:
+                result[key].append(getattr(self, unbound.__name__))
+
+        return dict(result)
