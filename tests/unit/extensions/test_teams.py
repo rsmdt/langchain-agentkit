@@ -1,12 +1,12 @@
-"""Tests for AgentTeamMiddleware and TeamMessageBus."""
+"""Tests for TeamExtension and TeamMessageBus."""
 
 import asyncio
 from unittest.mock import MagicMock
 
 import pytest
 
-from langchain_agentkit.middleware.teams import (
-    AgentTeamMiddleware,
+from langchain_agentkit.extensions.teams import (
+    TeamExtension,
     TeamMessageBus,
 )
 from langchain_agentkit.state import TeamState
@@ -163,52 +163,52 @@ class TestTeamMessageBusPendingCount:
 
 
 # ---------------------------------------------------------------------------
-# AgentTeamMiddleware tests
+# TeamExtension tests
 # ---------------------------------------------------------------------------
 
 
-class TestAgentTeamMiddlewareConstruction:
+class TestTeamExtensionConstruction:
     def test_construction_with_valid_agents(self):
         agent_a = _make_mock_agent("researcher", "Research specialist")
         agent_b = _make_mock_agent("coder", "Code specialist")
 
-        mw = AgentTeamMiddleware([agent_a, agent_b])
+        mw = TeamExtension([agent_a, agent_b])
 
         assert "researcher" in mw._agents_by_name
         assert "coder" in mw._agents_by_name
 
     def test_construction_with_empty_list_raises_value_error(self):
         with pytest.raises(ValueError, match="agents list cannot be empty"):
-            AgentTeamMiddleware([])
+            TeamExtension([])
 
     def test_construction_with_duplicate_names_raises_value_error(self):
         agent_a = _make_mock_agent("researcher")
         agent_b = _make_mock_agent("researcher")
 
         with pytest.raises(ValueError, match="Duplicate agent names"):
-            AgentTeamMiddleware([agent_a, agent_b])
+            TeamExtension([agent_a, agent_b])
 
     def test_construction_with_missing_agentkit_name_raises(self):
         mock = MagicMock(spec=[])
 
         with pytest.raises(ValueError, match="agentkit_name"):
-            AgentTeamMiddleware([mock])
+            TeamExtension([mock])
 
     def test_max_team_size_validation(self):
         agent_a = _make_mock_agent("researcher")
 
         with pytest.raises(ValueError, match="max_team_size"):
-            AgentTeamMiddleware([agent_a], max_team_size=0)
+            TeamExtension([agent_a], max_team_size=0)
 
 
-class TestAgentTeamMiddlewareTools:
+class TestTeamExtensionTools:
     def test_returns_five_team_tools(self):
         agent_a = _make_mock_agent("researcher")
 
-        mw = AgentTeamMiddleware([agent_a])
+        mw = TeamExtension([agent_a])
         tool_names = [t.name for t in mw.tools]
 
-        # 5 team tools only — task tools come from TasksMiddleware if user adds it
+        # 5 team tools only — task tools come from TasksExtension if user adds it
         assert len(mw.tools) == 5
         assert "SpawnTeam" in tool_names
         assert "TaskCreate" not in tool_names
@@ -216,7 +216,7 @@ class TestAgentTeamMiddlewareTools:
     def test_tool_names_include_team_tools(self):
         agent_a = _make_mock_agent("researcher")
 
-        mw = AgentTeamMiddleware([agent_a])
+        mw = TeamExtension([agent_a])
         tool_names = [t.name for t in mw.tools]
 
         assert "SpawnTeam" in tool_names
@@ -227,7 +227,7 @@ class TestAgentTeamMiddlewareTools:
 
     def test_tools_returns_immutable_tuple(self):
         agent_a = _make_mock_agent("researcher")
-        mw = AgentTeamMiddleware([agent_a])
+        mw = TeamExtension([agent_a])
 
         first = mw.tools
         second = mw.tools
@@ -236,12 +236,12 @@ class TestAgentTeamMiddlewareTools:
         assert isinstance(first, tuple)
 
 
-class TestAgentTeamMiddlewarePrompt:
+class TestTeamExtensionPrompt:
     def test_prompt_renders_agent_roster(self):
         agent_a = _make_mock_agent("researcher", "Research specialist")
         agent_b = _make_mock_agent("coder", "Code specialist")
 
-        mw = AgentTeamMiddleware([agent_a, agent_b])
+        mw = TeamExtension([agent_a, agent_b])
         result = mw.prompt({})
 
         assert "researcher" in result
@@ -252,17 +252,17 @@ class TestAgentTeamMiddlewarePrompt:
     def test_prompt_includes_team_coordination_guidelines(self):
         agent_a = _make_mock_agent("researcher")
 
-        mw = AgentTeamMiddleware([agent_a])
+        mw = TeamExtension([agent_a])
         result = mw.prompt({})
 
         assert "Team Coordination" in result
 
     def test_prompt_shows_active_team_status_when_team_active(self):
         agent_a = _make_mock_agent("researcher")
-        mw = AgentTeamMiddleware([agent_a])
+        mw = TeamExtension([agent_a])
 
         # Simulate an active team
-        from langchain_agentkit.middleware.teams import ActiveTeam
+        from langchain_agentkit.extensions.teams import ActiveTeam
 
         bus = TeamMessageBus()
         bus.register("lead")
@@ -286,69 +286,69 @@ class TestAgentTeamMiddlewarePrompt:
 
     def test_prompt_returns_string(self):
         agent_a = _make_mock_agent("researcher")
-        mw = AgentTeamMiddleware([agent_a])
+        mw = TeamExtension([agent_a])
 
         assert isinstance(mw.prompt({}), str)
 
 
-class TestAgentTeamMiddlewareStateSchema:
+class TestTeamExtensionStateSchema:
     def test_state_schema_returns_team_state(self):
         agent_a = _make_mock_agent("researcher")
 
-        mw = AgentTeamMiddleware([agent_a])
+        mw = TeamExtension([agent_a])
         schema = mw.state_schema
 
         # state_schema returns TeamState only; TasksState comes via
-        # dependency resolution in AgentKit (TasksMiddleware auto-added)
+        # dependency resolution in AgentKit (TasksExtension auto-added)
         assert schema is TeamState
 
 
-class TestAgentTeamMiddlewareDependencies:
-    def test_dependencies_returns_tasks_middleware(self):
-        from langchain_agentkit.middleware.tasks import TasksMiddleware
+class TestTeamExtensionDependencies:
+    def test_dependencies_returns_tasks_extension(self):
+        from langchain_agentkit.extensions.tasks import TasksExtension
 
         agent_a = _make_mock_agent("researcher")
-        mw = AgentTeamMiddleware([agent_a])
+        mw = TeamExtension([agent_a])
 
         deps = mw.dependencies()
 
         assert len(deps) == 1
-        assert isinstance(deps[0], TasksMiddleware)
+        assert isinstance(deps[0], TasksExtension)
 
-    def test_agentkit_resolves_tasks_middleware_dependency(self):
+    def test_agentkit_resolves_tasks_extension_dependency(self):
         from langchain_agentkit.agent_kit import AgentKit
-        from langchain_agentkit.middleware.tasks import TasksMiddleware
+        from langchain_agentkit.extensions.tasks import TasksExtension
 
         agent_a = _make_mock_agent("researcher")
-        team_mw = AgentTeamMiddleware([agent_a])
+        team_mw = TeamExtension([agent_a])
 
         kit = AgentKit([team_mw])
 
-        # TasksMiddleware should be auto-added
-        mw_types = [type(mw) for mw in kit._middleware]
-        assert AgentTeamMiddleware in mw_types
-        assert TasksMiddleware in mw_types
+        # TasksExtension should be auto-added
+        mw_types = [type(mw) for mw in kit._extensions]
+        assert TeamExtension in mw_types
+        assert TasksExtension in mw_types
 
-    def test_agentkit_deduplicates_tasks_middleware(self):
+    def test_agentkit_deduplicates_tasks_extension(self):
         from langchain_agentkit.agent_kit import AgentKit
-        from langchain_agentkit.middleware.tasks import TasksMiddleware
+        from langchain_agentkit.extensions.tasks import TasksExtension
 
         agent_a = _make_mock_agent("researcher")
-        team_mw = AgentTeamMiddleware([agent_a])
-        tasks_mw = TasksMiddleware()
+        team_mw = TeamExtension([agent_a])
+        tasks_mw = TasksExtension()
 
-        # User explicitly adds TasksMiddleware AND AgentTeamMiddleware
+        # User explicitly adds TasksExtension AND TeamExtension
         kit = AgentKit([tasks_mw, team_mw])
 
-        # TasksMiddleware should NOT be duplicated
-        tasks_count = sum(1 for mw in kit._middleware if isinstance(mw, TasksMiddleware))
+        # TasksExtension should NOT be duplicated
+        tasks_count = sum(1 for mw in kit._extensions if isinstance(mw, TasksExtension))
         assert tasks_count == 1
 
     def test_agentkit_composed_schema_includes_tasks_via_dependency(self):
         from langchain_agentkit.agent_kit import AgentKit
 
         agent_a = _make_mock_agent("researcher")
-        team_mw = AgentTeamMiddleware([agent_a])
+        team_mw = TeamExtension([agent_a])
 
         kit = AgentKit([team_mw])
         schema = kit.state_schema
@@ -359,10 +359,10 @@ class TestAgentTeamMiddlewareDependencies:
         assert "tasks" in annotations
 
 
-class TestAgentTeamMiddlewareProtocol:
-    def test_satisfies_middleware_protocol(self):
+class TestTeamExtensionProtocol:
+    def test_satisfies_extension_protocol(self):
         agent_a = _make_mock_agent("researcher")
-        mw = AgentTeamMiddleware([agent_a])
+        mw = TeamExtension([agent_a])
 
         assert hasattr(mw, "tools")
         assert callable(mw.prompt)

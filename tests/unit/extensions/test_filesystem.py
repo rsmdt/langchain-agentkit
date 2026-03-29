@@ -1,11 +1,12 @@
-"""Tests for FilesystemMiddleware."""
+"""Tests for FilesystemExtension."""
 
 from pathlib import Path
 
 import pytest
 from langgraph.prebuilt import ToolRuntime
 
-from langchain_agentkit.middleware.filesystem import FilesystemMiddleware
+from langchain_agentkit.backend import MemoryBackend
+from langchain_agentkit.extensions.filesystem import FilesystemExtension
 from langchain_agentkit.vfs import VirtualFilesystem
 
 FIXTURES = Path(__file__).parent.parent.parent / "fixtures"
@@ -22,7 +23,7 @@ _TEST_RUNTIME = ToolRuntime(
 
 class TestConstructor:
     def test_empty(self):
-        mw = FilesystemMiddleware()
+        mw = FilesystemExtension()
 
         assert len(mw.filesystem) == 0
 
@@ -30,13 +31,13 @@ class TestConstructor:
         vfs = VirtualFilesystem()
         vfs.write("/a.txt", "hello")
 
-        mw = FilesystemMiddleware(filesystem=vfs)
+        mw = FilesystemExtension(filesystem=vfs)
 
         assert mw.filesystem is vfs
         assert mw.filesystem.exists("/a.txt")
 
     def test_with_files_dict(self):
-        mw = FilesystemMiddleware(
+        mw = FilesystemExtension(
             files={
                 "/config.json": '{"key": "value"}',
                 "/data.txt": "data",
@@ -48,13 +49,13 @@ class TestConstructor:
         assert mw.filesystem.read("/data.txt") == "data"
 
     def test_with_files_directory(self):
-        mw = FilesystemMiddleware(files=FIXTURES / "skills" / "market-sizing")
+        mw = FilesystemExtension(files=FIXTURES / "skills" / "market-sizing")
 
         assert mw.filesystem.exists("/SKILL.md")
         assert mw.filesystem.exists("/calculator.py")
 
     def test_with_files_string_path(self):
-        mw = FilesystemMiddleware(
+        mw = FilesystemExtension(
             files=str(FIXTURES / "skills" / "market-sizing"),
         )
 
@@ -64,23 +65,39 @@ class TestConstructor:
         vfs = VirtualFilesystem()
 
         with pytest.raises(ValueError, match="Cannot pass both"):
-            FilesystemMiddleware(filesystem=vfs, files={"/a": "b"})
+            FilesystemExtension(filesystem=vfs, files={"/a": "b"})
 
 
 class TestTools:
-    def test_returns_five_tools(self):
-        mw = FilesystemMiddleware()
+    def test_returns_seven_tools(self):
+        ext = FilesystemExtension()
 
-        assert len(mw.tools) == 5
+        assert len(ext.tools) == 7
 
     def test_tool_names(self):
-        mw = FilesystemMiddleware()
-        names = [t.name for t in mw.tools]
+        ext = FilesystemExtension()
+        names = [t.name for t in ext.tools]
 
-        assert names == ["Read", "Write", "Edit", "Glob", "Grep"]
+        assert names == ["Read", "Write", "Edit", "Glob", "Grep", "LS", "MultiEdit"]
+
+    def test_execute_tool_included_with_sandbox(self):
+        from langchain_agentkit.backend import SandboxProtocol
+
+        class MockSandbox(MemoryBackend):
+            def execute(self, command, timeout=None, workdir=None):
+                return {"output": "", "exit_code": 0, "truncated": False}
+
+        ext = FilesystemExtension(backend=MockSandbox(), include_execute=True)
+        names = [t.name for t in ext.tools]
+        assert "Execute" in names
+
+    def test_execute_tool_excluded_by_default(self):
+        ext = FilesystemExtension()
+        names = [t.name for t in ext.tools]
+        assert "Execute" not in names
 
     def test_read_tool_works_with_preloaded_dict(self):
-        mw = FilesystemMiddleware(files={"/hello.txt": "world"})
+        mw = FilesystemExtension(files={"/hello.txt": "world"})
         read_tool = mw.tools[0]
 
         result = read_tool.invoke({"file_path": "/hello.txt"})
@@ -88,7 +105,7 @@ class TestTools:
         assert "world" in result
 
     def test_read_tool_works_with_preloaded_directory(self):
-        mw = FilesystemMiddleware(files=FIXTURES / "skills" / "market-sizing")
+        mw = FilesystemExtension(files=FIXTURES / "skills" / "market-sizing")
         read_tool = mw.tools[0]
 
         result = read_tool.invoke({"file_path": "/SKILL.md"})
@@ -98,12 +115,12 @@ class TestTools:
 
 class TestPrompt:
     def test_empty_filesystem_returns_none(self):
-        mw = FilesystemMiddleware()
+        mw = FilesystemExtension()
 
         assert mw.prompt({}, _TEST_RUNTIME) is None
 
     def test_populated_returns_prompt(self):
-        mw = FilesystemMiddleware(files={"/data/file.txt": "content"})
+        mw = FilesystemExtension(files={"/data/file.txt": "content"})
 
         result = mw.prompt({}, _TEST_RUNTIME)
 
@@ -112,7 +129,7 @@ class TestPrompt:
         assert "/data/" in result
 
     def test_multiple_dirs_listed(self):
-        mw = FilesystemMiddleware(
+        mw = FilesystemExtension(
             files={
                 "/data/a.txt": "",
                 "/config/b.txt": "",
@@ -127,17 +144,17 @@ class TestPrompt:
 
 class TestStateSchema:
     def test_returns_none(self):
-        mw = FilesystemMiddleware()
+        mw = FilesystemExtension()
 
         assert mw.state_schema is None
 
 
-class TestMiddlewareProtocol:
+class TestExtensionProtocol:
     def test_has_tools_property(self):
-        assert isinstance(FilesystemMiddleware.tools, property)
+        assert isinstance(FilesystemExtension.tools, property)
 
     def test_has_prompt_method(self):
-        assert callable(getattr(FilesystemMiddleware, "prompt", None))
+        assert callable(getattr(FilesystemExtension, "prompt", None))
 
     def test_has_state_schema_property(self):
-        assert isinstance(FilesystemMiddleware.state_schema, property)
+        assert isinstance(FilesystemExtension.state_schema, property)

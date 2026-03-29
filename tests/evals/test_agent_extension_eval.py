@@ -1,5 +1,5 @@
 # ruff: noqa: N801
-"""Real-LLM integration evals for AgentMiddleware delegation pipeline.
+"""Real-LLM integration evals for AgentExtension delegation pipeline.
 
 Tests exercise the FULL compiled graph flow: lead agent receives a message,
 decides to delegate via the Agent tool, LangGraph's ToolNode executes the
@@ -12,7 +12,7 @@ Requires:
 
 Run::
 
-    uv run pytest tests/evals/test_agent_middleware_eval.py -x -v -m eval
+    uv run pytest tests/evals/test_agent_extension_eval.py -x -v -m eval
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ import pytest
 from langchain_core.messages import HumanMessage
 
 from langchain_agentkit.agent import agent
-from langchain_agentkit.middleware.agents import AgentMiddleware
+from langchain_agentkit.extensions.agents import AgentExtension
 
 pytestmark = [
     pytest.mark.eval,
@@ -100,13 +100,13 @@ def _build_greeter():
 # ---------------------------------------------------------------------------
 
 
-def _build_lead_with_middleware(mw: AgentMiddleware):
-    """Build a lead agent that uses AgentMiddleware to delegate."""
+def _build_lead_with_extension(mw: AgentExtension):
+    """Build a lead agent that uses AgentExtension to delegate."""
     _llm = _get_llm()
 
     class lead(agent):
         llm = _llm
-        middleware = [mw]
+        extensions = [mw]
         prompt = (
             "You are a lead agent. You MUST delegate tasks to specialist agents. "
             "NEVER answer questions yourself. ALWAYS use the Agent tool. "
@@ -134,8 +134,8 @@ class TestDelegationFullFlow:
     async def test_delegate_math_to_calculator(self):
         """Lead receives 'What is 2+2?', delegates to calculator, returns '4'."""
         calculator = _build_calculator()
-        mw = AgentMiddleware([calculator])
-        lead = _build_lead_with_middleware(mw)
+        mw = AgentExtension([calculator])
+        lead = _build_lead_with_extension(mw)
 
         graph = lead.compile()
         result = await graph.ainvoke(
@@ -148,8 +148,8 @@ class TestDelegationFullFlow:
     async def test_delegate_multiplication(self):
         """Verify delegation works for a different math problem."""
         calculator = _build_calculator()
-        mw = AgentMiddleware([calculator])
-        lead = _build_lead_with_middleware(mw)
+        mw = AgentExtension([calculator])
+        lead = _build_lead_with_extension(mw)
 
         graph = lead.compile()
         result = await graph.ainvoke(
@@ -172,8 +172,8 @@ class TestMultiAgentDelegation:
         """With calculator+greeter, math goes to calculator."""
         calculator = _build_calculator()
         greeter = _build_greeter()
-        mw = AgentMiddleware([calculator, greeter])
-        lead = _build_lead_with_middleware(mw)
+        mw = AgentExtension([calculator, greeter])
+        lead = _build_lead_with_extension(mw)
 
         graph = lead.compile()
         result = await graph.ainvoke(
@@ -194,7 +194,7 @@ class TestDynamicDelegation:
     async def test_dynamic_delegation(self):
         """Lead delegates to a dynamic reasoning agent."""
         calculator = _build_calculator()
-        mw = AgentMiddleware([calculator], ephemeral=True)
+        mw = AgentExtension([calculator], ephemeral=True)
 
         mw.set_parent_llm_getter(_get_llm)
 
@@ -202,7 +202,7 @@ class TestDynamicDelegation:
 
         class dynamic_lead(agent):
             llm = _llm
-            middleware = [mw]
+            extensions = [mw]
             prompt = (
                 "You are a lead agent. Use the Agent tool to create a custom agent. "
                 "Set agent to {prompt: 'You are a poet. Write a one-line poem about "
@@ -236,8 +236,8 @@ class TestScopedContext:
     async def test_subagent_answers_only_delegated_question(self):
         """Parent has unrelated history; subagent answers only the math question."""
         calculator = _build_calculator()
-        mw = AgentMiddleware([calculator])
-        lead = _build_lead_with_middleware(mw)
+        mw = AgentExtension([calculator])
+        lead = _build_lead_with_extension(mw)
 
         graph = lead.compile()
 

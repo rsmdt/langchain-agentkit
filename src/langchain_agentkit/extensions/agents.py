@@ -1,8 +1,8 @@
-"""AgentMiddleware — blocking subagent delegation with parallel support.
+"""AgentExtension — blocking subagent delegation with parallel support.
 
 Usage::
 
-    from langchain_agentkit import agent, AgentMiddleware
+    from langchain_agentkit import agent, AgentExtension
 
     class researcher(agent):
         llm = ChatOpenAI(model="gpt-4o-mini")
@@ -12,7 +12,7 @@ Usage::
 
     class lead(agent):
         llm = ChatOpenAI(model="gpt-4o")
-        middleware = [AgentMiddleware([researcher])]
+        extensions = [AgentExtension([researcher])]
         async def handler(state, *, llm, tools, prompt): ...
 
 Parallel delegation: the LLM calls Agent multiple times in one turn.
@@ -25,6 +25,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from langchain_core.prompts import PromptTemplate
+
+from langchain_agentkit.extension import Extension
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
@@ -47,8 +49,8 @@ Agent(agent={prompt: "You are a legal expert..."}, message="...")
 Custom agents are reasoning-only — they cannot use tools."""
 
 
-class AgentMiddleware:
-    """Middleware providing blocking subagent delegation via the Agent tool.
+class AgentExtension(Extension):
+    """Extension providing blocking subagent delegation via the Agent tool.
 
     Parallel delegation: LLM calls multiple Agent tools in one turn.
     LangGraph's ToolNode executes them concurrently.
@@ -62,7 +64,7 @@ class AgentMiddleware:
 
     Example::
 
-        mw = AgentMiddleware(
+        mw = AgentExtension(
             [researcher, coder],
             ephemeral=True,
             delegation_timeout=120.0,
@@ -76,7 +78,7 @@ class AgentMiddleware:
         default_conciseness: bool = True,
         delegation_timeout: float = 300.0,
     ) -> None:
-        from langchain_agentkit.middleware import validate_agent_list
+        from langchain_agentkit.extensions import validate_agent_list
 
         self._agents_by_name: dict[str, Any] = validate_agent_list(agents)
         self._ephemeral = ephemeral
@@ -91,7 +93,7 @@ class AgentMiddleware:
         self._tools = tuple(self._create_tools())
 
     def _create_tools(self) -> list[BaseTool]:
-        """Create the unified Agent tool with closures over middleware state."""
+        """Create the unified Agent tool with closures over extensions state."""
         from langchain_agentkit.tools.agent import create_agent_tools
 
         return create_agent_tools(
@@ -121,7 +123,7 @@ class AgentMiddleware:
 
     @property
     def tools(self) -> list[BaseTool]:
-        """The Agent tool provided by this middleware."""
+        """The Agent tool provided by this extensions."""
         return self._tools
 
     def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:

@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
-from langchain_agentkit.middleware.skills import SkillsMiddleware
+from langchain_agentkit.extensions.skills import SkillsExtension
 
 if TYPE_CHECKING:
     from langchain_agentkit.vfs import VirtualFilesystem
@@ -26,15 +26,15 @@ if _ENV_FILE.exists():
 
 
 @pytest.fixture()
-def skills_middleware() -> SkillsMiddleware:
-    """SkillsMiddleware wired to test fixtures."""
-    return SkillsMiddleware(str(FIXTURES / "skills"))
+def skills_extension() -> SkillsExtension:
+    """SkillsExtension wired to test fixtures."""
+    return SkillsExtension(str(FIXTURES / "skills"))
 
 
 @pytest.fixture()
-def vfs_with_workspace(skills_middleware: SkillsMiddleware) -> VirtualFilesystem:
+def vfs_with_workspace(skills_extension: SkillsExtension) -> VirtualFilesystem:
     """VFS with skills loaded + workspace files for edit/write tests."""
-    vfs = skills_middleware.filesystem
+    vfs = skills_extension.filesystem
     vfs.write("/workspace/config.json", '{"debug": true, "verbose": false}')
     vfs.write("/workspace/notes.txt", "Some notes here")
     return vfs

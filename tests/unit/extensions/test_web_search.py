@@ -1,4 +1,4 @@
-"""Tests for WebSearchMiddleware."""
+"""Tests for WebSearchExtension."""
 
 from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
@@ -7,10 +7,10 @@ import pytest
 from langchain_core.tools import BaseTool
 from langgraph.prebuilt import ToolRuntime
 
-from langchain_agentkit.middleware.web_search import (
+from langchain_agentkit.extensions.web_search import (
     DuckDuckGoSearchProvider,
     QwantSearchProvider,
-    WebSearchMiddleware,
+    WebSearchExtension,
 )
 
 _TEST_RUNTIME = ToolRuntime(
@@ -31,11 +31,11 @@ def _make_mock_tool(name: str, return_value: str = "search results") -> MagicMoc
     return mock
 
 
-class TestWebSearchMiddlewareConstruction:
+class TestWebSearchExtensionConstruction:
     def test_accepts_base_tool_instances(self):
         mock_tool = _make_mock_tool("test_search")
 
-        mw = WebSearchMiddleware(providers=[mock_tool])
+        mw = WebSearchExtension(providers=[mock_tool])
 
         assert mw is not None
 
@@ -43,7 +43,7 @@ class TestWebSearchMiddlewareConstruction:
         def my_search(query: str) -> str:
             return f"results for {query}"
 
-        mw = WebSearchMiddleware(providers=[my_search])
+        mw = WebSearchExtension(providers=[my_search])
 
         assert mw is not None
 
@@ -51,7 +51,7 @@ class TestWebSearchMiddlewareConstruction:
         async def my_async_search(query: str) -> str:
             return f"async results for {query}"
 
-        mw = WebSearchMiddleware(providers=[my_async_search])
+        mw = WebSearchExtension(providers=[my_async_search])
 
         assert mw is not None
 
@@ -61,23 +61,23 @@ class TestWebSearchMiddlewareConstruction:
         def my_search(query: str) -> str:
             return "results"
 
-        mw = WebSearchMiddleware(providers=[mock_tool, my_search])
+        mw = WebSearchExtension(providers=[mock_tool, my_search])
 
         assert mw is not None
 
     def test_empty_providers_uses_default(self):
-        mw = WebSearchMiddleware(providers=[])
+        mw = WebSearchExtension(providers=[])
 
         assert len(mw.tools) == 1
         assert mw.tools[0].name == "WebSearch"
 
     def test_invalid_provider_type_raises_type_error(self):
         with pytest.raises(TypeError):
-            WebSearchMiddleware(providers=[42])  # type: ignore[list-item]
+            WebSearchExtension(providers=[42])  # type: ignore[list-item]
 
     def test_invalid_string_provider_raises_type_error(self):
         with pytest.raises(TypeError):
-            WebSearchMiddleware(providers=["not_a_provider"])  # type: ignore[list-item]
+            WebSearchExtension(providers=["not_a_provider"])  # type: ignore[list-item]
 
 
 class TestDuckDuckGoSearchProviderStandalone:
@@ -142,31 +142,31 @@ class TestQwantSearchProviderStandalone:
 class TestDefaultProvider:
     def test_no_providers_uses_qwant_default(self):
         """When no providers given, uses built-in Qwant search."""
-        mw = WebSearchMiddleware()
+        mw = WebSearchExtension()
         assert len(mw.tools) == 1
         assert mw.tools[0].name == "WebSearch"
 
     def test_none_providers_uses_default(self):
         """When providers=None, uses built-in Qwant search."""
-        mw = WebSearchMiddleware(providers=None)
+        mw = WebSearchExtension(providers=None)
         assert len(mw.tools) == 1
 
     def test_empty_list_uses_default(self):
         """When providers=[], uses built-in Qwant search."""
-        mw = WebSearchMiddleware(providers=[])
+        mw = WebSearchExtension(providers=[])
         assert len(mw.tools) == 1
 
     def test_default_provider_prompt_mentions_qwant(self):
         """Default provider's name appears in the prompt."""
-        mw = WebSearchMiddleware()
+        mw = WebSearchExtension()
         prompt = mw.prompt({}, MagicMock())
         assert "qwant" in prompt.lower()
 
 
-class TestWebSearchMiddlewareTools:
+class TestWebSearchExtensionTools:
     def test_tools_returns_single_web_search_tool(self):
         mock_tool = _make_mock_tool("test_search")
-        mw = WebSearchMiddleware(providers=[mock_tool])
+        mw = WebSearchExtension(providers=[mock_tool])
 
         tools = mw.tools
 
@@ -175,7 +175,7 @@ class TestWebSearchMiddlewareTools:
 
     def test_tools_cached_after_first_access(self):
         mock_tool = _make_mock_tool("test_search")
-        mw = WebSearchMiddleware(providers=[mock_tool])
+        mw = WebSearchExtension(providers=[mock_tool])
 
         first = mw.tools
         second = mw.tools
@@ -183,10 +183,10 @@ class TestWebSearchMiddlewareTools:
         assert first is second
 
 
-class TestWebSearchMiddlewarePrompt:
+class TestWebSearchExtensionPrompt:
     def test_prompt_mentions_provider_names(self):
         mock_tool = _make_mock_tool("brave_search")
-        mw = WebSearchMiddleware(providers=[mock_tool])
+        mw = WebSearchExtension(providers=[mock_tool])
 
         result = mw.prompt({}, _TEST_RUNTIME)
 
@@ -194,7 +194,7 @@ class TestWebSearchMiddlewarePrompt:
 
     def test_prompt_returns_string(self):
         mock_tool = _make_mock_tool("test_search")
-        mw = WebSearchMiddleware(providers=[mock_tool])
+        mw = WebSearchExtension(providers=[mock_tool])
 
         result = mw.prompt({}, _TEST_RUNTIME)
 
@@ -203,7 +203,7 @@ class TestWebSearchMiddlewarePrompt:
     def test_prompt_with_custom_template(self):
         mock_tool = _make_mock_tool("test_search")
         custom_template = "Use {provider_names} for all web searches."
-        mw = WebSearchMiddleware(providers=[mock_tool], prompt_template=custom_template)
+        mw = WebSearchExtension(providers=[mock_tool], prompt_template=custom_template)
 
         result = mw.prompt({}, _TEST_RUNTIME)
 
@@ -214,7 +214,7 @@ class TestWebSearchMiddlewarePrompt:
         template_file = tmp_path / "prompt.txt"
         template_file.write_text("Search using {provider_names} to find answers.")
         mock_tool = _make_mock_tool("test_search")
-        mw = WebSearchMiddleware(providers=[mock_tool], prompt_template=template_file)
+        mw = WebSearchExtension(providers=[mock_tool], prompt_template=template_file)
 
         result = mw.prompt({}, _TEST_RUNTIME)
 
@@ -225,7 +225,7 @@ class TestWebSearchToolExecution:
     async def test_web_search_fans_out_to_all_providers(self):
         provider_a = _make_mock_tool("provider_a", return_value="result from a")
         provider_b = _make_mock_tool("provider_b", return_value="result from b")
-        mw = WebSearchMiddleware(providers=[provider_a, provider_b])
+        mw = WebSearchExtension(providers=[provider_a, provider_b])
         web_search_tool = mw.tools[0]
 
         output = await web_search_tool.ainvoke({"query": "test query"})
@@ -239,7 +239,7 @@ class TestWebSearchToolExecution:
         good_provider = _make_mock_tool("good_provider", return_value="good result")
         bad_provider = _make_mock_tool("bad_provider")
         bad_provider.ainvoke = AsyncMock(side_effect=RuntimeError("provider failed"))
-        mw = WebSearchMiddleware(providers=[good_provider, bad_provider])
+        mw = WebSearchExtension(providers=[good_provider, bad_provider])
         web_search_tool = mw.tools[0]
 
         output = await web_search_tool.ainvoke({"query": "test query"})
@@ -252,7 +252,7 @@ class TestWebSearchToolExecution:
         provider_a.ainvoke = AsyncMock(side_effect=RuntimeError("a failed"))
         provider_b = _make_mock_tool("provider_b")
         provider_b.ainvoke = AsyncMock(side_effect=RuntimeError("b failed"))
-        mw = WebSearchMiddleware(providers=[provider_a, provider_b])
+        mw = WebSearchExtension(providers=[provider_a, provider_b])
         web_search_tool = mw.tools[0]
 
         output = await web_search_tool.ainvoke({"query": "test query"})
@@ -263,7 +263,7 @@ class TestWebSearchToolExecution:
     async def test_results_attributed_per_provider(self):
         provider_a = _make_mock_tool("provider_a", return_value="result from a")
         provider_b = _make_mock_tool("provider_b", return_value="result from b")
-        mw = WebSearchMiddleware(providers=[provider_a, provider_b])
+        mw = WebSearchExtension(providers=[provider_a, provider_b])
         web_search_tool = mw.tools[0]
 
         output = await web_search_tool.ainvoke({"query": "test query"})
@@ -273,7 +273,7 @@ class TestWebSearchToolExecution:
 
     def test_sync_run_works(self):
         mock_tool = _make_mock_tool("test_search", return_value="sync result")
-        mw = WebSearchMiddleware(providers=[mock_tool])
+        mw = WebSearchExtension(providers=[mock_tool])
         web_search_tool = mw.tools[0]
 
         output = web_search_tool.invoke({"query": "test query"})
@@ -282,10 +282,10 @@ class TestWebSearchToolExecution:
         assert isinstance(output, str)
 
 
-class TestMiddlewareProtocol:
-    def test_implements_middleware_protocol(self):
+class TestExtensionProtocol:
+    def test_implements_extension_protocol(self):
         mock_tool = _make_mock_tool("test_search")
-        mw = WebSearchMiddleware(providers=[mock_tool])
+        mw = WebSearchExtension(providers=[mock_tool])
 
         assert hasattr(mw, "tools")
         assert isinstance(mw.tools, list)
@@ -293,6 +293,6 @@ class TestMiddlewareProtocol:
 
     def test_no_wrap_tool_call(self):
         mock_tool = _make_mock_tool("test_search")
-        mw = WebSearchMiddleware(providers=[mock_tool])
+        mw = WebSearchExtension(providers=[mock_tool])
 
         assert not hasattr(mw, "wrap_tool_call")

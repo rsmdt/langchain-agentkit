@@ -1,4 +1,4 @@
-"""SkillsMiddleware — skill loading with optional filesystem integration.
+"""SkillsExtension — skill loading with optional filesystem integration.
 
 Provides the ``Skill`` tool for progressive disclosure of skill instructions.
 Optionally includes filesystem tools (Read, Write, Edit, Glob, Grep) when
@@ -7,14 +7,14 @@ no external VFS is provided.
 Usage::
 
     # Convenience: auto-includes filesystem tools
-    mw = SkillsMiddleware(skills="skills/")
+    mw = SkillsExtension(skills="skills/")
     mw.tools   # [Skill, Read, Write, Edit, Glob, Grep]
 
     # Explicit: provide shared VFS, manage filesystem tools separately
     vfs = VirtualFilesystem()
-    mw = SkillsMiddleware(skills="skills/", filesystem=vfs)
+    mw = SkillsExtension(skills="skills/", filesystem=vfs)
     mw.tools   # [Skill] only
-    fs = FilesystemMiddleware(vfs)  # provides Read, Write, Edit, Glob, Grep
+    fs = FilesystemExtension(vfs)  # provides Read, Write, Edit, Glob, Grep
 """
 
 from __future__ import annotations
@@ -29,6 +29,8 @@ from langchain_agentkit.tools.skill import SkillRegistry
 from langchain_agentkit.types import SkillConfig
 from langchain_agentkit.vfs import VirtualFilesystem
 
+from langchain_agentkit.extension import Extension
+
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
@@ -38,8 +40,8 @@ _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 _skills_system_prompt = PromptTemplate.from_file(_PROMPTS_DIR / "skills_system.md")
 
 
-class SkillsMiddleware:
-    """Middleware providing skill tools and optional filesystem access.
+class SkillsExtension(Extension):
+    """Extension providing skill tools and optional filesystem access.
 
     Loads skills from real filesystem directories into a
     :class:`VirtualFilesystem`. The ``Skill`` tool is always provided.
@@ -50,7 +52,7 @@ class SkillsMiddleware:
         filesystem: Optional shared VirtualFilesystem. When provided,
             skills are populated into it but filesystem tools are NOT
             included — the caller manages file tools via
-            ``FilesystemMiddleware(filesystem)``. When ``None``, an
+            ``FilesystemExtension(filesystem)``. When ``None``, an
             internal VFS is created and filesystem tools are bundled.
         skills_base_path: Virtual path prefix for skills. Default ``/skills``.
     """

@@ -1,4 +1,4 @@
-"""Metaclass-driven LangGraph agent node with middleware support.
+"""Metaclass-driven LangGraph agent node with extension support.
 
 Usage::
 
@@ -7,7 +7,7 @@ Usage::
     class researcher(agent):
         llm = ChatOpenAI(model="gpt-4o")
         tools = [web_search]
-        middleware = [SkillsMiddleware("skills/"), TasksMiddleware()]
+        extensions = [SkillsExtension("skills/"), TasksExtension()]
         prompt = "You are a research assistant."
 
         async def handler(state, *, llm, tools, prompt, runtime):
@@ -33,7 +33,7 @@ if TYPE_CHECKING:
 
     from langchain_core.tools import BaseTool
 
-    from langchain_agentkit.middleware import Middleware
+    from langchain_agentkit.extension import Extension
 
 
 def _validate_handler_signature(
@@ -101,10 +101,10 @@ class _AgentMeta(type):
 
     When a class inherits from ``agent``, this metaclass:
 
-    1. Extracts ``llm``, ``tools``, ``middleware``, ``prompt``, ``handler``
+    1. Extracts ``llm``, ``tools``, ``extensions``, ``prompt``, ``handler``
        from the class body.
     2. Validates the handler signature and infers state type from annotation.
-    3. Builds an ``AgentKit`` from middleware and prompt source.
+    3. Builds an ``AgentKit`` from extensions and prompt source.
     4. Merges user tools with kit tools.
     5. Builds and returns an uncompiled ``StateGraph`` with the ReAct loop.
 
@@ -164,22 +164,22 @@ class _AgentMeta(type):
                 f"got {type(user_tools_raw).__name__}"
             )
 
-        middleware: list[Middleware] = namespace.get("middleware", [])
-        if not isinstance(middleware, (list, tuple)):
+        extensions: list[Extension] = namespace.get("extensions", [])
+        if not isinstance(extensions, (list, tuple)):
             raise ValueError(
-                f"class {name}(agent): middleware must be a list, got {type(middleware).__name__}"
+                f"class {name}(agent): extensions must be a list, got {type(extensions).__name__}"
             )
 
         prompt_source: str | Path | list[str | Path] | None = namespace.get("prompt")
         description: str = namespace.get("description", "")
 
-        kit = AgentKit(list(middleware), prompt=prompt_source)
+        kit = AgentKit(extensions=list(extensions), prompt=prompt_source)
 
-        # Use composed schema from middleware unless handler explicitly annotates state
+        # Use composed schema from extensions unless handler explicitly annotates state
         if state_type is AgentKitState:
             state_type = kit.state_schema
 
-        wrap_tool_call = _find_wrap_tool_call(middleware, name)
+        wrap_tool_call = _find_wrap_tool_call(extensions, name)
 
         graph = build_graph(
             name=name,
@@ -191,7 +191,7 @@ class _AgentMeta(type):
             wrap_tool_call=wrap_tool_call,
         )
 
-        # Attach metadata for AgentMiddleware discovery
+        # Attach metadata for AgentExtension discovery
         graph.agentkit_name = name  # type: ignore[attr-defined]
         graph.agentkit_description = description  # type: ignore[attr-defined]
         graph.agentkit_tools_inherit = tools_inherit  # type: ignore[attr-defined]
@@ -200,10 +200,10 @@ class _AgentMeta(type):
 
 
 class agent(metaclass=_AgentMeta):  # noqa: N801
-    """Base class for middleware-aware LangGraph agent nodes.
+    """Base class for extension-aware LangGraph agent nodes.
 
     Declare a subclass to create a ``StateGraph`` with an automatic
-    ReAct loop (handler ⇄ ToolNode) and middleware-composed tools and
+    ReAct loop (handler - ToolNode) and extension-composed tools and
     prompts. Call ``.compile()`` on the result to get a runnable graph.
 
     Example::
@@ -213,7 +213,7 @@ class agent(metaclass=_AgentMeta):  # noqa: N801
         class researcher(agent):
             llm = ChatOpenAI(model="gpt-4o")
             tools = [web_search]
-            middleware = [SkillsMiddleware("skills/"), TasksMiddleware()]
+            extensions = [SkillsExtension("skills/"), TasksExtension()]
             prompt = "You are a research assistant."
 
             async def handler(state, *, llm, tools, prompt, runtime):
@@ -234,8 +234,8 @@ class agent(metaclass=_AgentMeta):  # noqa: N801
     Class attributes:
 
         llm: Required. The language model instance.
-        tools: Optional. Agent-specific tools (not from middleware).
-        middleware: Optional. Ordered list of Middleware instances.
+        tools: Optional. Agent-specific tools (not from extensions).
+        extensions: Optional. Ordered list of Extension instances.
         prompt: Optional. System prompt template — inline string, file path,
             or list of either.
 
@@ -248,9 +248,9 @@ class agent(metaclass=_AgentMeta):  # noqa: N801
 
     Injectable parameters:
 
-        llm: LLM with all tools bound (user tools + middleware tools).
-        tools: Complete tool list (user tools + middleware tools).
-        prompt: Fully composed system prompt (template + middleware sections).
+        llm: LLM with all tools bound (user tools + extension tools).
+        tools: Complete tool list (user tools + extension tools).
+        prompt: Fully composed system prompt (template + extension sections).
         runtime: ToolRuntime — unified runtime context. Use
             ``runtime.config`` for the full ``RunnableConfig``.
 
@@ -267,5 +267,5 @@ class agent(metaclass=_AgentMeta):  # noqa: N801
                 ...
 
     Without an annotation, the state schema is composed automatically
-    from middleware ``state_schema`` properties.
+    from extension ``state_schema`` properties.
     """

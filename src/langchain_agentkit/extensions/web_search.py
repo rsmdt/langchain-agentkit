@@ -1,11 +1,11 @@
-"""WebSearchMiddleware — fan-out web search across multiple providers.
+"""WebSearchExtension — fan-out web search across multiple providers.
 
 Usage::
 
-    from langchain_agentkit import WebSearchMiddleware, QwantSearchProvider
+    from langchain_agentkit import WebSearchExtension, QwantSearchProvider
 
-    mw = WebSearchMiddleware()  # defaults to built-in Qwant provider
-    mw = WebSearchMiddleware(providers=[my_search_tool, another_search_fn])
+    mw = WebSearchExtension()  # defaults to built-in Qwant provider
+    mw = WebSearchExtension(providers=[my_search_tool, another_search_fn])
 
     # Use QwantSearchProvider standalone as any other LangChain tool
     tool = QwantSearchProvider()
@@ -27,6 +27,8 @@ from typing import TYPE_CHECKING, Any
 from langchain_core.prompts import PromptTemplate
 from langchain_core.tools import BaseTool
 from pydantic import ConfigDict
+
+from langchain_agentkit.extension import Extension
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -200,12 +202,12 @@ class _WebSearchTool(BaseTool):
         return "\n\n".join(sections)
 
 
-class WebSearchMiddleware:
-    """Middleware providing a single WebSearch tool that fans out to
+class WebSearchExtension(Extension):
+    """Extension providing a single WebSearch tool that fans out to
     multiple configured search providers in parallel.
 
     Each provider is a BaseTool or callable supplied by the application.
-    The middleware creates a single ``WebSearch`` tool that:
+    The extensions creates a single ``WebSearch`` tool that:
     1. Calls all providers concurrently via asyncio.gather
     2. Returns results attributed per provider
 
@@ -219,8 +221,8 @@ class WebSearchMiddleware:
 
     Example::
 
-        mw = WebSearchMiddleware()  # uses built-in Qwant provider
-        mw = WebSearchMiddleware(providers=[my_search_tool])
+        mw = WebSearchExtension()  # uses built-in Qwant provider
+        mw = WebSearchExtension(providers=[my_search_tool])
         mw.tools   # [WebSearch]
         mw.prompt(state, runtime)  # Search guidance with provider names
     """

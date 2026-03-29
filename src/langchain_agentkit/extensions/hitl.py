@@ -1,4 +1,4 @@
-"""HITLMiddleware — human-in-the-loop tool call approval via LangGraph interrupt().
+"""HITLExtension — human-in-the-loop tool call approval via LangGraph interrupt().
 
 Wraps individual tool calls for human review before execution. Uses
 LangGraph's ``interrupt()`` to pause the graph and ``Command(resume=...)``
@@ -6,9 +6,9 @@ to continue with the human's decision.
 
 Usage::
 
-    from langchain_agentkit import HITLMiddleware
+    from langchain_agentkit import HITLExtension
 
-    mw = HITLMiddleware(interrupt_on={
+    mw = HITLExtension(interrupt_on={
         "send_email": True,                          # all decisions
         "delete_file": {"allowed_decisions": ["approve", "reject"]},
         "search": False,                             # auto-approved (excluded)
@@ -17,7 +17,7 @@ Usage::
     class my_agent(agent):
         llm = ChatOpenAI(model="gpt-4o")
         tools = [send_email, delete_file, search]
-        middleware = [mw]
+        extensions = [mw]
 
         async def handler(state, *, llm, tools, prompt, runtime):
             ...
@@ -37,6 +37,8 @@ from typing import TYPE_CHECKING, Any, Literal
 from langchain_core.messages import ToolMessage
 from langchain_core.messages.tool import ToolCall
 from langgraph.types import interrupt
+
+from langchain_agentkit.extension import Extension
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -69,14 +71,14 @@ class InterruptConfig:
         self.description = description
 
 
-class HITLMiddleware:
-    """Middleware providing human-in-the-loop tool call approval.
+class HITLExtension(Extension):
+    """Extension providing human-in-the-loop tool call approval.
 
     Uses LangGraph's ``interrupt()`` inside a ``wrap_tool_call`` callback
     to pause execution before configured tools run. The human reviews the
     tool call and responds with approve, edit, or reject.
 
-    This middleware satisfies the ``Middleware`` protocol (``tools`` +
+    This extension satisfies the ``Extension`` protocol (``tools`` +
     ``prompt``) and additionally provides ``wrap_tool_call`` which the
     ``agent`` metaclass passes to ``ToolNode``.
 
@@ -90,7 +92,7 @@ class HITLMiddleware:
 
     Example::
 
-        mw = HITLMiddleware(interrupt_on={
+        mw = HITLExtension(interrupt_on={
             "send_email": True,
             "search": False,
             "delete_file": {"allowed_decisions": ["approve", "reject"]},

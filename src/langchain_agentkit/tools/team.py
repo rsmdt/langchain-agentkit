@@ -1,14 +1,14 @@
 """Command-based team coordination tools for LangGraph agents.
 
 Tools use ``InjectedState`` to read current team state and return
-``Command(update={...})`` to apply changes. The ``AgentTeamMiddleware``
+``Command(update={...})`` to apply changes. The ``TeamExtension``
 injects itself as a closure binding so tools can access the active team.
 
 Usage::
 
-    from langchain_agentkit.middleware.teams import AgentTeamMiddleware
+    from langchain_agentkit.extensions.teams import TeamExtension
 
-    mw = AgentTeamMiddleware([researcher, coder])
+    mw = TeamExtension([researcher, coder])
     mw.tools  # [SpawnTeam, AssignTask, MessageTeammate, CheckTeammates, DissolveTeam]
 """
 
@@ -29,7 +29,7 @@ from pydantic import BaseModel, Field
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
-    from langchain_agentkit.middleware.teams import AgentTeamMiddleware
+    from langchain_agentkit.extensions.teams import TeamExtension
 
 
 # ---------------------------------------------------------------------------
@@ -89,17 +89,17 @@ class _DissolveTeamInput(BaseModel):
 # ---------------------------------------------------------------------------
 
 
-def _require_active_team(middleware: AgentTeamMiddleware) -> Any:
+def _require_active_team(ext: TeamExtension) -> Any:
     """Return the active team or raise ToolException."""
-    team = middleware._active_team  # noqa: SLF001
+    team = ext._active_team  # noqa: SLF001
     if team is None:
         raise ToolException("No active team. Call SpawnTeam first.")
     return team
 
 
-def _require_member(middleware: AgentTeamMiddleware, member_name: str) -> None:
+def _require_member(ext: TeamExtension, member_name: str) -> None:
     """Verify member exists in the active team."""
-    team = _require_active_team(middleware)
+    team = _require_active_team(ext)
     if member_name not in team.members:
         raise ToolException(f"Member '{member_name}' not in active team.")
 
@@ -115,12 +115,12 @@ async def _spawn_team(
     state: dict[str, Any],
     tool_call_id: str,
     *,
-    middleware: AgentTeamMiddleware,
+    ext: TeamExtension,
 ) -> Command:  # type: ignore[type-arg]
     """Create a team with named members running as asyncio.Tasks."""
-    from langchain_agentkit.middleware.teams import ActiveTeam, TeamMessageBus, _teammate_loop
+    from langchain_agentkit.extensions.teams import ActiveTeam, TeamMessageBus, _teammate_loop
 
-    if middleware._active_team is not None:  # noqa: SLF001
+    if ext._active_team is not None:  # noqa: SLF001
         raise ToolException("Team already active. Dissolve first.")
 
     if not members:
@@ -133,14 +133,14 @@ async def _spawn_team(
         raise ToolException(f"Duplicate member names: {set(dupes)}")
 
     # Validate max team size
-    if len(members) > middleware._max_team_size:  # noqa: SLF001
+    if len(members) > ext._max_team_size:  # noqa: SLF001
         raise ToolException(
-            f"Team size {len(members)} exceeds maximum of {middleware._max_team_size}."  # noqa: SLF001
+            f"Team size {len(members)} exceeds maximum of {ext._max_team_size}."  # noqa: SLF001
         )
 
     # Validate all agent_types exist
-    agents_by_name = middleware._agents_by_name  # noqa: SLF001
-    from langchain_agentkit.middleware import resolve_agent
+    agents_by_name = ext._agents_by_name  # noqa: SLF001
+    from langchain_agentkit.extensions import resolve_agent
 
     for member in members:
         agent_type = member["agent_type"] if isinstance(member, dict) else member.agent_type
@@ -182,8 +182,8 @@ async def _spawn_team(
             "status": "idle",
         })
 
-    # Store active team on middleware
-    middleware._active_team = ActiveTeam(  # noqa: SLF001
+    # Store active team on extension
+    ext._active_team = ActiveTeam(  # noqa: SLF001
         name=team_name,
         bus=bus,
         members=member_tasks,
@@ -216,11 +216,11 @@ async def _assign_task(
     state: dict[str, Any],
     tool_call_id: str,
     *,
-    middleware: AgentTeamMiddleware,
+    ext: TeamExtension,
 ) -> Command:  # type: ignore[type-arg]
     """Send a task to a team member via message bus."""
-    _require_member(middleware, member_name)
-    team = middleware._active_team  # noqa: SLF001
+    _require_member(ext, member_name)
+    team = ext._active_team  # noqa: SLF001
 
     # Send task to member via bus
     await team.bus.send("lead", member_name, task_description)
@@ -239,11 +239,11 @@ async def _message_teammate(
     state: dict[str, Any],
     tool_call_id: str,
     *,
-    middleware: AgentTeamMiddleware,
+    ext: TeamExtension,
 ) -> Command:  # type: ignore[type-arg]
     """Send a message to a team member via the message bus."""
-    _require_member(middleware, member_name)
-    team = middleware._active_team  # noqa: SLF001
+    _require_member(ext, member_name)
+    team = ext._active_team  # noqa: SLF001
 
     await team.bus.send("lead", member_name, message)
 
@@ -259,10 +259,10 @@ async def _check_teammates(
     state: dict[str, Any],
     tool_call_id: str,
     *,
-    middleware: AgentTeamMiddleware,
+    ext: TeamExtension,
 ) -> Command:  # type: ignore[type-arg]
     """Check team member statuses and drain pending messages for lead."""
-    team = _require_active_team(middleware)
+    team = _require_active_team(ext)
 
     # Gather member statuses from asyncio.Task states
     member_statuses: list[dict[str, Any]] = []
@@ -376,10 +376,10 @@ async def _dissolve_team(
     tool_call_id: str,
     timeout: float = 30.0,
     *,
-    middleware: AgentTeamMiddleware,
+    ext: TeamExtension,
 ) -> Command:  # type: ignore[type-arg]
     """Gracefully shut down the team."""
-    team = _require_active_team(middleware)
+    team = _require_active_team(ext)
 
     await _shutdown_team_tasks(team, timeout)
 
@@ -393,7 +393,7 @@ async def _dissolve_team(
     ]
 
     _cleanup_bus(team)
-    middleware._active_team = None  # noqa: SLF001
+    ext._active_team = None  # noqa: SLF001
 
     result = {
         "dissolved": True,
@@ -492,10 +492,10 @@ After dissolving, synthesize all results before responding to the user.\
 # ---------------------------------------------------------------------------
 
 
-def create_team_tools(middleware: AgentTeamMiddleware) -> list[BaseTool]:
+def create_team_tools(ext: TeamExtension) -> list[BaseTool]:
     """Create Command-based team coordination tools.
 
-    Tools are bound to the middleware instance via closures so they can
+    Tools are bound to the extension instance via closures so they can
     access the active team and message bus.
 
     Returns five tools: SpawnTeam, AssignTask, MessageTeammate,
@@ -504,35 +504,35 @@ def create_team_tools(middleware: AgentTeamMiddleware) -> list[BaseTool]:
 
     return [
         StructuredTool.from_function(
-            coroutine=partial(_spawn_team, middleware=middleware),
+            coroutine=partial(_spawn_team, ext=ext),
             name="SpawnTeam",
             description=_SPAWN_TEAM_DESCRIPTION,
             args_schema=_SpawnTeamInput,
             handle_tool_error=True,
         ),
         StructuredTool.from_function(
-            coroutine=partial(_assign_task, middleware=middleware),
+            coroutine=partial(_assign_task, ext=ext),
             name="AssignTask",
             description=_ASSIGN_TASK_DESCRIPTION,
             args_schema=_AssignTaskInput,
             handle_tool_error=True,
         ),
         StructuredTool.from_function(
-            coroutine=partial(_message_teammate, middleware=middleware),
+            coroutine=partial(_message_teammate, ext=ext),
             name="MessageTeammate",
             description=_MESSAGE_TEAMMATE_DESCRIPTION,
             args_schema=_MessageTeammateInput,
             handle_tool_error=True,
         ),
         StructuredTool.from_function(
-            coroutine=partial(_check_teammates, middleware=middleware),
+            coroutine=partial(_check_teammates, ext=ext),
             name="CheckTeammates",
             description=_CHECK_TEAMMATES_DESCRIPTION,
             args_schema=_CheckTeammatesInput,
             handle_tool_error=True,
         ),
         StructuredTool.from_function(
-            coroutine=partial(_dissolve_team, middleware=middleware),
+            coroutine=partial(_dissolve_team, ext=ext),
             name="DissolveTeam",
             description=_DISSOLVE_TEAM_DESCRIPTION,
             args_schema=_DissolveTeamInput,

@@ -1,7 +1,7 @@
 """Composable state schemas for LangGraph agents.
 
 ``AgentKitState`` is the minimal base — just messages and sender.
-Middleware adds state keys via mixins (e.g., ``TasksState``).
+Extension adds state keys via mixins (e.g., ``TasksState``).
 
 Usage::
 
@@ -11,8 +11,8 @@ Usage::
     class MyState(AgentKitState, TasksState):
         my_field: str
 
-    # Or let AgentKit compose from middleware automatically
-    kit = AgentKit([TasksMiddleware()])
+    # Or let AgentKit compose from extensions automatically
+    kit = AgentKit([TasksExtension()])
     kit.state_schema  # → composed TypedDict with messages + tasks
 """
 
@@ -99,7 +99,7 @@ class AgentKitState(TypedDict, total=False):
     """Minimal base state — always present in any agentkit graph.
 
     Contains only the fields required for the ReAct loop to function.
-    Middleware adds additional keys via mixin TypedDicts.
+    Extension adds additional keys via mixin TypedDicts.
     """
 
     messages: Annotated[list[Any], add_messages]
@@ -109,7 +109,7 @@ class AgentKitState(TypedDict, total=False):
 class TasksState(TypedDict, total=False):
     """State mixin for task management.
 
-    Added to the graph state when ``TasksMiddleware`` is used.
+    Added to the graph state when ``TasksExtension`` is used.
     """
 
     tasks: Annotated[list[dict[str, Any]], _merge_tasks]
@@ -155,7 +155,7 @@ def _append_messages(
 class TeamState(TypedDict, total=False):
     """State mixin for team coordination.
 
-    Added to the graph state when ``AgentTeamMiddleware`` is used.
+    Added to the graph state when ``TeamExtension`` is used.
     """
 
     team_members: Annotated[list[dict[str, Any]], _merge_team_members]

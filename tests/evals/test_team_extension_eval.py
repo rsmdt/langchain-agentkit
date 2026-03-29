@@ -1,5 +1,5 @@
 # ruff: noqa: N801
-"""Real-LLM integration evals for AgentTeamMiddleware coordination.
+"""Real-LLM integration evals for TeamExtension coordination.
 
 Tests exercise the FULL compiled graph flow: lead agent receives a message,
 uses team coordination tools (SpawnTeam, AssignTask, CheckTeammates,
@@ -12,7 +12,7 @@ Requires:
 
 Run::
 
-    uv run pytest tests/evals/test_team_middleware_eval.py -x -v -m eval
+    uv run pytest tests/evals/test_team_extension_eval.py -x -v -m eval
 """
 
 from __future__ import annotations
@@ -23,8 +23,8 @@ import pytest
 from langchain_core.messages import HumanMessage
 
 from langchain_agentkit.agent import agent
-from langchain_agentkit.middleware.tasks import TasksMiddleware
-from langchain_agentkit.middleware.teams import AgentTeamMiddleware
+from langchain_agentkit.extensions.tasks import TasksExtension
+from langchain_agentkit.extensions.teams import TeamExtension
 
 pytestmark = [
     pytest.mark.eval,
@@ -117,12 +117,12 @@ IMPORTANT: You MUST call the tools — never answer questions yourself.\
 
 
 def _build_team_lead(mw_team, mw_tasks):
-    """Build a lead agent with team and task middleware."""
+    """Build a lead agent with team and task extensions."""
     _llm = _get_llm()
 
     class team_lead(agent):
         llm = _llm
-        middleware = [mw_tasks, mw_team]
+        extensions = [mw_tasks, mw_team]
         prompt = _TEAM_LEAD_PROMPT
 
         async def handler(state, *, llm, prompt):
@@ -146,8 +146,8 @@ class TestTeamSingleWorkerLifecycle:
     async def test_team_single_worker_lifecycle(self):
         """Lead creates team, assigns 'Capital of Japan?', reports 'Tokyo'."""
         worker = _build_worker()
-        mw_team = AgentTeamMiddleware([worker])
-        mw_tasks = TasksMiddleware()
+        mw_team = TeamExtension([worker])
+        mw_tasks = TasksExtension()
         lead = _build_team_lead(mw_team, mw_tasks)
 
         graph = lead.compile()
@@ -190,8 +190,8 @@ class TestTeamMultiAgent:
         """Worker answers factual question, math_worker answers math."""
         worker = _build_worker()
         math_worker = _build_math_worker()
-        mw_team = AgentTeamMiddleware([worker, math_worker])
-        mw_tasks = TasksMiddleware()
+        mw_team = TeamExtension([worker, math_worker])
+        mw_tasks = TasksExtension()
         lead = _build_team_lead(mw_team, mw_tasks)
 
         graph = lead.compile()
@@ -231,11 +231,11 @@ class TestTeamMultiAgent:
 
 
 class TestTeamToolsExposed:
-    """Verify AgentTeamMiddleware exposes exactly 5 tools."""
+    """Verify TeamExtension exposes exactly 5 tools."""
 
     def test_team_tools_exposed(self):
         worker = _build_worker()
-        mw = AgentTeamMiddleware([worker])
+        mw = TeamExtension([worker])
         tool_names = sorted(t.name for t in mw.tools)
 
         assert tool_names == [
@@ -259,7 +259,7 @@ class TestTeamStateSchema:
         from langchain_agentkit.state import TeamState
 
         worker = _build_worker()
-        mw = AgentTeamMiddleware([worker])
+        mw = TeamExtension([worker])
         assert mw.state_schema is TeamState
 
 
@@ -273,7 +273,7 @@ class TestTeamPromptRoster:
 
     def test_team_prompt_roster(self):
         worker = _build_worker()
-        mw = AgentTeamMiddleware([worker])
+        mw = TeamExtension([worker])
         prompt = mw.prompt(state={"messages": []})
 
         assert "worker" in prompt

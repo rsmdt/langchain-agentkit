@@ -1,17 +1,17 @@
-"""AgentKit — composition engine for Middleware instances.
+"""AgentKit — composition engine for Extension instances.
 
-``AgentKit`` merges tools and prompts from an ordered list of middleware into
+``AgentKit`` merges tools and prompts from an ordered list of extensions into
 a single, unified surface that any LangGraph node can consume.
 
 Use ``AgentKit`` when you need full control over graph topology — multi-node
 graphs, a shared ``ToolNode``, custom routing, or any setup where the
-higher-level ``node`` metaclass is too opinionated.
+higher-level ``agent`` metaclass is too opinionated.
 
 Example::
 
-    kit = AgentKit([
-        SkillsMiddleware("skills/"),
-        TasksMiddleware(),
+    kit = AgentKit(extensions=[
+        SkillsExtension("skills/"),
+        TasksExtension(),
     ])
 
     # In any graph node:
@@ -20,9 +20,8 @@ Example::
 
 Prompt templates can be loaded from files or provided as inline strings::
 
-    kit = AgentKit(middleware, prompt="You are a helpful assistant.")
-    kit = AgentKit(middleware, prompt=Path("prompts/system.txt"))
-    kit = AgentKit(middleware, prompt=["prompts/base.txt", "prompts/persona.txt"])
+    kit = AgentKit(extensions=exts, prompt="You are a helpful assistant.")
+    kit = AgentKit(extensions=exts, prompt=Path("prompts/system.txt"))
 """
 
 from __future__ import annotations
@@ -34,20 +33,20 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
 
-    from langchain_agentkit.middleware import Middleware
+    from langchain_agentkit.extension import Extension
 
 
 class AgentKit:
-    """Composes middleware into unified tools + prompt.
+    """Composes extensions into unified tools + prompt.
 
     Use directly when you need full control over graph topology
     (multi-node graphs, shared ToolNode, custom routing).
 
     Example::
 
-        kit = AgentKit([
-            SkillsMiddleware("skills/"),
-            TasksMiddleware(),
+        kit = AgentKit(extensions=[
+            SkillsExtension("skills/"),
+            TasksExtension(),
         ])
 
         # In any graph node:
@@ -57,26 +56,26 @@ class AgentKit:
 
     def __init__(
         self,
-        middleware: list[Middleware],
+        extensions: list[Extension] | None = None,
         prompt: str | Path | list[str | Path] | None = None,
     ) -> None:
-        self._middleware = self._resolve_dependencies(list(middleware))
+        self._extensions = self._resolve_dependencies(list(extensions or []))
         self._prompt = _load_prompt(prompt)
         self._tools_cache: list[BaseTool] | None = None
 
     @staticmethod
-    def _resolve_dependencies(middleware: list) -> list:
-        """Resolve middleware dependencies. Auto-add missing dependencies.
+    def _resolve_dependencies(extensions: list) -> list:
+        """Resolve extension dependencies. Auto-add missing dependencies.
 
         Uses isinstance/type for identity. Dependencies declared via
         the optional dependencies() method are added if not already present.
         """
-        resolved = list(middleware)
-        seen_types = {type(mw) for mw in resolved}
+        resolved = list(extensions)
+        seen_types = {type(ext) for ext in resolved}
 
         # Iterate a copy — resolved may grow during iteration
-        for mw in list(resolved):
-            deps_fn = getattr(mw, "dependencies", None)
+        for ext in list(resolved):
+            deps_fn = getattr(ext, "dependencies", None)
             if not callable(deps_fn):
                 continue
             for dep in deps_fn():
@@ -88,16 +87,16 @@ class AgentKit:
 
     @property
     def tools(self) -> list[BaseTool]:
-        """All tools from all middleware, deduplicated by name.
+        """All tools from all extensions, deduplicated by name.
 
-        Collected once on first access, then cached. First middleware wins
+        Collected once on first access, then cached. First extension wins
         on name collisions.
         """
         if self._tools_cache is None:
             seen: set[str] = set()
             tools: list[BaseTool] = []
-            for mw in self._middleware:
-                for tool in mw.tools:
+            for ext in self._extensions:
+                for tool in ext.tools:
                     if tool.name not in seen:
                         seen.add(tool.name)
                         tools.append(tool)
@@ -106,19 +105,19 @@ class AgentKit:
 
     @property
     def state_schema(self) -> type:
-        """Compose state schema from ``AgentKitState`` + all middleware schemas.
+        """Compose state schema from ``AgentKitState`` + all extension schemas.
 
-        Each middleware may declare a ``state_schema`` property returning a
+        Each extension may declare a ``state_schema`` property returning a
         TypedDict mixin. These are combined via multiple inheritance into a
-        single composed type. Middleware without ``state_schema`` (or returning
+        single composed type. Extensions without ``state_schema`` (or returning
         ``None``) are skipped.
         """
         from langchain_agentkit.state import AgentKitState
 
         bases: list[type] = [AgentKitState]
         seen: set[int] = {id(AgentKitState)}
-        for mw in self._middleware:
-            schema = getattr(mw, "state_schema", None)
+        for ext in self._extensions:
+            schema = getattr(ext, "state_schema", None)
             if schema is not None and id(schema) not in seen:
                 seen.add(id(schema))
                 bases.append(schema)
@@ -127,27 +126,21 @@ class AgentKit:
         return type("ComposedState", tuple(bases), {})
 
     def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
-        """Compose prompt from template + all middleware sections.
+        """Compose prompt from template + all extension sections.
 
-        Called on every LLM invocation. Each middleware contributes
+        Called on every LLM invocation. Each extension contributes
         a section in stack order. Sections joined with double newline.
         """
         sections = [self._prompt] if self._prompt else []
-        for mw in self._middleware:
-            section = mw.prompt(state, runtime)
+        for ext in self._extensions:
+            section = ext.prompt(state, runtime)
             if section:
                 sections.append(section)
         return "\n\n".join(sections)
 
 
 def _load_prompt_source(source: str | Path) -> str:
-    """Load a single prompt source from file path or return inline string.
-
-    Security note: Prompt sources are set at construction time by the
-    developer, not by end-user input. If the source string happens to
-    match an existing file path, it will be read. This is by design —
-    callers control what is passed to ``AgentKit(prompt=...)``.
-    """
+    """Load a single prompt source from file path or return inline string."""
     path = Path(source)
     if path.exists() and path.is_file():
         return path.read_text()
@@ -155,15 +148,10 @@ def _load_prompt_source(source: str | Path) -> str:
 
 
 def _load_prompt(source: str | Path | list[str | Path] | None) -> str:
-    """Load and concatenate prompt sources.
-
-    Accepts a single source or a list. Sources are loaded from file
-    paths or treated as inline strings, then joined with double newline.
-    """
+    """Load and concatenate prompt sources."""
     if source is None:
         return ""
     if isinstance(source, (str, Path)):
         return _load_prompt_source(source)
-    # List of sources
     parts = [_load_prompt_source(s) for s in source]
     return "\n\n".join(p for p in parts if p)

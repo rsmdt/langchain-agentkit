@@ -8,9 +8,9 @@ import pytest
 from langchain_core.tools import ToolException
 from langgraph.types import Command
 
-from langchain_agentkit.middleware.teams import (
+from langchain_agentkit.extensions.teams import (
     ActiveTeam,
-    AgentTeamMiddleware,
+    TeamExtension,
     TeamMessageBus,
 )
 from langchain_agentkit.tools.team import (
@@ -36,18 +36,18 @@ def _make_mock_agent(name: str, description: str = "") -> MagicMock:
     return mock
 
 
-def _make_middleware_with_agents(*names: str) -> AgentTeamMiddleware:
-    """Create an AgentTeamMiddleware with mock agents."""
+def _make_extension_with_agents(*names: str) -> TeamExtension:
+    """Create an TeamExtension with mock agents."""
     agents = [_make_mock_agent(n) for n in names]
-    return AgentTeamMiddleware(agents)
+    return TeamExtension(agents)
 
 
-def _make_middleware_with_active_team(
+def _make_extension_with_active_team(
     agent_names: list[str],
     team_name: str = "test-team",
-) -> AgentTeamMiddleware:
-    """Create middleware with mock active team."""
-    mw = _make_middleware_with_agents(*agent_names)
+) -> TeamExtension:
+    """Create extension with mock active team."""
+    mw = _make_extension_with_agents(*agent_names)
 
     bus = TeamMessageBus()
     bus.register("lead")
@@ -80,13 +80,13 @@ def _make_middleware_with_active_team(
 
 class TestRequireActiveTeam:
     def test_raises_when_no_active_team(self):
-        mw = _make_middleware_with_agents("researcher")
+        mw = _make_extension_with_agents("researcher")
 
         with pytest.raises(ToolException, match="No active team"):
             _require_active_team(mw)
 
     def test_returns_team_when_active(self):
-        mw = _make_middleware_with_active_team(["researcher"])
+        mw = _make_extension_with_active_team(["researcher"])
 
         team = _require_active_team(mw)
 
@@ -95,13 +95,13 @@ class TestRequireActiveTeam:
 
 class TestRequireMember:
     def test_raises_when_member_not_in_team(self):
-        mw = _make_middleware_with_active_team(["researcher"])
+        mw = _make_extension_with_active_team(["researcher"])
 
         with pytest.raises(ToolException, match="not in active team"):
             _require_member(mw, "nonexistent")
 
     def test_passes_when_member_exists(self):
-        mw = _make_middleware_with_active_team(["researcher"])
+        mw = _make_extension_with_active_team(["researcher"])
 
         _require_member(mw, "researcher")  # Should not raise
 
@@ -114,7 +114,7 @@ class TestRequireMember:
 class TestSpawnTeam:
     @pytest.mark.asyncio
     async def test_spawn_team_creates_team(self):
-        mw = _make_middleware_with_agents("researcher", "coder")
+        mw = _make_extension_with_agents("researcher", "coder")
 
         result = await _spawn_team(
             team_name="dev-team",
@@ -124,7 +124,7 @@ class TestSpawnTeam:
             ],
             state={},
             tool_call_id=FAKE_TOOL_CALL_ID,
-            middleware=mw,
+            ext=mw,
         )
 
         assert isinstance(result, Command)
@@ -142,7 +142,7 @@ class TestSpawnTeam:
 
     @pytest.mark.asyncio
     async def test_spawn_team_with_duplicate_names_raises(self):
-        mw = _make_middleware_with_agents("researcher")
+        mw = _make_extension_with_agents("researcher")
 
         with pytest.raises(ToolException, match="Duplicate member names"):
             await _spawn_team(
@@ -153,12 +153,12 @@ class TestSpawnTeam:
                 ],
                 state={},
                 tool_call_id=FAKE_TOOL_CALL_ID,
-                middleware=mw,
+                ext=mw,
             )
 
     @pytest.mark.asyncio
     async def test_spawn_team_when_team_already_active_raises(self):
-        mw = _make_middleware_with_active_team(["researcher"])
+        mw = _make_extension_with_active_team(["researcher"])
 
         with pytest.raises(ToolException, match="Team already active"):
             await _spawn_team(
@@ -166,12 +166,12 @@ class TestSpawnTeam:
                 members=[{"name": "bob", "agent_type": "researcher"}],
                 state={},
                 tool_call_id=FAKE_TOOL_CALL_ID,
-                middleware=mw,
+                ext=mw,
             )
 
     @pytest.mark.asyncio
     async def test_spawn_team_with_unknown_agent_type_raises(self):
-        mw = _make_middleware_with_agents("researcher")
+        mw = _make_extension_with_agents("researcher")
 
         with pytest.raises(ToolException, match="not found"):
             await _spawn_team(
@@ -179,12 +179,12 @@ class TestSpawnTeam:
                 members=[{"name": "alice", "agent_type": "nonexistent"}],
                 state={},
                 tool_call_id=FAKE_TOOL_CALL_ID,
-                middleware=mw,
+                ext=mw,
             )
 
     @pytest.mark.asyncio
     async def test_spawn_team_exceeding_max_size_raises(self):
-        mw = _make_middleware_with_agents("researcher")
+        mw = _make_extension_with_agents("researcher")
         mw._max_team_size = 1
 
         with pytest.raises(ToolException, match="exceeds maximum"):
@@ -196,12 +196,12 @@ class TestSpawnTeam:
                 ],
                 state={},
                 tool_call_id=FAKE_TOOL_CALL_ID,
-                middleware=mw,
+                ext=mw,
             )
 
     @pytest.mark.asyncio
     async def test_spawn_team_with_empty_members_raises(self):
-        mw = _make_middleware_with_agents("researcher")
+        mw = _make_extension_with_agents("researcher")
 
         with pytest.raises(ToolException, match="empty"):
             await _spawn_team(
@@ -209,7 +209,7 @@ class TestSpawnTeam:
                 members=[],
                 state={},
                 tool_call_id=FAKE_TOOL_CALL_ID,
-                middleware=mw,
+                ext=mw,
             )
 
 
@@ -221,14 +221,14 @@ class TestSpawnTeam:
 class TestAssignTask:
     @pytest.mark.asyncio
     async def test_assign_task_sends_message_to_member(self):
-        mw = _make_middleware_with_active_team(["researcher"])
+        mw = _make_extension_with_active_team(["researcher"])
 
         result = await _assign_task(
             member_name="researcher",
             task_description="Find information about X",
             state={},
             tool_call_id=FAKE_TOOL_CALL_ID,
-            middleware=mw,
+            ext=mw,
         )
 
         assert isinstance(result, Command)
@@ -246,7 +246,7 @@ class TestAssignTask:
 
     @pytest.mark.asyncio
     async def test_assign_task_with_no_team_raises(self):
-        mw = _make_middleware_with_agents("researcher")
+        mw = _make_extension_with_agents("researcher")
 
         with pytest.raises(ToolException, match="No active team"):
             await _assign_task(
@@ -254,12 +254,12 @@ class TestAssignTask:
                 task_description="task",
                 state={},
                 tool_call_id=FAKE_TOOL_CALL_ID,
-                middleware=mw,
+                ext=mw,
             )
 
     @pytest.mark.asyncio
     async def test_assign_task_to_unknown_member_raises(self):
-        mw = _make_middleware_with_active_team(["researcher"])
+        mw = _make_extension_with_active_team(["researcher"])
 
         with pytest.raises(ToolException, match="not in active team"):
             await _assign_task(
@@ -267,7 +267,7 @@ class TestAssignTask:
                 task_description="task",
                 state={},
                 tool_call_id=FAKE_TOOL_CALL_ID,
-                middleware=mw,
+                ext=mw,
             )
 
 
@@ -279,14 +279,14 @@ class TestAssignTask:
 class TestMessageTeammate:
     @pytest.mark.asyncio
     async def test_message_teammate_sends_message(self):
-        mw = _make_middleware_with_active_team(["researcher"])
+        mw = _make_extension_with_active_team(["researcher"])
 
         result = await _message_teammate(
             member_name="researcher",
             message="focus on topic Y",
             state={},
             tool_call_id=FAKE_TOOL_CALL_ID,
-            middleware=mw,
+            ext=mw,
         )
 
         assert isinstance(result, Command)
@@ -299,7 +299,7 @@ class TestMessageTeammate:
 
     @pytest.mark.asyncio
     async def test_message_teammate_to_unknown_member_raises(self):
-        mw = _make_middleware_with_active_team(["researcher"])
+        mw = _make_extension_with_active_team(["researcher"])
 
         with pytest.raises(ToolException, match="not in active team"):
             await _message_teammate(
@@ -307,12 +307,12 @@ class TestMessageTeammate:
                 message="hello",
                 state={},
                 tool_call_id=FAKE_TOOL_CALL_ID,
-                middleware=mw,
+                ext=mw,
             )
 
     @pytest.mark.asyncio
     async def test_message_teammate_with_no_team_raises(self):
-        mw = _make_middleware_with_agents("researcher")
+        mw = _make_extension_with_agents("researcher")
 
         with pytest.raises(ToolException, match="No active team"):
             await _message_teammate(
@@ -320,7 +320,7 @@ class TestMessageTeammate:
                 message="hello",
                 state={},
                 tool_call_id=FAKE_TOOL_CALL_ID,
-                middleware=mw,
+                ext=mw,
             )
 
 
@@ -332,12 +332,12 @@ class TestMessageTeammate:
 class TestCheckTeammates:
     @pytest.mark.asyncio
     async def test_check_teammates_returns_status(self):
-        mw = _make_middleware_with_active_team(["researcher"])
+        mw = _make_extension_with_active_team(["researcher"])
 
         result = await _check_teammates(
             state={"tasks": []},
             tool_call_id=FAKE_TOOL_CALL_ID,
-            middleware=mw,
+            ext=mw,
         )
 
         assert isinstance(result, Command)
@@ -349,7 +349,7 @@ class TestCheckTeammates:
 
     @pytest.mark.asyncio
     async def test_check_teammates_drains_lead_messages(self):
-        mw = _make_middleware_with_active_team(["researcher"])
+        mw = _make_extension_with_active_team(["researcher"])
 
         # Put a message in lead's queue
         await mw._active_team.bus.send("researcher", "lead", "I found results")
@@ -357,7 +357,7 @@ class TestCheckTeammates:
         result = await _check_teammates(
             state={"tasks": []},
             tool_call_id=FAKE_TOOL_CALL_ID,
-            middleware=mw,
+            ext=mw,
         )
 
         content = json.loads(result.update["messages"][0].content)
@@ -367,13 +367,13 @@ class TestCheckTeammates:
 
     @pytest.mark.asyncio
     async def test_check_teammates_with_no_team_raises(self):
-        mw = _make_middleware_with_agents("researcher")
+        mw = _make_extension_with_agents("researcher")
 
         with pytest.raises(ToolException, match="No active team"):
             await _check_teammates(
                 state={},
                 tool_call_id=FAKE_TOOL_CALL_ID,
-                middleware=mw,
+                ext=mw,
             )
 
 
@@ -385,7 +385,7 @@ class TestCheckTeammates:
 class TestDissolveTeam:
     @pytest.mark.asyncio
     async def test_dissolve_team_shuts_down_and_clears(self):
-        mw = _make_middleware_with_active_team(["researcher"])
+        mw = _make_extension_with_active_team(["researcher"])
 
         # Replace mock tasks with real completed tasks for dissolution
         async def _noop():
@@ -400,7 +400,7 @@ class TestDissolveTeam:
             state={},
             tool_call_id=FAKE_TOOL_CALL_ID,
             timeout=5.0,
-            middleware=mw,
+            ext=mw,
         )
 
         assert isinstance(result, Command)
@@ -411,18 +411,18 @@ class TestDissolveTeam:
 
     @pytest.mark.asyncio
     async def test_dissolve_team_with_no_team_raises(self):
-        mw = _make_middleware_with_agents("researcher")
+        mw = _make_extension_with_agents("researcher")
 
         with pytest.raises(ToolException, match="No active team"):
             await _dissolve_team(
                 state={},
                 tool_call_id=FAKE_TOOL_CALL_ID,
-                middleware=mw,
+                ext=mw,
             )
 
     @pytest.mark.asyncio
     async def test_dissolve_team_returns_final_member_statuses(self):
-        mw = _make_middleware_with_active_team(["researcher", "coder"])
+        mw = _make_extension_with_active_team(["researcher", "coder"])
 
         # Replace with real completed tasks
         async def _noop():
@@ -437,7 +437,7 @@ class TestDissolveTeam:
             state={},
             tool_call_id=FAKE_TOOL_CALL_ID,
             timeout=5.0,
-            middleware=mw,
+            ext=mw,
         )
 
         content = json.loads(result.update["messages"][0].content)

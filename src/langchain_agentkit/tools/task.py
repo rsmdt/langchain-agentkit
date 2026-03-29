@@ -6,13 +6,13 @@ them compatible with LangGraph's ``ToolNode`` out of the box.
 
 Usage::
 
-    from langchain_agentkit import create_task_tools, TasksMiddleware
+    from langchain_agentkit import create_task_tools, TasksExtension
 
-    # Default — TasksMiddleware creates tools automatically
-    mw = TasksMiddleware()
+    # Default — TasksExtension creates tools automatically
+    mw = TasksExtension()
 
-    # Explicit — pass tools to middleware
-    mw = TasksMiddleware(task_tools=create_task_tools())
+    # Explicit — pass tools to extension
+    mw = TasksExtension(task_tools=create_task_tools())
 """
 
 from __future__ import annotations
@@ -417,9 +417,9 @@ def create_task_tools() -> list[BaseTool]:
 
     Example::
 
-        from langchain_agentkit import create_task_tools, TasksMiddleware
+        from langchain_agentkit import create_task_tools, TasksExtension
 
-        mw = TasksMiddleware(task_tools=create_task_tools())
+        mw = TasksExtension(task_tools=create_task_tools())
     """
     task_create = StructuredTool.from_function(
         func=_task_create,

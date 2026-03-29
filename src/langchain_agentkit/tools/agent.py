@@ -239,7 +239,7 @@ async def _agent_tool(
         if not ephemeral:
             raise ToolException(
                 "Dynamic agents are not enabled. "
-                "Set ephemeral=True on AgentMiddleware to allow custom agents."
+                "Set ephemeral=True on AgentExtension to allow custom agents."
             )
         return await _delegate_dynamic(
             prompt=agent_ref["prompt"],
@@ -265,7 +265,7 @@ async def _delegate_predefined(
     tool_call_id: str,
 ) -> Any:
     """Delegate a task to a named pre-defined agent."""
-    from langchain_agentkit.middleware import resolve_agent
+    from langchain_agentkit.extensions import resolve_agent
 
     graph = resolve_agent(agent_id, agents_by_name)
     compiled = _compile_agent(graph, compiled_cache, parent_tools_getter)

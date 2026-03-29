@@ -1,11 +1,11 @@
-"""Tests for HITLMiddleware."""
+"""Tests for HITLExtension."""
 
 from unittest.mock import MagicMock
 
 from langchain_core.messages import ToolMessage
 from langgraph.prebuilt import ToolRuntime
 
-from langchain_agentkit.middleware.hitl import HITLMiddleware
+from langchain_agentkit.extensions.hitl import HITLExtension
 
 _TEST_RUNTIME = ToolRuntime(
     state={},
@@ -19,7 +19,7 @@ _TEST_RUNTIME = ToolRuntime(
 
 class TestInit:
     def test_bool_true_expands_to_all_decisions(self):
-        mw = HITLMiddleware(interrupt_on={"send_email": True})
+        mw = HITLExtension(interrupt_on={"send_email": True})
 
         assert "send_email" in mw.interrupt_on
         assert mw.interrupt_on["send_email"].allowed_decisions == [
@@ -29,31 +29,31 @@ class TestInit:
         ]
 
     def test_bool_false_excluded(self):
-        mw = HITLMiddleware(interrupt_on={"search": False, "send_email": True})
+        mw = HITLExtension(interrupt_on={"search": False, "send_email": True})
 
         assert "search" not in mw.interrupt_on
         assert "send_email" in mw.interrupt_on
 
     def test_explicit_config_preserved(self):
         config = {"allowed_decisions": ["approve", "reject"]}
-        mw = HITLMiddleware(interrupt_on={"send_email": config})
+        mw = HITLExtension(interrupt_on={"send_email": config})
 
         assert mw.interrupt_on["send_email"].allowed_decisions == ["approve", "reject"]
 
     def test_empty_interrupt_on(self):
-        mw = HITLMiddleware(interrupt_on={})
+        mw = HITLExtension(interrupt_on={})
 
         assert mw.interrupt_on == {}
 
 
-class TestMiddlewareProtocol:
+class TestExtensionProtocol:
     def test_tools_returns_empty_list(self):
-        mw = HITLMiddleware(interrupt_on={"send_email": True})
+        mw = HITLExtension(interrupt_on={"send_email": True})
 
         assert mw.tools == []
 
     def test_prompt_returns_none(self):
-        mw = HITLMiddleware(interrupt_on={"send_email": True})
+        mw = HITLExtension(interrupt_on={"send_email": True})
 
         result = mw.prompt({}, _TEST_RUNTIME)
 
@@ -63,7 +63,7 @@ class TestMiddlewareProtocol:
 class TestWrapToolCall:
     def test_auto_approved_tool_executes_normally(self):
         """Tools not in interrupt_on pass through to execute."""
-        mw = HITLMiddleware(interrupt_on={"send_email": True})
+        mw = HITLExtension(interrupt_on={"send_email": True})
 
         mock_request = MagicMock()
         mock_request.tool_call = {"name": "search", "args": {"q": "test"}, "id": "call_1"}
@@ -76,15 +76,15 @@ class TestWrapToolCall:
         assert result == expected
 
     def test_has_wrap_tool_call_method(self):
-        mw = HITLMiddleware(interrupt_on={"send_email": True})
+        mw = HITLExtension(interrupt_on={"send_email": True})
 
         assert callable(getattr(mw, "wrap_tool_call", None))
 
 
 class TestAgentIntegration:
-    def test_agent_detects_wrap_tool_call_from_middleware(self):
-        """Agent metaclass should detect wrap_tool_call on middleware."""
-        mw = HITLMiddleware(interrupt_on={"send_email": True})
+    def test_agent_detects_wrap_tool_call_from_extension(self):
+        """Agent metaclass should detect wrap_tool_call on extension."""
+        mw = HITLExtension(interrupt_on={"send_email": True})
 
         assert hasattr(mw, "wrap_tool_call")
         assert callable(mw.wrap_tool_call)

@@ -1,4 +1,4 @@
-"""AgentTeamMiddleware — message-driven team coordination.
+"""TeamExtension — message-driven team coordination.
 
 Teammates run as asyncio.Tasks. The lead coordinates via tools
 (SpawnTeam, AssignTask, MessageTeammate, CheckTeammates, DissolveTeam).
@@ -6,11 +6,11 @@ Communication flows through a ``TeamMessageBus`` backed by asyncio.Queue.
 
 Usage::
 
-    from langchain_agentkit import agent, AgentTeamMiddleware
+    from langchain_agentkit import agent, TeamExtension
 
     class project_lead(agent):
         llm = ChatOpenAI(model="gpt-4o")
-        middleware = [AgentTeamMiddleware([researcher, coder])]
+        extensions = [TeamExtension([researcher, coder])]
         prompt = "You are a project lead managing a development team."
         async def handler(state, *, llm, tools, prompt):
             response = await llm.ainvoke(state["messages"])
@@ -28,6 +28,8 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_core.messages import HumanMessage
 from langchain_core.prompts import PromptTemplate
+
+from langchain_agentkit.extension import Extension
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
@@ -184,7 +186,7 @@ async def _teammate_loop(
 
 @dataclass
 class ActiveTeam:
-    """Runtime state for an active team — lives on the middleware instance."""
+    """Runtime state for an active team — lives on the extensions instance."""
 
     name: str
     bus: TeamMessageBus
@@ -193,12 +195,12 @@ class ActiveTeam:
 
 
 # ---------------------------------------------------------------------------
-# AgentTeamMiddleware
+# TeamExtension
 # ---------------------------------------------------------------------------
 
 
-class AgentTeamMiddleware:
-    """Middleware providing message-driven team coordination.
+class TeamExtension(Extension):
+    """Extension providing message-driven team coordination.
 
     Teammates run as asyncio.Tasks. The lead reacts to teammate messages
     (not polls). Modeled after Claude Code's Agent Team pattern with
@@ -212,17 +214,17 @@ class AgentTeamMiddleware:
 
     Note:
         ``AssignTask`` writes to the shared ``tasks`` state. Add
-        ``TasksMiddleware`` to your middleware list if you want the lead
+        ``TasksExtension`` to your extensions list if you want the lead
         to also have task management tools (TaskCreate, TaskList, etc.).
         There is one shared task list — no separate task system for teams.
 
     Example::
 
-        from langchain_agentkit import agent, AgentTeamMiddleware, TasksMiddleware
+        from langchain_agentkit import agent, TeamExtension, TasksExtension
 
         class lead(agent):
             llm = ChatOpenAI(model="gpt-4o")
-            middleware = [TasksMiddleware(), AgentTeamMiddleware([researcher, coder])]
+            extensions = [TasksExtension(), TeamExtension([researcher, coder])]
             ...
     """
 
@@ -232,7 +234,7 @@ class AgentTeamMiddleware:
         max_team_size: int = 5,
         router_timeout: float = 30.0,
     ) -> None:
-        from langchain_agentkit.middleware import validate_agent_list
+        from langchain_agentkit.extensions import validate_agent_list
 
         if max_team_size < 1:
             raise ValueError("max_team_size must be >= 1")
@@ -242,7 +244,7 @@ class AgentTeamMiddleware:
         self._router_timeout = router_timeout
         self._active_team: ActiveTeam | None = None
 
-        # Build tools bound to this middleware instance
+        # Build tools bound to this extensions instance
         from langchain_agentkit.tools.team import create_team_tools
 
         self._tools = tuple(create_team_tools(self))
@@ -307,10 +309,10 @@ class AgentTeamMiddleware:
         return base_prompt
 
     def dependencies(self) -> list:
-        """Team coordination requires TasksMiddleware for task tracking."""
-        from langchain_agentkit.middleware.tasks import TasksMiddleware
+        """Team coordination requires TasksExtension for task tracking."""
+        from langchain_agentkit.extensions.tasks import TasksExtension
 
-        return [TasksMiddleware()]
+        return [TasksExtension()]
 
     @property
     def state_schema(self) -> type:

@@ -1,14 +1,14 @@
-"""Tests for TasksMiddleware."""
+"""Tests for TasksExtension."""
 
 from unittest.mock import MagicMock
 
 from langchain_core.tools import BaseTool
 from langgraph.prebuilt import ToolRuntime
 
-from langchain_agentkit.middleware.tasks import (
+from langchain_agentkit.extensions.tasks import (
     BASE_AGENT_PROMPT,
     TASK_MANAGEMENT_PROMPT,
-    TasksMiddleware,
+    TasksExtension,
     format_task_context,
 )
 
@@ -22,9 +22,9 @@ _TEST_RUNTIME = ToolRuntime(
 )
 
 
-class TestTasksMiddlewareTools:
+class TestTasksExtensionTools:
     def test_default_constructor_creates_task_tools(self):
-        mw = TasksMiddleware()
+        mw = TasksExtension()
 
         tool_names = [t.name for t in mw.tools]
         assert "TaskCreate" in tool_names
@@ -37,13 +37,13 @@ class TestTasksMiddlewareTools:
         tool_a = MagicMock(spec=BaseTool)
         tool_b = MagicMock(spec=BaseTool)
 
-        mw = TasksMiddleware(task_tools=[tool_a, tool_b])
+        mw = TasksExtension(task_tools=[tool_a, tool_b])
 
         assert mw.tools == (tool_a, tool_b)
 
     def test_tools_returns_immutable_tuple(self):
         tool_a = MagicMock(spec=BaseTool)
-        mw = TasksMiddleware(task_tools=[tool_a])
+        mw = TasksExtension(task_tools=[tool_a])
 
         first_call = mw.tools
         second_call = mw.tools
@@ -52,9 +52,9 @@ class TestTasksMiddlewareTools:
         assert isinstance(first_call, tuple)
 
 
-class TestTasksMiddlewarePrompt:
+class TestTasksExtensionPrompt:
     def test_prompt_with_no_tasks_includes_base_and_task_management(self):
-        mw = TasksMiddleware()
+        mw = TasksExtension()
 
         result = mw.prompt({"tasks": []}, _TEST_RUNTIME)
 
@@ -62,7 +62,7 @@ class TestTasksMiddlewarePrompt:
         assert TASK_MANAGEMENT_PROMPT in result
 
     def test_prompt_with_tasks_includes_base_and_formatted_context(self):
-        mw = TasksMiddleware()
+        mw = TasksExtension()
         tasks = [{"subject": "Write tests", "status": "in_progress"}]
 
         result = mw.prompt({"tasks": tasks}, _TEST_RUNTIME)
@@ -72,7 +72,7 @@ class TestTasksMiddlewarePrompt:
         assert TASK_MANAGEMENT_PROMPT not in result
 
     def test_prompt_without_tasks_key_includes_task_management(self):
-        mw = TasksMiddleware()
+        mw = TasksExtension()
 
         result = mw.prompt({}, _TEST_RUNTIME)
 
@@ -80,7 +80,7 @@ class TestTasksMiddlewarePrompt:
         assert TASK_MANAGEMENT_PROMPT in result
 
     def test_prompt_always_returns_string(self):
-        mw = TasksMiddleware()
+        mw = TasksExtension()
 
         result_empty = mw.prompt({"tasks": []}, _TEST_RUNTIME)
         result_with = mw.prompt(
@@ -97,7 +97,7 @@ class TestTasksMiddlewarePrompt:
         def my_formatter(tasks):
             return f"Custom: {len(tasks)} tasks"
 
-        mw = TasksMiddleware(formatter=my_formatter)
+        mw = TasksExtension(formatter=my_formatter)
         result = mw.prompt({"tasks": [{"subject": "A"}]}, _TEST_RUNTIME)
 
         assert "Custom: 1 tasks" in result
@@ -205,10 +205,10 @@ class TestFormatTaskContext:
         assert result == TASK_MANAGEMENT_PROMPT
 
 
-class TestTasksMiddlewareProtocol:
-    def test_satisfies_middleware_protocol_structurally(self):
-        """TasksMiddleware has the tools property and prompt method required by Middleware."""
-        mw = TasksMiddleware()
+class TestTasksExtensionProtocol:
+    def test_satisfies_extension_protocol_structurally(self):
+        """TasksExtension has the tools property and prompt method required by Extension."""
+        mw = TasksExtension()
 
         assert hasattr(mw, "tools")
         assert callable(mw.prompt)

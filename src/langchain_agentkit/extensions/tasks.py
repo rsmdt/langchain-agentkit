@@ -1,19 +1,19 @@
-"""TasksMiddleware — task management tools and system prompt guidance.
+"""TasksExtension — task management tools and system prompt guidance.
 
 Usage::
 
-    from langchain_agentkit import TasksMiddleware
+    from langchain_agentkit import TasksExtension
 
     # Default — auto-creates Command-based task tools
-    mw = TasksMiddleware()
+    mw = TasksExtension()
     mw.tools   # [TaskCreate, TaskUpdate, TaskList, TaskGet]
     mw.prompt(state, runtime)  # Base agent prompt + task context
 
     # Custom tools
-    mw = TasksMiddleware(task_tools=[my_task_create, my_task_update])
+    mw = TasksExtension(task_tools=[my_task_create, my_task_update])
 
     # Custom formatter
-    mw = TasksMiddleware(formatter=my_format_function)
+    mw = TasksExtension(formatter=my_format_function)
 """
 
 from __future__ import annotations
@@ -22,6 +22,8 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from langchain_core.prompts import PromptTemplate
+
+from langchain_agentkit.extension import Extension
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -84,8 +86,8 @@ def format_task_context(tasks: list[dict[str, Any]]) -> str:
     )
 
 
-class TasksMiddleware:
-    """Middleware providing task management tools and system prompt guidance.
+class TasksExtension(Extension):
+    """Extension providing task management tools and system prompt guidance.
 
     Tools: Uses Command-based task tools by default. Accepts custom tools
     via constructor for override.
@@ -104,13 +106,13 @@ class TasksMiddleware:
     Example::
 
         # Default — auto-creates Command-based task tools
-        mw = TasksMiddleware()
+        mw = TasksExtension()
 
         # Custom tools
-        mw = TasksMiddleware(task_tools=[my_create, my_update])
+        mw = TasksExtension(task_tools=[my_create, my_update])
 
         # Custom formatter
-        mw = TasksMiddleware(formatter=my_format_function)
+        mw = TasksExtension(formatter=my_format_function)
     """
 
     def __init__(
@@ -142,3 +144,4 @@ class TasksMiddleware:
         tasks = state.get("tasks") or []
         sections.append(self._formatter(tasks))
         return "\n\n".join(sections)
+

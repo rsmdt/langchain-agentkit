@@ -49,15 +49,15 @@ except ImportError:
 skip_reason = "Requires OPENAI_API_KEY and langchain-openai"
 
 
-def _build_agent(middleware_list):
-    """Build a minimal ReAct agent from middleware, using composed state schema."""
+def _build_agent(extensions_list):
+    """Build a minimal ReAct agent from extensions, using composed state schema."""
     from langchain_core.messages import SystemMessage
     from langgraph.graph import END, START, StateGraph
     from langgraph.prebuilt import ToolNode
 
     from langchain_agentkit import AgentKit
 
-    kit = AgentKit(middleware_list)
+    kit = AgentKit(extensions_list)
     state_schema = kit.state_schema
 
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
@@ -89,15 +89,15 @@ def _build_agent(middleware_list):
 
 
 def _build_skills_agent():
-    from langchain_agentkit import SkillsMiddleware
+    from langchain_agentkit import SkillsExtension
 
-    return _build_agent([SkillsMiddleware(skills=str(FIXTURES / "skills"))])
+    return _build_agent([SkillsExtension(skills=str(FIXTURES / "skills"))])
 
 
 def _build_tasks_agent():
-    from langchain_agentkit import TasksMiddleware
+    from langchain_agentkit import TasksExtension
 
-    return _build_agent([TasksMiddleware()])
+    return _build_agent([TasksExtension()])
 
 
 # ---------------------------------------------------------------------------
