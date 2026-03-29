@@ -1,7 +1,7 @@
 # ruff: noqa: N801, N805
 """Agent delegation — delegate tasks to specialist subagents.
 
-AgentMiddleware enables a lead agent to delegate work to specialist
+AgentExtension enables a lead agent to delegate work to specialist
 subagents at runtime. The lead decides when and to whom to delegate
 via the Agent tool. Subagents run in isolation (scoped context)
 and return concise results.
@@ -29,7 +29,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from langchain_agentkit import AgentMiddleware, TasksMiddleware, agent
+from langchain_agentkit import AgentExtension, TasksExtension, agent
 
 
 # ---------------------------------------------------------------------------
@@ -82,9 +82,9 @@ class lead(agent):
     """Lead agent that delegates to specialists."""
 
     llm = ChatOpenAI(model="gpt-4o", temperature=0)
-    middleware = [
-        TasksMiddleware(),
-        AgentMiddleware(
+    extensions = [
+        TasksExtension(),
+        AgentExtension(
             [researcher, analyst],
             ephemeral=True,           # enable dynamic agents
             delegation_timeout=60.0,  # 60s max per delegation

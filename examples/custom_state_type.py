@@ -2,7 +2,7 @@
 
 Annotate the handler's first parameter to use a custom TypedDict as the
 graph's state type. Custom fields survive graph execution. Without an
-annotation, the state schema is composed from middleware automatically.
+annotation, the state schema is composed from extensions automatically.
 """
 
 # ruff: noqa: N801, N805

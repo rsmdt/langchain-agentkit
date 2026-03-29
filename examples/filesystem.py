@@ -1,7 +1,7 @@
 # ruff: noqa: N801, N805
 """Virtual filesystem — give agents file tools with pre-loaded data.
 
-FilesystemMiddleware provides Read, Write, Edit, Glob, and Grep tools
+FilesystemExtension provides Read, Write, Edit, Glob, and Grep tools
 operating on an in-memory VirtualFilesystem. Pre-populate the VFS with
 data from any source before the agent runs.
 
@@ -17,7 +17,7 @@ from pathlib import Path
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from langchain_agentkit import FilesystemMiddleware, VirtualFilesystem, agent
+from langchain_agentkit import FilesystemExtension, VirtualFilesystem, agent
 
 # --- Load files into the VFS from various sources ---
 
@@ -42,8 +42,8 @@ if data_dir.exists():
         vfs.write(f"/prompts/{file.name}", file.read_text())
 
 # 4. Generate structured data programmatically
-for i in range(3):
-    quarter = i + 1
+for extensions in range(3):
+    quarter = extensions + 1
     csv = f"metric,value\nrevenue,{quarter * 1000}\ngrowth,{quarter * 5}%"
     vfs.write(f"/reports/q{quarter}_2024.csv", csv)
 
@@ -52,7 +52,7 @@ for i in range(3):
 
 class analyst(agent):
     llm = ChatOpenAI(model="gpt-4o")
-    middleware = [FilesystemMiddleware(filesystem=vfs)]
+    extensions = [FilesystemExtension(filesystem=vfs)]
     prompt = """\
 You are a data analyst. You have access to a virtual filesystem with
 project files. Use Glob to discover files, Read to examine them,

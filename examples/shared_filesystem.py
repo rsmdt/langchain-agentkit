@@ -1,9 +1,9 @@
 # ruff: noqa: N801, N805
-"""Shared VFS — SkillsMiddleware + FilesystemMiddleware on the same filesystem.
+"""Shared VFS — SkillsExtension + FilesystemExtension on the same filesystem.
 
-When you pass a VirtualFilesystem to SkillsMiddleware, it populates the
+When you pass a VirtualFilesystem to SkillsExtension, it populates the
 VFS with skill files but does NOT include filesystem tools. Add
-FilesystemMiddleware with the same VFS to get Read/Write/Edit/Glob/Grep.
+FilesystemExtension with the same VFS to get Read/Write/Edit/Glob/Grep.
 
 This gives you one unified filesystem where skills coexist with your
 own data — the agent can Glob across both.
@@ -15,8 +15,8 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from langchain_agentkit import (
-    FilesystemMiddleware,
-    SkillsMiddleware,
+    FilesystemExtension,
+    SkillsExtension,
     VirtualFilesystem,
     agent,
 )
@@ -42,11 +42,11 @@ vfs.write("/workspace/notes.md", """\
 
 class researcher(agent):
     llm = ChatOpenAI(model="gpt-4o")
-    middleware = [
+    extensions = [
         # Skills loaded into VFS at /skills/ — provides only Skill tool
-        SkillsMiddleware(skills="skills/", filesystem=vfs),
+        SkillsExtension(skills="skills/", filesystem=vfs),
         # Filesystem tools on the same VFS — provides Read, Write, Edit, Glob, Grep
-        FilesystemMiddleware(filesystem=vfs),
+        FilesystemExtension(filesystem=vfs),
     ]
     prompt = """\
 You are a research assistant. Use the Skill tool to load methodologies,

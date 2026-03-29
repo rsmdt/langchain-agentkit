@@ -2,7 +2,7 @@
 """Multi-agent graph — compose multiple agent subclasses.
 
 Each agent metaclass produces a self-contained ReAct subgraph with its own
-tools and middleware. Compose them in a parent graph for multi-agent workflows.
+tools and extensions. Compose them in a parent graph for multi-agent workflows.
 """
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -10,7 +10,7 @@ from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 
-from langchain_agentkit import AgentKit, SkillsMiddleware, agent
+from langchain_agentkit import AgentKit, SkillsExtension, agent
 
 
 @tool
@@ -34,7 +34,7 @@ def calculate(expression: str) -> str:
 class researcher(agent):
     llm = ChatOpenAI(model="gpt-4o")
     tools = [web_search]
-    middleware = [SkillsMiddleware(skills="skills/")]
+    extensions = [SkillsExtension(skills="skills/")]
     prompt = "You are a research assistant."
 
     async def handler(state, *, llm, prompt):
@@ -55,7 +55,7 @@ class analyst(agent):
 
 
 # Compose in a parent graph — use AgentKit to get the combined state schema
-kit = AgentKit([SkillsMiddleware(skills="skills/")])
+kit = AgentKit([SkillsExtension(skills="skills/")])
 
 workflow = StateGraph(kit.state_schema)
 workflow.add_node("researcher", researcher.compile())

@@ -1,7 +1,7 @@
 # ruff: noqa: N801, N805
 """Agent teams — coordinate concurrent specialists.
 
-AgentTeamMiddleware enables a lead agent to spawn a team of concurrent
+TeamExtension enables a lead agent to spawn a team of concurrent
 workers, assign tasks, exchange messages, and synthesize results. This
 is the most powerful multi-agent pattern — use it when work requires
 back-and-forth coordination between specialists.
@@ -14,7 +14,7 @@ Key concepts:
 - **Conversation history**: Each teammate has its own checkpointer.
   Multiple messages to the same teammate accumulate context (the teammate
   remembers previous interactions within the team session).
-- **Shared task list**: Teams reuse TasksMiddleware for coordination.
+- **Shared task list**: Teams reuse TasksExtension for coordination.
   AssignTask creates a tracked task with an owner. The lead sees
   progress via the standard task tools.
 - **Lifecycle**: SpawnTeam → AssignTask → (react to messages) → DissolveTeam.
@@ -39,7 +39,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from langchain_agentkit import AgentTeamMiddleware, TasksMiddleware, agent
+from langchain_agentkit import TeamExtension, TasksExtension, agent
 
 
 # ---------------------------------------------------------------------------
@@ -91,9 +91,9 @@ class lead(agent):
     """Team lead that coordinates researcher and coder."""
 
     llm = ChatOpenAI(model="gpt-4o", temperature=0)
-    middleware = [
-        TasksMiddleware(),
-        AgentTeamMiddleware(
+    extensions = [
+        TasksExtension(),
+        TeamExtension(
             [researcher, coder],
             max_team_size=5,
             router_timeout=30.0,

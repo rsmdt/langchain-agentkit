@@ -2,14 +2,14 @@
 """Standalone agent — the simplest way to use langchain-agentkit.
 
 Declare a class with the agent metaclass and get a complete ReAct agent
-with middleware support. The result is a StateGraph — call .compile() to run it.
+with extension support. The result is a StateGraph — call .compile() to run it.
 """
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from langchain_agentkit import SkillsMiddleware, agent
+from langchain_agentkit import SkillsExtension, agent
 
 
 @tool
@@ -21,7 +21,7 @@ def web_search(query: str) -> str:
 class researcher(agent):
     llm = ChatOpenAI(model="gpt-4o")
     tools = [web_search]
-    middleware = [SkillsMiddleware(skills="skills/")]
+    extensions = [SkillsExtension(skills="skills/")]
     prompt = "You are a research assistant."
 
     async def handler(state, *, llm, prompt):

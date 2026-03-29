@@ -1,6 +1,6 @@
 # langchain-agentkit
 
-Composable middleware framework for LangGraph agents.
+Composable extension framework for LangGraph agents.
 
 [![PyPI](https://img.shields.io/pypi/v/langchain-agentkit)](https://pypi.org/project/langchain-agentkit/)
 [![Python 3.11+](https://img.shields.io/pypi/pyversions/langchain-agentkit)](https://pypi.org/project/langchain-agentkit/)
@@ -18,18 +18,18 @@ Requires Python 3.11+.
 
 ### The `agent` metaclass
 
-Declare a class, get a complete ReAct agent with middleware-composed tools and prompts:
+Declare a class, get a complete ReAct agent with extension-composed tools and prompts:
 
 ```python
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from langchain_agentkit import agent, SkillsMiddleware, TasksMiddleware
+from langchain_agentkit import agent, SkillsExtension, TasksExtension
 
 class researcher(agent):
     llm = ChatOpenAI(model="gpt-4o")
-    middleware = [
-        SkillsMiddleware(skills="skills/"),
-        TasksMiddleware(),
+    extensions = [
+        SkillsExtension(skills="skills/"),
+        TasksExtension(),
     ]
     prompt = "You are a research assistant."
 
@@ -41,7 +41,7 @@ graph = researcher.compile()
 result = graph.invoke({"messages": [HumanMessage("Size the B2B SaaS market")]})
 ```
 
-The state schema is composed automatically from middleware — `TasksMiddleware` adds a `tasks` key, `SkillsMiddleware` adds nothing. No need to define state manually.
+The state schema is composed automatically from extensions — `TasksExtension` adds a `tasks` key, `SkillsExtension` adds nothing. No need to define state manually.
 
 ### `AgentKit` for manual graph wiring
 
@@ -53,11 +53,11 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from langchain_agentkit import AgentKit, SkillsMiddleware, TasksMiddleware
+from langchain_agentkit import AgentKit, SkillsExtension, TasksExtension
 
 kit = AgentKit([
-    SkillsMiddleware(skills="skills/"),
-    TasksMiddleware(),
+    SkillsExtension(skills="skills/"),
+    TasksExtension(),
 ])
 
 llm = ChatOpenAI(model="gpt-4o")
@@ -75,7 +75,7 @@ def should_continue(state):
         return "tools"
     return END
 
-# State schema composed automatically from middleware
+# State schema composed automatically from extensions
 graph = StateGraph(kit.state_schema)
 graph.add_node("agent", agent_node)
 graph.add_node("tools", ToolNode(all_tools))
@@ -87,37 +87,37 @@ app = graph.compile()
 result = app.invoke({"messages": [HumanMessage("Size the B2B SaaS market")]})
 ```
 
-## Middleware
+## Extension
 
-Each middleware provides tools, a prompt section, and optional state requirements. Compose them in any combination:
+Each extension provides tools, a prompt section, and optional state requirements. Compose them in any combination:
 
 ```python
-middleware = [
-    SkillsMiddleware(skills="skills/"),
-    TasksMiddleware(),
-    FilesystemMiddleware(),
-    WebSearchMiddleware(),
-    HITLMiddleware(interrupt_on={"send_email": True}),
-    AgentMiddleware([researcher, coder]),
-    AgentTeamMiddleware([researcher, coder]),
+extensions = [
+    SkillsExtension(skills="skills/"),
+    TasksExtension(),
+    FilesystemExtension(),
+    WebSearchExtension(),
+    HITLExtension(interrupt_on={"send_email": True}),
+    AgentExtension([researcher, coder]),
+    TeamExtension([researcher, coder]),
 ]
 ```
 
-### SkillsMiddleware
+### SkillsExtension
 
 Loads skills from directories containing `SKILL.md` files. Provides progressive disclosure — the agent sees skill names and descriptions, then loads full instructions on demand.
 
 ```python
 # Convenience: includes filesystem tools for reading skill reference files
-mw = SkillsMiddleware(skills="skills/")
+mw = SkillsExtension(skills="skills/")
 mw.tools  # [Skill, Read, Write, Edit, Glob, Grep]
 
 # Explicit: provide a shared VFS, manage filesystem tools separately
-from langchain_agentkit import VirtualFilesystem, FilesystemMiddleware
+from langchain_agentkit import VirtualFilesystem, FilesystemExtension
 
 vfs = VirtualFilesystem()
-skills_mw = SkillsMiddleware(skills="skills/", filesystem=vfs)
-fs_mw = FilesystemMiddleware(filesystem=vfs)
+skills_mw = SkillsExtension(skills="skills/", filesystem=vfs)
+fs_mw = FilesystemExtension(filesystem=vfs)
 skills_mw.tools  # [Skill]
 fs_mw.tools      # [Read, Write, Edit, Glob, Grep]
 ```
@@ -137,12 +137,12 @@ skills/
     └── calculator.py     # Reference files accessible via Read tool
 ```
 
-### TasksMiddleware
+### TasksExtension
 
 Task management for complex multi-step objectives. The agent creates, tracks, and completes tasks with dependency ordering.
 
 ```python
-mw = TasksMiddleware()
+mw = TasksExtension()
 mw.tools  # [TaskCreate, TaskUpdate, TaskList, TaskGet, TaskStop]
 ```
 
@@ -158,17 +158,17 @@ mw.tools  # [TaskCreate, TaskUpdate, TaskList, TaskGet, TaskStop]
 
 Tasks support `blocked_by` dependencies, `owner` assignment, and arbitrary `metadata`. Parallel `TaskCreate` calls are handled by a merge-by-ID reducer.
 
-### FilesystemMiddleware
+### FilesystemExtension
 
 Claude Code-aligned file tools operating on an in-memory virtual filesystem:
 
 ```python
-from langchain_agentkit import FilesystemMiddleware, VirtualFilesystem
+from langchain_agentkit import FilesystemExtension, VirtualFilesystem
 
 vfs = VirtualFilesystem()
 vfs.write("/data/config.json", '{"key": "value"}')
 
-mw = FilesystemMiddleware(filesystem=vfs)
+mw = FilesystemExtension(filesystem=vfs)
 mw.tools  # [Read, Write, Edit, Glob, Grep]
 ```
 
@@ -182,26 +182,26 @@ mw.tools  # [Read, Write, Edit, Glob, Grep]
 | `Glob(pattern)` | Find files by pattern (supports `*`, `**`, `?`) |
 | `Grep(pattern)` | Search file contents by regex |
 
-### WebSearchMiddleware
+### WebSearchExtension
 
 Multi-provider web search. Fans out queries to all providers in parallel. Works out of the box with built-in Qwant search (no API key needed):
 
 ```python
 # Zero config
-mw = WebSearchMiddleware()
+mw = WebSearchExtension()
 
 # Custom providers
 from langchain_tavily import TavilySearch
 
-mw = WebSearchMiddleware(providers=[TavilySearch(max_results=5)])
+mw = WebSearchExtension(providers=[TavilySearch(max_results=5)])
 ```
 
-### HITLMiddleware
+### HITLExtension
 
 Human-in-the-loop approval for sensitive tool calls via LangGraph `interrupt()`:
 
 ```python
-mw = HITLMiddleware(interrupt_on={
+mw = HITLExtension(interrupt_on={
     "send_email": True,           # requires approval
     "search": False,              # auto-approved
     "delete_file": {"allowed_decisions": ["approve", "reject"]},
@@ -210,12 +210,12 @@ mw = HITLMiddleware(interrupt_on={
 
 Requires a checkpointer. Resume with `Command(resume={"type": "approve"})`.
 
-### AgentMiddleware
+### AgentExtension
 
-Delegate tasks to specialist subagents at runtime. The lead agent decides when and to whom to delegate via the `Delegate` tool. Subagents run in isolation — they receive only the task message (not the lead's full conversation history) and return a concise result.
+Delegate tasks to specialist subagents at runtime. The lead agent decides when and to whom to delegate via the `Agent` tool. Subagents run in isolation — they receive only the task message (not the lead's full conversation history) and return a concise result.
 
 ```python
-from langchain_agentkit import agent, AgentMiddleware
+from langchain_agentkit import agent, AgentExtension
 
 class researcher(agent):
     llm = ChatOpenAI(model="gpt-4o-mini")
@@ -233,50 +233,53 @@ class coder(agent):
 
 class lead(agent):
     llm = ChatOpenAI(model="gpt-4o")
-    middleware = [AgentMiddleware([researcher, coder])]
+    extensions = [AgentExtension([researcher, coder], ephemeral=True)]
     prompt = "Delegate research to the researcher and coding to the coder."
     async def handler(state, *, llm, tools, prompt): ...
 ```
 
-**How it works:** `Delegate` is a blocking tool call. The lead's ReAct loop stays alive because it's waiting for the tool result. For parallelism, the LLM calls multiple `Delegate` tools in one turn — LangGraph's `ToolNode` executes them concurrently.
+**How it works:** `Agent` is a blocking tool call. The lead's ReAct loop stays alive because it's waiting for the tool result. For parallelism, the LLM calls multiple `Agent` tools in one turn — LangGraph's `ToolNode` executes them concurrently.
 
-**Tools:**
+**The `Agent` tool uses shape-based discrimination** — the LLM provides either `{id: "<name>"}` for a pre-defined agent or `{prompt: "..."}` for a dynamic one:
 
-| Tool | Description |
-|------|-------------|
-| `Delegate(agent, message)` | Delegate a task to a named subagent. Blocks until complete. |
-| `DelegateEphemeral(message, instructions)` | Create a one-shot agent with custom instructions. Only available with `ephemeral=True`. |
+```json
+// Pre-defined agent from the roster
+{"agent": {"id": "researcher"}, "message": "Find info on X"}
+
+// Dynamic agent (ephemeral=True required)
+{"agent": {"prompt": "You are a legal expert..."}, "message": "Analyze this contract"}
+```
 
 **Key features:**
 - `description` attribute on agents — used in the prompt roster so the LLM knows what each specialist does
 - `tools="inherit"` — subagent receives the parent's tools at delegation time instead of its own
-- `ephemeral=True` — enables `DelegateEphemeral` for ad-hoc reasoning agents created at runtime
+- `ephemeral=True` — enables dynamic (on-the-fly) reasoning agents in the `Agent` tool schema
 - `delegation_timeout` — max seconds per delegation (default 300s)
 
 See [`examples/delegation.py`](examples/delegation.py) for a complete example.
 
-### AgentTeamMiddleware
+### TeamExtension
 
 Coordinate a team of concurrent agents for complex, multi-step work that requires back-and-forth communication. The lead spawns teammates, assigns tasks, reacts to their results, and can forward information between team members.
 
 ```python
-from langchain_agentkit import agent, AgentTeamMiddleware, TasksMiddleware
+from langchain_agentkit import agent, TeamExtension, TasksExtension
 
 class lead(agent):
     llm = ChatOpenAI(model="gpt-4o")
-    middleware = [TasksMiddleware(), AgentTeamMiddleware([researcher, coder])]
+    extensions = [TasksExtension(), TeamExtension([researcher, coder])]
     prompt = "You are a project lead. Coordinate your team."
     async def handler(state, *, llm, tools, prompt): ...
 ```
 
-There is **one shared task list** — the same one `TasksMiddleware` provides. `AssignTask` writes to it, `TaskList` reads from it. No separate task system for teams. `AgentTeamMiddleware` always includes `TasksState` in the state schema so `AssignTask` works even without explicit `TasksMiddleware`:
+There is **one shared task list** — the same one `TasksExtension` provides. `AssignTask` writes to it, `TaskList` reads from it. No separate task system for teams. `TeamExtension` always includes `TasksState` in the state schema so `AssignTask` works even without explicit `TasksExtension`:
 
 ```python
 # Minimal — AssignTask creates tasks, but lead has no TaskList/TaskCreate tools
-middleware = [AgentTeamMiddleware([researcher, coder])]
+extensions = [TeamExtension([researcher, coder])]
 
 # Full — lead also has task management tools (recommended)
-middleware = [TasksMiddleware(), AgentTeamMiddleware([researcher, coder])]
+extensions = [TasksExtension(), TeamExtension([researcher, coder])]
 
 # The LLM drives the lifecycle:
 # 1. SpawnTeam("dev-team", [{"name": "alice", "agent_type": "researcher"}, ...])
@@ -302,14 +305,14 @@ middleware = [TasksMiddleware(), AgentTeamMiddleware([researcher, coder])]
 **Key features:**
 - **Router Node** — automatic message delivery from teammates to the lead (no polling)
 - **Conversation history** — each teammate has its own `InMemorySaver` checkpointer, so multiple messages accumulate context
-- **Shared task list** — one task list, shared with `TasksMiddleware`. `AssignTask` writes to it, `TaskList` reads from it. Add `TasksMiddleware` for full task management tools.
+- **Shared task list** — one task list, shared with `TasksExtension`. `AssignTask` writes to it, `TaskList` reads from it. Add `TasksExtension` for full task management tools.
 - `max_team_size` — limit concurrent members (default 5)
 - `router_timeout` — how long the Router waits for messages (default 30s)
 - `max_iterations` — safety limit on Router re-invocations (default 50)
 
-**When to use Teams vs Delegate:**
+**When to use Teams vs Agent:**
 
-| | Delegate | Team |
+| | Agent | Team |
 |---|---|---|
 | Interaction | Single request → result | Multi-turn conversation |
 | Lead during execution | Blocked waiting | Active (coordinating) |
@@ -318,14 +321,14 @@ middleware = [TasksMiddleware(), AgentTeamMiddleware([researcher, coder])]
 
 See [`examples/team.py`](examples/team.py) for a complete example.
 
-## Custom Middleware
+## Custom Extension
 
 Any class with `tools`, `prompt()`, and `state_schema` satisfies the protocol:
 
 ```python
-from langchain_agentkit import Middleware
+from langchain_agentkit import Extension
 
-class MyMiddleware:
+class MyExtension:
     @property
     def tools(self):
         return [my_tool]
@@ -338,7 +341,7 @@ class MyMiddleware:
         return None  # or a TypedDict mixin if you need state keys
 ```
 
-If your middleware needs a custom state key, return a TypedDict mixin from `state_schema`:
+If extension needs a custom state key, return a TypedDict mixin from `state_schema`:
 
 ```python
 from typing import TypedDict
@@ -346,7 +349,7 @@ from typing import TypedDict
 class MyState(TypedDict, total=False):
     my_data: list[str]
 
-class MyMiddleware:
+class MyExtension:
     @property
     def state_schema(self):
         return MyState
@@ -354,7 +357,7 @@ class MyMiddleware:
     # ... tools and prompt
 ```
 
-The state key will be automatically included when the middleware is composed via `AgentKit`.
+The state key will be automatically included when the extension is composed via `AgentKit`.
 
 ## Contributing
 

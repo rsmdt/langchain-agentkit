@@ -2,7 +2,7 @@
 
 Use this approach when you need custom routing, multi-node graphs,
 or a shared ToolNode. AgentKit composes tools, prompts, and state
-schema from middleware.
+schema from extensions.
 """
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -11,7 +11,7 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from langchain_agentkit import AgentKit, SkillsMiddleware, TasksMiddleware
+from langchain_agentkit import AgentKit, SkillsExtension, TasksExtension
 
 
 @tool
@@ -21,8 +21,8 @@ def web_search(query: str) -> str:
 
 
 kit = AgentKit([
-    SkillsMiddleware(skills="skills/"),
-    TasksMiddleware(),
+    SkillsExtension(skills="skills/"),
+    TasksExtension(),
 ])
 
 llm = ChatOpenAI(model="gpt-4o")
@@ -45,7 +45,7 @@ def should_continue(state: dict) -> str:
     return END
 
 
-# State schema composed from middleware (includes messages + tasks)
+# State schema composed from extensions (includes messages + tasks)
 workflow = StateGraph(kit.state_schema)
 workflow.add_node("researcher", researcher)
 workflow.add_node("tools", ToolNode(all_tools))
