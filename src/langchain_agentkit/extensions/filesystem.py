@@ -37,7 +37,7 @@ if TYPE_CHECKING:
     from langgraph.prebuilt import ToolRuntime
 
 from langchain_agentkit.backend import BackendProtocol, MemoryBackend, SandboxProtocol
-from langchain_agentkit.tools.filesystem import create_filesystem_tools
+from langchain_agentkit.tools.filesystem import create_backend_tools, create_filesystem_tools
 from langchain_agentkit.vfs import VirtualFilesystem
 
 
@@ -102,15 +102,22 @@ class FilesystemExtension(Extension):
         """Filesystem tools: Read, Write, Edit, MultiEdit, Glob, Grep, LS.
 
         Plus Execute if ``include_execute=True`` and backend is a SandboxProtocol.
+
+        When a non-MemoryBackend is provided, all core tools (Read, Write, Edit,
+        Glob, Grep) use the BackendProtocol directly. When using MemoryBackend
+        (or legacy VFS), they use the VirtualFilesystem for backward compat.
         """
         if self._tools_cache is None:
-            # Start with existing VFS-based tools
-            tools = create_filesystem_tools(self.filesystem)
+            # Core tools — use backend-aware builders when backend is not MemoryBackend
+            if isinstance(self._backend, MemoryBackend):
+                tools = create_filesystem_tools(self.filesystem)
+            else:
+                tools = create_backend_tools(self._backend)
 
-            # Add LS tool
+            # Add LS tool (always uses backend)
             tools.append(_build_ls_tool(self._backend))
 
-            # Add MultiEdit tool
+            # Add MultiEdit tool (always uses backend)
             tools.append(_build_multi_edit_tool(self._backend))
 
             # Conditionally add Execute

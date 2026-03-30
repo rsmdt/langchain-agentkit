@@ -385,3 +385,114 @@ def create_filesystem_tools(vfs: VirtualFilesystem) -> list[BaseTool]:
         _build_glob_tool(vfs),
         _build_grep_tool(vfs),
     ]
+
+
+# ---------------------------------------------------------------------------
+# Backend-aware tool builders
+# ---------------------------------------------------------------------------
+
+
+def _build_backend_read(backend: Any) -> BaseTool:
+    def read(file_path: str, offset: int = 0, limit: int = 2000) -> str:
+        """Read a file."""
+        return backend.read(file_path, offset=offset, limit=limit)
+
+    return StructuredTool.from_function(
+        func=read, name="Read",
+        description="Read a file. Results returned with line numbers. Use offset and limit for large files.",
+        args_schema=_ReadInput, handle_tool_error=True,
+    )
+
+
+def _build_backend_write(backend: Any) -> BaseTool:
+    def write(file_path: str, content: str) -> str:
+        """Write content to a file."""
+        result = backend.write(file_path, content)
+        return f"Wrote {result.get('bytes_written', len(content))} bytes to {file_path}"
+
+    return StructuredTool.from_function(
+        func=write, name="Write",
+        description="Write content to a file, creating or overwriting it. Prefer Edit for modifications.",
+        args_schema=_WriteInput, handle_tool_error=True,
+    )
+
+
+def _build_backend_edit(backend: Any) -> BaseTool:
+    def edit(file_path: str, old_string: str, new_string: str, replace_all: bool = False) -> str:
+        """Perform exact string replacement in a file."""
+        try:
+            result = backend.edit(file_path, old_string, new_string, replace_all=replace_all)
+            count = result.get("replacements", 0) if isinstance(result, dict) else result
+        except (FileNotFoundError, ValueError) as exc:
+            raise ToolException(str(exc)) from exc
+        return f"Replaced {count} occurrence(s) in {file_path}"
+
+    return StructuredTool.from_function(
+        func=edit, name="Edit",
+        description="Perform exact string replacements in a file. Fails if old_string is not unique (use replace_all for multiple).",
+        args_schema=_EditInput, handle_tool_error=True,
+    )
+
+
+def _build_backend_glob(backend: Any) -> BaseTool:
+    def glob(pattern: str, path: str | None = None) -> str:
+        """Find files matching a glob pattern."""
+        matches = backend.glob(pattern, path=path or "/")
+        if not matches:
+            return "No files matched."
+        return "\n".join(matches)
+
+    return StructuredTool.from_function(
+        func=glob, name="Glob",
+        description='Fast file pattern matching. Supports patterns like "**/*.py". Returns matching file paths.',
+        args_schema=_GlobInput, handle_tool_error=True,
+    )
+
+
+def _build_backend_grep(backend: Any) -> BaseTool:
+    def grep(
+        pattern: str,
+        path: str | None = None,
+        glob: str | None = None,
+        output_mode: str = "files_with_matches",
+        context: int | None = None,
+        ignore_case: bool = False,
+        head_limit: int = 0,
+    ) -> str:
+        """Search file contents for a regex pattern."""
+        results = backend.grep(pattern, path=path, glob=glob)
+        if not results:
+            return "No matches found."
+        if output_mode == "files_with_matches":
+            return _grep_files_with_matches(results, head_limit)
+        elif output_mode == "count":
+            return _grep_count(results, head_limit)
+        else:
+            lines = [f"{r['path']}:{r['line']}: {r['text']}" for r in results]
+            if head_limit:
+                lines = lines[:head_limit]
+            return "\n".join(lines)
+
+    return StructuredTool.from_function(
+        func=grep, name="Grep",
+        description='Search file contents for a regex pattern. Output modes: "content", "files_with_matches" (default), "count".',
+        args_schema=_GrepInput, handle_tool_error=True,
+    )
+
+
+def create_backend_tools(backend: Any) -> list[BaseTool]:
+    """Create filesystem tools backed by a BackendProtocol.
+
+    Returns five tools: ``[Read, Write, Edit, Glob, Grep]``,
+    all operating on the given backend.
+
+    Args:
+        backend: A BackendProtocol implementation.
+    """
+    return [
+        _build_backend_read(backend),
+        _build_backend_write(backend),
+        _build_backend_edit(backend),
+        _build_backend_glob(backend),
+        _build_backend_grep(backend),
+    ]
