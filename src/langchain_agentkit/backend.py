@@ -1,12 +1,10 @@
-"""Backend protocol and implementations for agent file/execution operations.
+"""Backend protocol and OS filesystem implementation for agent file operations.
 
 ``BackendProtocol`` defines file operations (read, write, edit, glob, grep, ls).
 ``SandboxProtocol`` extends it with shell execution.
 
 Implementations:
-- ``MemoryBackend`` — wraps VirtualFilesystem (in-memory, testing/ephemeral)
-- ``LocalBackend`` — real filesystem with path traversal prevention
-- ``CompositeBackend`` — routes by path prefix to different backends
+- ``OSBackend`` — real OS filesystem with path traversal prevention
 """
 
 from __future__ import annotations
@@ -14,9 +12,7 @@ from __future__ import annotations
 import fnmatch
 import os
 import re
-from pathlib import Path
-from typing import Any, Protocol, TypedDict, runtime_checkable
-
+from typing import Protocol, TypedDict, runtime_checkable
 
 # --- Data types ---
 
@@ -59,9 +55,14 @@ class BackendProtocol(Protocol):
     def ls(self, path: str) -> list[FileInfo]: ...
     def read(self, path: str, offset: int = 0, limit: int = 2000) -> str: ...
     def write(self, path: str, content: str | bytes) -> WriteResult: ...
-    def edit(self, path: str, old_string: str, new_string: str, replace_all: bool = False) -> EditResult: ...
+    def edit(
+        self, path: str, old_string: str, new_string: str, replace_all: bool = False,
+    ) -> EditResult: ...
     def glob(self, pattern: str, path: str = "/") -> list[str]: ...
-    def grep(self, pattern: str, path: str | None = None, glob: str | None = None) -> list[GrepMatch]: ...
+    def grep(
+        self, pattern: str, path: str | None = None,
+        glob: str | None = None, ignore_case: bool = False,
+    ) -> list[GrepMatch]: ...
     def exists(self, path: str) -> bool: ...
     def delete(self, path: str) -> None: ...
 
@@ -70,94 +71,26 @@ class BackendProtocol(Protocol):
 class SandboxProtocol(BackendProtocol, Protocol):
     """Protocol extending BackendProtocol with shell execution."""
 
-    def execute(self, command: str, timeout: int | None = None, workdir: str | None = None) -> ExecuteResponse: ...
+    def execute(
+        self, command: str, timeout: int | None = None, workdir: str | None = None,
+    ) -> ExecuteResponse: ...
 
 
-# --- MemoryBackend ---
+# --- OSBackend ---
 
 
-class MemoryBackend:
-    """In-memory backend wrapping VirtualFilesystem.
+class OSBackend:
+    """Real OS filesystem backend with path traversal prevention.
 
-    Suitable for testing and ephemeral agents.
-    """
-
-    def __init__(self) -> None:
-        from langchain_agentkit.vfs import VirtualFilesystem
-
-        self._vfs = VirtualFilesystem()
-
-    def ls(self, path: str) -> list[FileInfo]:
-        entries = self._vfs.list_directory(path)
-        normalized = self._vfs.normalize_path(path)
-        if not normalized.endswith("/"):
-            normalized += "/"
-        result: list[FileInfo] = []
-        for entry in entries:
-            name = str(entry)
-            is_dir = name.endswith("/")
-            full_path = normalized + name.rstrip("/")
-            result.append(FileInfo(path=full_path, size=0, is_dir=is_dir))
-        return result
-
-    def read(self, path: str, offset: int = 0, limit: int = 2000) -> str:
-        content = self._vfs.read(path)
-        if content is None:
-            raise FileNotFoundError(f"File not found: {path}")
-        lines = content.splitlines(keepends=True)
-        selected = lines[offset : offset + limit]
-        return "".join(f"{offset + i + 1}\t{line}" for i, line in enumerate(selected))
-
-    def write(self, path: str, content: str | bytes) -> WriteResult:
-        text = content if isinstance(content, str) else content.decode("utf-8")
-        self._vfs.write(path, text)
-        return WriteResult(path=path, bytes_written=len(content))
-
-    def edit(self, path: str, old_string: str, new_string: str, replace_all: bool = False) -> EditResult:
-        count = self._vfs.edit(path, old_string, new_string, replace_all=replace_all)
-        return EditResult(path=path, replacements=count)
-
-    def glob(self, pattern: str, path: str = "/") -> list[str]:
-        # VFS glob takes a full pattern, so combine path + pattern
-        if path and path != "/":
-            full_pattern = path.rstrip("/") + "/" + pattern
-        else:
-            full_pattern = pattern if pattern.startswith("/") else "/" + pattern
-        return self._vfs.glob(full_pattern)
-
-    def grep(self, pattern: str, path: str | None = None, glob: str | None = None) -> list[GrepMatch]:
-        results = self._vfs.grep(pattern, path=path, glob_filter=glob)
-        matches: list[GrepMatch] = []
-        for r in results:
-            matches.append(GrepMatch(
-                path=str(r.get("path", "")),
-                line=int(r.get("line", 0)),
-                text=str(r.get("text", "")),
-            ))
-        return matches
-
-    def exists(self, path: str) -> bool:
-        return self._vfs.exists(path)
-
-    def delete(self, path: str) -> None:
-        self._vfs.delete(path)
-
-
-# --- LocalBackend ---
-
-
-class LocalBackend:
-    """Real filesystem backend with path traversal prevention.
-
-    All paths are resolved relative to ``root_dir``. Any path that
+    All paths are resolved relative to ``root``. Any path that
     escapes the root raises ``PermissionError``.
 
     Args:
-        root_dir: The root directory for all file operations.
+        root: The root directory for all file operations.
     """
 
-    def __init__(self, root_dir: str) -> None:
-        self._root = os.path.realpath(root_dir)
+    def __init__(self, root: str) -> None:
+        self._root = os.path.realpath(root)
 
     def _resolve(self, path: str) -> str:
         """Resolve path relative to root, blocking traversal."""
@@ -196,7 +129,9 @@ class LocalBackend:
             f.write(content)
         return WriteResult(path=path, bytes_written=len(content))
 
-    def edit(self, path: str, old_string: str, new_string: str, replace_all: bool = False) -> EditResult:
+    def edit(
+        self, path: str, old_string: str, new_string: str, replace_all: bool = False,
+    ) -> EditResult:
         real_path = self._resolve(path)
         with open(real_path) as f:
             content = f.read()
@@ -222,10 +157,14 @@ class LocalBackend:
             result.append("/" + rel)
         return result
 
-    def grep(self, pattern: str, path: str | None = None, glob: str | None = None) -> list[GrepMatch]:
+    def grep(
+        self, pattern: str, path: str | None = None,
+        glob: str | None = None, ignore_case: bool = False,
+    ) -> list[GrepMatch]:
         search_path = self._resolve(path or "/")
         matches: list[GrepMatch] = []
-        regex = re.compile(pattern)
+        flags = re.IGNORECASE if ignore_case else 0
+        regex = re.compile(pattern, flags)
 
         for root, _dirs, files in os.walk(search_path):
             for fname in sorted(files):
@@ -254,69 +193,3 @@ class LocalBackend:
             import shutil
 
             shutil.rmtree(real_path)
-
-
-# --- CompositeBackend ---
-
-
-class CompositeBackend:
-    """Routes operations to different backends by path prefix.
-
-    Uses longest-prefix matching. Unmatched paths go to the default backend.
-
-    Args:
-        default: Backend for paths that don't match any route.
-        routes: Dict mapping path prefixes to backends.
-    """
-
-    def __init__(
-        self,
-        default: BackendProtocol,
-        routes: dict[str, BackendProtocol] | None = None,
-    ) -> None:
-        self._default = default
-        # Sort by prefix length (longest first) for longest-prefix matching
-        self._routes = sorted(
-            (routes or {}).items(),
-            key=lambda x: len(x[0]),
-            reverse=True,
-        )
-
-    def _route(self, path: str) -> tuple[Any, str]:
-        """Find the backend for a path and strip the prefix."""
-        for prefix, backend in self._routes:
-            if path.startswith(prefix):
-                return backend, path[len(prefix):]
-        return self._default, path
-
-    def ls(self, path: str) -> list[FileInfo]:
-        backend, resolved = self._route(path)
-        return backend.ls(resolved)
-
-    def read(self, path: str, offset: int = 0, limit: int = 2000) -> str:
-        backend, resolved = self._route(path)
-        return backend.read(resolved, offset, limit)
-
-    def write(self, path: str, content: str | bytes) -> WriteResult:
-        backend, resolved = self._route(path)
-        return backend.write(resolved, content)
-
-    def edit(self, path: str, old_string: str, new_string: str, replace_all: bool = False) -> EditResult:
-        backend, resolved = self._route(path)
-        return backend.edit(resolved, old_string, new_string, replace_all)
-
-    def glob(self, pattern: str, path: str = "/") -> list[str]:
-        backend, resolved = self._route(path)
-        return backend.glob(pattern, resolved)
-
-    def grep(self, pattern: str, path: str | None = None, glob: str | None = None) -> list[GrepMatch]:
-        backend, resolved = self._route(path or "/")
-        return backend.grep(pattern, resolved or None, glob)
-
-    def exists(self, path: str) -> bool:
-        backend, resolved = self._route(path)
-        return backend.exists(resolved)
-
-    def delete(self, path: str) -> None:
-        backend, resolved = self._route(path)
-        backend.delete(resolved)

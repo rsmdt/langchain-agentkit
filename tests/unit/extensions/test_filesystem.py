@@ -1,15 +1,13 @@
 """Tests for FilesystemExtension."""
 
+import tempfile
 from pathlib import Path
 
 import pytest
 from langgraph.prebuilt import ToolRuntime
 
-from langchain_agentkit.backend import MemoryBackend
+from langchain_agentkit.backend import BackendProtocol, OSBackend
 from langchain_agentkit.extensions.filesystem import FilesystemExtension
-from langchain_agentkit.vfs import VirtualFilesystem
-
-FIXTURES = Path(__file__).parent.parent.parent / "fixtures"
 
 _TEST_RUNTIME = ToolRuntime(
     state={},
@@ -22,50 +20,38 @@ _TEST_RUNTIME = ToolRuntime(
 
 
 class TestConstructor:
-    def test_empty(self):
-        mw = FilesystemExtension()
+    def test_default_uses_os_backend(self):
+        ext = FilesystemExtension()
 
-        assert len(mw.filesystem) == 0
+        assert isinstance(ext.backend, OSBackend)
 
-    def test_with_vfs(self):
-        vfs = VirtualFilesystem()
-        vfs.write("/a.txt", "hello")
+    def test_explicit_root(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ext = FilesystemExtension(root=tmpdir)
 
-        mw = FilesystemExtension(filesystem=vfs)
+            assert isinstance(ext.backend, OSBackend)
 
-        assert mw.filesystem is vfs
-        assert mw.filesystem.exists("/a.txt")
+    def test_custom_backend(self):
 
-    def test_with_files_dict(self):
-        mw = FilesystemExtension(
-            files={
-                "/config.json": '{"key": "value"}',
-                "/data.txt": "data",
-            }
-        )
+        class StubBackend:
+            def ls(self, path): return []
+            def read(self, path, offset=0, limit=2000): return ""
+            def write(self, path, content): return {"path": path, "bytes_written": 0}
+            def edit(self, path, old_string, new_string, replace_all=False): return {"path": path, "replacements": 0}
+            def glob(self, pattern, path="/"): return []
+            def grep(self, pattern, path=None, glob=None): return []
+            def exists(self, path): return False
+            def delete(self, path): pass
 
-        assert mw.filesystem.exists("/config.json")
-        assert mw.filesystem.exists("/data.txt")
-        assert mw.filesystem.read("/data.txt") == "data"
+        ext = FilesystemExtension(backend=StubBackend())
 
-    def test_with_files_directory(self):
-        mw = FilesystemExtension(files=FIXTURES / "skills" / "market-sizing")
+        assert isinstance(ext.backend, BackendProtocol)
 
-        assert mw.filesystem.exists("/SKILL.md")
-        assert mw.filesystem.exists("/calculator.py")
+    def test_root_as_path_object(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ext = FilesystemExtension(root=Path(tmpdir))
 
-    def test_with_files_string_path(self):
-        mw = FilesystemExtension(
-            files=str(FIXTURES / "skills" / "market-sizing"),
-        )
-
-        assert mw.filesystem.exists("/SKILL.md")
-
-    def test_filesystem_and_files_mutually_exclusive(self):
-        vfs = VirtualFilesystem()
-
-        with pytest.raises(ValueError, match="Cannot pass both"):
-            FilesystemExtension(filesystem=vfs, files={"/a": "b"})
+            assert isinstance(ext.backend, OSBackend)
 
 
 class TestTools:
@@ -80,73 +66,53 @@ class TestTools:
 
         assert names == ["Read", "Write", "Edit", "Glob", "Grep", "LS", "MultiEdit"]
 
-    def test_execute_tool_included_with_sandbox(self):
-        from langchain_agentkit.backend import SandboxProtocol
+    def test_read_tool_works(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Write a file to the temp directory
+            (Path(tmpdir) / "hello.txt").write_text("world")
 
-        class MockSandbox(MemoryBackend):
-            def execute(self, command, timeout=None, workdir=None):
-                return {"output": "", "exit_code": 0, "truncated": False}
+            ext = FilesystemExtension(root=tmpdir)
+            read_tool = ext.tools[0]
+            result = read_tool.invoke({"file_path": "/hello.txt"})
 
-        ext = FilesystemExtension(backend=MockSandbox(), include_execute=True)
-        names = [t.name for t in ext.tools]
-        assert "Execute" in names
+            assert "world" in result
 
-    def test_execute_tool_excluded_by_default(self):
+    def test_write_tool_works(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ext = FilesystemExtension(root=tmpdir)
+            write_tool = ext.tools[1]
+            result = write_tool.invoke({"file_path": "/new.txt", "content": "hello"})
+
+            assert "Wrote" in result
+            assert (Path(tmpdir) / "new.txt").read_text() == "hello"
+
+    def test_tools_are_cached(self):
         ext = FilesystemExtension()
-        names = [t.name for t in ext.tools]
-        assert "Execute" not in names
 
-    def test_read_tool_works_with_preloaded_dict(self):
-        mw = FilesystemExtension(files={"/hello.txt": "world"})
-        read_tool = mw.tools[0]
-
-        result = read_tool.invoke({"file_path": "/hello.txt"})
-
-        assert "world" in result
-
-    def test_read_tool_works_with_preloaded_directory(self):
-        mw = FilesystemExtension(files=FIXTURES / "skills" / "market-sizing")
-        read_tool = mw.tools[0]
-
-        result = read_tool.invoke({"file_path": "/SKILL.md"})
-
-        assert "market-sizing" in result.lower() or "Market" in result
+        assert ext.tools is ext.tools
 
 
 class TestPrompt:
-    def test_empty_filesystem_returns_none(self):
-        mw = FilesystemExtension()
+    def test_returns_filesystem_prompt(self):
+        ext = FilesystemExtension()
+        result = ext.prompt({}, _TEST_RUNTIME)
 
-        assert mw.prompt({}, _TEST_RUNTIME) is None
+        assert "Filesystem" in result
+        assert "Read" in result
 
-    def test_populated_returns_prompt(self):
-        mw = FilesystemExtension(files={"/data/file.txt": "content"})
+    def test_shows_root_for_os_backend(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ext = FilesystemExtension(root=tmpdir)
+            result = ext.prompt({}, _TEST_RUNTIME)
 
-        result = mw.prompt({}, _TEST_RUNTIME)
-
-        assert "Virtual Filesystem" in result
-        assert "1 file(s)" in result
-        assert "/data/" in result
-
-    def test_multiple_dirs_listed(self):
-        mw = FilesystemExtension(
-            files={
-                "/data/a.txt": "",
-                "/config/b.txt": "",
-            }
-        )
-
-        result = mw.prompt({}, _TEST_RUNTIME)
-
-        assert "/config/" in result
-        assert "/data/" in result
+            assert tmpdir in result
 
 
 class TestStateSchema:
     def test_returns_none(self):
-        mw = FilesystemExtension()
+        ext = FilesystemExtension()
 
-        assert mw.state_schema is None
+        assert ext.state_schema is None
 
 
 class TestExtensionProtocol:
