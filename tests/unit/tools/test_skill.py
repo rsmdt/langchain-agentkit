@@ -9,12 +9,12 @@ def _make_configs() -> list[SkillConfig]:
         SkillConfig(
             name="market-sizing",
             description="Calculate TAM, SAM, and SOM for market analysis",
-            instructions="# Market Sizing Methodology\n\nStep 1: Define boundaries.",
+            prompt="# Market Sizing Methodology\n\nStep 1: Define boundaries.",
         ),
         SkillConfig(
             name="research",
             description="Web research methodology",
-            instructions="# Research Guide\n\nUse multiple sources.",
+            prompt="# Research Guide\n\nUse multiple sources.",
         ),
     ]
 

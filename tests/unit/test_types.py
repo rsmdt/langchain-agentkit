@@ -11,12 +11,12 @@ class TestSkillConfig:
 
         assert config.name == "test"
         assert config.description == "desc"
-        assert config.instructions == ""
+        assert config.prompt == ""
 
     def test_construction_with_instructions(self):
-        config = SkillConfig(name="test", description="desc", instructions="# Guide")
+        config = SkillConfig(name="test", description="desc", prompt="# Guide")
 
-        assert config.instructions == "# Guide"
+        assert config.prompt == "# Guide"
 
     def test_frozen_dataclass(self):
         config = SkillConfig(name="test", description="desc")
@@ -34,18 +34,18 @@ class TestFromFrontmatter:
 
         assert config.name == "market-sizing"
         assert config.description == "Calculate TAM"
-        assert config.instructions == "# Methodology"
+        assert config.prompt == "# Methodology"
 
     def test_empty_metadata_returns_empty_fields(self):
         config = SkillConfig.from_frontmatter({}, "body")
 
         assert config.name == ""
         assert config.description == ""
-        assert config.instructions == "body"
+        assert config.prompt == "body"
 
     def test_missing_keys_default_to_empty(self):
         config = SkillConfig.from_frontmatter({"name": "x"}, "")
 
         assert config.name == "x"
         assert config.description == ""
-        assert config.instructions == ""
+        assert config.prompt == ""

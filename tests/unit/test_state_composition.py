@@ -38,7 +38,7 @@ class TestAgentKitStateSchema:
 
     def test_skills_only_returns_base(self):
         kit = AgentKit([SkillsExtension(skills=[
-                SkillConfig(name="test", description="test", instructions="test"),
+                SkillConfig(name="test", description="test", prompt="test"),
             ])])
 
         schema = kit.state_schema
@@ -76,7 +76,7 @@ class TestAgentKitStateSchema:
         kit = AgentKit(
             [
                 SkillsExtension(skills=[
-                SkillConfig(name="test", description="test", instructions="test"),
+                SkillConfig(name="test", description="test", prompt="test"),
             ]),
                 TasksExtension(),
                 FilesystemExtension(),

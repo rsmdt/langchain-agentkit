@@ -15,9 +15,6 @@ if TYPE_CHECKING:
 # Dasherized name: 1-64 chars, lowercase + digits + hyphens, no leading/trailing/consecutive hyphens
 NAME_PATTERN = re.compile(r"^[a-z](?:[a-z0-9]|-(?!-)){0,62}[a-z0-9]$|^[a-z]$")
 
-# Backward-compatible alias
-SKILL_NAME_PATTERN = NAME_PATTERN
-
 
 def validate_name(name: str) -> str | None:
     """Validate a dasherized name. Returns error message or None if valid."""

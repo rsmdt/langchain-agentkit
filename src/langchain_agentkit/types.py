@@ -1,4 +1,4 @@
-"""Configuration types for skills and agents."""
+"""Configuration types for skills."""
 
 from __future__ import annotations
 
@@ -13,12 +13,12 @@ class SkillConfig:
         name: Skill identifier (lowercase, hyphens, AgentSkills.io compliant).
         description: One-line summary shown in the Skill tool's available_skills list.
 
-    The body content is returned as instructions when the skill is loaded.
+    The body content becomes the prompt returned when the skill is loaded.
     """
 
     name: str
     description: str
-    instructions: str = ""
+    prompt: str = ""
 
     @classmethod
     def from_frontmatter(cls, metadata: dict[str, str], content: str) -> SkillConfig:
@@ -26,10 +26,10 @@ class SkillConfig:
 
         Args:
             metadata: Dict from YAML frontmatter (expects ``name``, ``description``).
-            content: Markdown body content (becomes instructions).
+            content: Markdown body content (becomes prompt).
         """
         return cls(
             name=metadata.get("name", ""),
             description=metadata.get("description", ""),
-            instructions=content,
+            prompt=content,
         )

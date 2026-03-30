@@ -7,7 +7,7 @@ Two modes:
 1. **Programmatic** — pass ``SkillConfig`` objects directly::
 
     mw = SkillsExtension(skills=[
-        SkillConfig(name="research", description="...", instructions="..."),
+        SkillConfig(name="research", description="...", prompt="..."),
     ])
 
 2. **Directory discovery** — pass a directory path to scan for SKILL.md files::

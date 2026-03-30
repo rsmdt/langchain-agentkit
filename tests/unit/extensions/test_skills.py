@@ -35,7 +35,7 @@ def _make_configs() -> list[SkillConfig]:
         SkillConfig(
             name="market-sizing",
             description="Calculate TAM, SAM, and SOM",
-            instructions="# Market Sizing Methodology",
+            prompt="# Market Sizing Methodology",
         ),
     ]
 

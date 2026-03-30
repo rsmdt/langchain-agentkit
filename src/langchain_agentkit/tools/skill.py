@@ -8,13 +8,12 @@ Usage::
     from langchain_agentkit.tools.skill import build_skill_tool
     from langchain_agentkit.types import SkillConfig
 
-    configs = [SkillConfig(name="research", description="...", instructions="...")]
+    configs = [SkillConfig(name="research", description="...", prompt="...")]
     tool = build_skill_tool(configs)
 """
 
 from __future__ import annotations
 
-import re
 from typing import TYPE_CHECKING
 
 from langchain_core.tools import (
@@ -24,11 +23,10 @@ from langchain_core.tools import (
 )
 from pydantic import BaseModel, Field
 
+from langchain_agentkit.validate import NAME_PATTERN
+
 if TYPE_CHECKING:
     from langchain_agentkit.types import SkillConfig
-
-# AgentSkills.io: 1-64 chars, lowercase + digits + hyphens, no leading/trailing/consecutive hyphens
-SKILL_NAME_PATTERN = re.compile(r"^[a-z](?:[a-z0-9]|-(?!-)){0,62}[a-z0-9]$|^[a-z]$")
 
 
 class SkillInput(BaseModel):
@@ -78,7 +76,7 @@ def build_skill_tool(configs: list[SkillConfig]) -> BaseTool:
 
     def skill(skill_name: str) -> str:
         """Load a skill's instructions."""
-        if not SKILL_NAME_PATTERN.match(skill_name):
+        if not NAME_PATTERN.match(skill_name):
             available = sorted(index.keys())
             raise ToolException(
                 f"Invalid skill name '{skill_name}'. "
@@ -93,7 +91,7 @@ def build_skill_tool(configs: list[SkillConfig]) -> BaseTool:
                 f"Available skills: {', '.join(available) or 'none'}"
             )
 
-        return config.instructions
+        return config.prompt
 
     return StructuredTool.from_function(
         func=skill,
