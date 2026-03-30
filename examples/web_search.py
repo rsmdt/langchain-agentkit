@@ -33,7 +33,7 @@ class quick_researcher(agent):
 # from langchain_tavily import TavilySearch
 #
 # class deep_researcher(agent):
-#     llm = ChatOpenAI(model="gpt-4o")
+#     model = ChatOpenAI(model="gpt-4o")
 #     extensions = [WebSearchExtension(providers=[TavilySearch(max_results=5)])]
 #     prompt = "You are a research assistant."
 #
