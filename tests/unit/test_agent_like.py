@@ -59,8 +59,8 @@ class TestCompiledAgent:
 
     def test_extracts_name_from_metadata(self):
         graph = MagicMock()
-        graph.agentkit_name = "researcher"
-        graph.agentkit_description = "A research specialist"
+        graph.name = "researcher"
+        graph.description = "A research specialist"
 
         agent = CompiledAgent(graph)
 
@@ -78,8 +78,8 @@ class TestCompiledAgent:
     @pytest.mark.asyncio
     async def test_ainvoke_delegates_to_graph(self):
         graph = MagicMock()
-        graph.agentkit_name = "test"
-        graph.agentkit_description = ""
+        graph.name = "test"
+        graph.description = ""
         graph.ainvoke = AsyncMock(return_value={"messages": ["response"]})
 
         agent = CompiledAgent(graph)
@@ -91,8 +91,8 @@ class TestCompiledAgent:
     @pytest.mark.asyncio
     async def test_ainvoke_passes_config(self):
         graph = MagicMock()
-        graph.agentkit_name = "test"
-        graph.agentkit_description = ""
+        graph.name = "test"
+        graph.description = ""
         graph.ainvoke = AsyncMock(return_value={})
 
         config = {"configurable": {"thread_id": "123"}}
@@ -104,8 +104,8 @@ class TestCompiledAgent:
 
     def test_is_agent_like(self):
         graph = MagicMock()
-        graph.agentkit_name = "test"
-        graph.agentkit_description = ""
+        graph.name = "test"
+        graph.description = ""
 
         agent = CompiledAgent(graph)
 
@@ -113,8 +113,8 @@ class TestCompiledAgent:
 
     def test_graph_property_exposes_underlying_graph(self):
         graph = MagicMock()
-        graph.agentkit_name = "test"
-        graph.agentkit_description = ""
+        graph.name = "test"
+        graph.description = ""
 
         agent = CompiledAgent(graph)
 
@@ -131,8 +131,8 @@ class TestAutoWrapping:
         from langchain_agentkit.composability import wrap_if_needed
 
         graph = MagicMock()
-        graph.agentkit_name = "researcher"
-        graph.agentkit_description = "desc"
+        graph.name = "researcher"
+        graph.description = "desc"
 
         result = wrap_if_needed(graph)
 

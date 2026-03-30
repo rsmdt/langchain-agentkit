@@ -69,7 +69,7 @@ from langchain_agentkit.tools import (
 )
 
 # Composability
-from langchain_agentkit.composability import AgentLike, CompiledAgent, wrap_if_needed
+from langchain_agentkit.composability import AgentLike, CompiledAgent, TeamAgent, wrap_if_needed
 
 # Backend
 from langchain_agentkit.backend import (
@@ -110,6 +110,7 @@ __all__ = [
     # Composability
     "AgentLike",
     "CompiledAgent",
+    "TeamAgent",
     "wrap_if_needed",
     # Backend
     "BackendProtocol",

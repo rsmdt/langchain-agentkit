@@ -120,20 +120,42 @@ def _extract_final_response(result: dict[str, Any]) -> str:
     return content if content else "(empty response)"
 
 
+def _compile_or_resolve(
+    target: Any,
+    compiled_cache: dict[str, Any],
+    parent_tools_getter: Callable[[], list[BaseTool]] | None,
+) -> Any:
+    """Resolve a delegation target to an invocable object.
+
+    If ``target`` satisfies ``AgentLike`` (has ``ainvoke``), returns it
+    directly — no compilation needed. Otherwise treats it as a raw
+    ``StateGraph`` and compiles it (with caching).
+
+    This is the bridge that enables both raw graphs and ``TeamAgent``
+    (or any ``AgentLike``) to be used as delegation targets.
+    """
+    from langchain_agentkit.composability import AgentLike
+
+    if isinstance(target, AgentLike):
+        return target
+
+    return _compile_agent(target, compiled_cache, parent_tools_getter)
+
+
 def _compile_agent(
     graph: Any,
     compiled_cache: dict[str, Any],
     parent_tools_getter: Callable[[], list[BaseTool]] | None,
 ) -> Any:
-    """Compile an agent graph, caching the result.
+    """Compile a raw StateGraph agent, caching the result.
 
     Handles ``tools="inherit"`` by injecting parent tools before compilation.
     """
-    name: str = graph.agentkit_name
+    name: str = graph.name
     if name in compiled_cache:
         return compiled_cache[name]
 
-    if getattr(graph, "agentkit_tools_inherit", False) and parent_tools_getter is not None:
+    if getattr(graph, "tools_inherit", False) and parent_tools_getter is not None:
         parent_tools = parent_tools_getter()
         if parent_tools:
             tool_node = ToolNode(parent_tools)
@@ -267,8 +289,8 @@ async def _delegate_predefined(
     """Delegate a task to a named pre-defined agent."""
     from langchain_agentkit.extensions import resolve_agent
 
-    graph = resolve_agent(agent_id, agents_by_name)
-    compiled = _compile_agent(graph, compiled_cache, parent_tools_getter)
+    target = resolve_agent(agent_id, agents_by_name)
+    compiled = _compile_or_resolve(target, compiled_cache, parent_tools_getter)
     scoped_state = _build_scoped_state(message)
 
     return await _run_delegation(
