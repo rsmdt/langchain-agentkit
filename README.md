@@ -282,7 +282,7 @@ extensions = [TeamExtension([researcher, coder])]
 extensions = [TasksExtension(), TeamExtension([researcher, coder])]
 
 # The LLM drives the lifecycle:
-# 1. SpawnTeam("dev-team", [{"name": "alice", "agent_type": "researcher"}, ...])
+# 1. AgentTeam("dev-team", [{"name": "alice", "agent_type": "researcher"}, ...])
 # 2. AssignTask("alice", "Research rate limiting best practices")
 # 3. [alice works, sends result back via message bus]
 # 4. Lead receives alice's result automatically (Router Node)
@@ -296,7 +296,7 @@ extensions = [TasksExtension(), TeamExtension([researcher, coder])]
 
 | Tool | Description |
 |------|-------------|
-| `SpawnTeam(team_name, members)` | Create a team. Each member gets an asyncio.Task + checkpointer. |
+| `AgentTeam(team_name, members)` | Create a team. Each member gets an asyncio.Task + checkpointer. |
 | `AssignTask(member_name, task_description)` | Assign work — creates a tracked task and sends it to the member. |
 | `MessageTeammate(member_name, message)` | Send guidance, follow-ups, or information from other members. |
 | `CheckTeammates()` | See member statuses, collect pending messages, view task progress. |

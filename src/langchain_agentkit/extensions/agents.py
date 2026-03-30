@@ -57,7 +57,7 @@ class AgentExtension(Extension):
 
     Args:
         agents: List of StateGraph objects created via the ``agent`` metaclass.
-            Each must have ``agentkit_name`` and ``agentkit_description`` attrs.
+            Each must have ``name`` and ``description`` attrs.
         ephemeral: Enable dynamic (on-the-fly) agents in the Agent tool schema.
         default_conciseness: Append conciseness directive to delegation prompt.
         delegation_timeout: Max seconds to wait for a subagent response.
@@ -131,10 +131,9 @@ class AgentExtension(Extension):
         template = _agent_delegation_template
 
         roster_lines = []
-        for agent_graph in self._agents_by_name.values():
-            name = getattr(agent_graph, "agentkit_name", "unknown")
-            description = getattr(agent_graph, "agentkit_description", "") or "No description"
-            roster_lines.append(f"- **{name}**: {description}")
+        for agent_name, agent_obj in self._agents_by_name.items():
+            desc = getattr(agent_obj, "description", "") or "No description"
+            roster_lines.append(f"- **{agent_name}**: {desc}")
 
         roster = "\n".join(roster_lines)
         dynamic_section = _DYNAMIC_SECTION if self._ephemeral else ""

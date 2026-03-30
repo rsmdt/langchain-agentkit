@@ -191,10 +191,10 @@ class _AgentMeta(type):
             wrap_tool_call=wrap_tool_call,
         )
 
-        # Attach metadata for AgentExtension discovery
-        graph.agentkit_name = name  # type: ignore[attr-defined]
-        graph.agentkit_description = description  # type: ignore[attr-defined]
-        graph.agentkit_tools_inherit = tools_inherit  # type: ignore[attr-defined]
+        # Attach metadata — .name, .description, .tools_inherit
+        graph.name = name  # type: ignore[attr-defined]
+        graph.description = description  # type: ignore[attr-defined]
+        graph.tools_inherit = tools_inherit  # type: ignore[attr-defined]
 
         return graph
 

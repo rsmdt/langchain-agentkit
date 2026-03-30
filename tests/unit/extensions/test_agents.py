@@ -10,9 +10,9 @@ from langchain_agentkit.extensions.agents import AgentExtension
 def _make_mock_agent(name: str, description: str = "") -> MagicMock:
     """Create a mock agent graph with agentkit metadata."""
     mock = MagicMock()
-    mock.agentkit_name = name
-    mock.agentkit_description = description
-    mock.agentkit_tools_inherit = False
+    mock.name = name
+    mock.description = description
+    mock.tools_inherit = False
     mock.compile.return_value = MagicMock()
     return mock
 
@@ -38,10 +38,10 @@ class TestAgentExtensionConstruction:
         with pytest.raises(ValueError, match="Duplicate agent names"):
             AgentExtension([agent_a, agent_b])
 
-    def test_construction_with_missing_agentkit_name_raises_value_error(self):
+    def test_construction_with_missing_name_raises_value_error(self):
         mock = MagicMock(spec=[])  # No attributes at all
 
-        with pytest.raises(ValueError, match="agentkit_name"):
+        with pytest.raises(ValueError, match="name"):
             AgentExtension([mock])
 
 

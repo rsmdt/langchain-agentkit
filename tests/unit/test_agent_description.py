@@ -1,5 +1,5 @@
 # ruff: noqa: N801
-"""Tests for agent metaclass description, tools='inherit', and agentkit_name."""
+"""Tests for agent metaclass description, tools='inherit', and name."""
 
 from unittest.mock import MagicMock
 
@@ -11,7 +11,7 @@ from langchain_agentkit.agent import agent
 
 
 class TestAgentDescription:
-    def test_agent_with_description_sets_agentkit_description(self):
+    def test_agent_with_description_sets_description(self):
         mock_llm = MagicMock()
 
         class described_agent(agent):
@@ -22,7 +22,7 @@ class TestAgentDescription:
                 return {"messages": [AIMessage(content="ok")], "sender": "described_agent"}
 
         assert isinstance(described_agent, StateGraph)
-        assert described_agent.agentkit_description == "A research specialist"
+        assert described_agent.description == "A research specialist"
 
     def test_agent_without_description_sets_empty_string(self):
         mock_llm = MagicMock()
@@ -33,8 +33,8 @@ class TestAgentDescription:
             async def handler(state, *, llm):
                 return {"messages": [AIMessage(content="ok")], "sender": "no_desc_agent"}
 
-        assert hasattr(no_desc_agent, "agentkit_description")
-        assert no_desc_agent.agentkit_description == ""
+        assert hasattr(no_desc_agent, "description")
+        assert no_desc_agent.description == ""
 
     def test_agent_with_empty_description_sets_empty_string(self):
         mock_llm = MagicMock()
@@ -46,7 +46,7 @@ class TestAgentDescription:
             async def handler(state, *, llm):
                 return {"messages": [AIMessage(content="ok")], "sender": "empty_desc_agent"}
 
-        assert empty_desc_agent.agentkit_description == ""
+        assert empty_desc_agent.description == ""
 
 
 class TestAgentToolsInherit:
@@ -60,7 +60,7 @@ class TestAgentToolsInherit:
             async def handler(state, *, llm):
                 return {"messages": [AIMessage(content="ok")], "sender": "inheriting_agent"}
 
-        assert inheriting_agent.agentkit_tools_inherit is True
+        assert inheriting_agent.tools_inherit is True
 
     def test_tools_list_sets_flag_false(self):
         mock_llm = MagicMock()
@@ -79,7 +79,7 @@ class TestAgentToolsInherit:
             async def handler(state, *, llm):
                 return {"messages": [AIMessage(content="ok")], "sender": "list_tools_agent"}
 
-        assert list_tools_agent.agentkit_tools_inherit is False
+        assert list_tools_agent.tools_inherit is False
 
     def test_no_tools_sets_flag_false(self):
         mock_llm = MagicMock()
@@ -90,7 +90,7 @@ class TestAgentToolsInherit:
             async def handler(state, *, llm):
                 return {"messages": [AIMessage(content="ok")], "sender": "no_tools_agent"}
 
-        assert no_tools_agent.agentkit_tools_inherit is False
+        assert no_tools_agent.tools_inherit is False
 
     def test_tools_invalid_string_raises_value_error(self):
         mock_llm = MagicMock()
@@ -114,11 +114,11 @@ class TestAgentToolsInherit:
             async def handler(state, *, llm):
                 return {"messages": [AIMessage(content="ok")], "sender": "empty_tools_agent"}
 
-        assert empty_tools_agent.agentkit_tools_inherit is False
+        assert empty_tools_agent.tools_inherit is False
 
 
 class TestAgentKitName:
-    def test_agentkit_name_set_to_class_name(self):
+    def test_name_set_to_class_name(self):
         mock_llm = MagicMock()
 
         class my_researcher(agent):
@@ -127,9 +127,9 @@ class TestAgentKitName:
             async def handler(state, *, llm):
                 return {"messages": [AIMessage(content="ok")], "sender": "my_researcher"}
 
-        assert my_researcher.agentkit_name == "my_researcher"
+        assert my_researcher.name == "my_researcher"
 
-    def test_agentkit_name_reflects_different_class_names(self):
+    def test_name_reflects_different_class_names(self):
         mock_llm = MagicMock()
 
         class code_writer(agent):
@@ -138,4 +138,4 @@ class TestAgentKitName:
             async def handler(state, *, llm):
                 return {"messages": [AIMessage(content="ok")], "sender": "code_writer"}
 
-        assert code_writer.agentkit_name == "code_writer"
+        assert code_writer.name == "code_writer"

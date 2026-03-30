@@ -34,9 +34,9 @@ def _make_mock_agent_graph(
 ) -> MagicMock:
     """Create a mock agent graph that returns a canned response when compiled and invoked."""
     mock_graph = MagicMock()
-    mock_graph.agentkit_name = name
-    mock_graph.agentkit_description = "Test agent"
-    mock_graph.agentkit_tools_inherit = False
+    mock_graph.name = name
+    mock_graph.description = "Test agent"
+    mock_graph.tools_inherit = False
     mock_graph.nodes = {}
 
     mock_compiled = AsyncMock()
