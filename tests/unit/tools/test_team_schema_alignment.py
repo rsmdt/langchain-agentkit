@@ -18,7 +18,6 @@ from langgraph.types import Command
 
 from langchain_agentkit.tools.team import _agent_team
 
-
 # --- Helpers ---
 
 FAKE_TOOL_CALL_ID = "call_test_123"

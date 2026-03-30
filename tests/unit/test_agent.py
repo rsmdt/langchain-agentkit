@@ -10,7 +10,8 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import StructuredTool, tool
 from langgraph.graph.message import add_messages
 
-from langchain_agentkit.agent import _validate_handler_signature as validate_handler_signature, agent
+from langchain_agentkit.agent import _validate_handler_signature as validate_handler_signature
+from langchain_agentkit.agent import agent
 from langchain_agentkit.state import AgentKitState as AgentState
 
 # Valid injectable parameter names — mirrors agent.py's _INJECTABLE_PARAMS
@@ -150,13 +151,16 @@ class TestAgentMetaclass:
         from langgraph.graph import StateGraph
 
         from langchain_agentkit.extensions.skills import SkillsExtension
+        from langchain_agentkit.types import SkillConfig
 
         mock_llm = MagicMock()
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
 
         class skilled_agent(agent):
             llm = mock_llm
-            extensions = [SkillsExtension(str(FIXTURES / "skills"))]
+            extensions = [SkillsExtension(skills=[
+                SkillConfig(name="test", description="test", instructions="test"),
+            ])]
 
             async def handler(state, *, llm):
                 return {

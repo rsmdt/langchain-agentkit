@@ -2,14 +2,11 @@
 
 from __future__ import annotations
 
-import asyncio
-
 import pytest
 
 from langchain_agentkit.extension import Extension
-from langchain_agentkit.hooks import before, after, wrap
 from langchain_agentkit.hook_runner import HookRunner
-
+from langchain_agentkit.hooks import after, before, wrap
 
 # --- Test extensions ---
 

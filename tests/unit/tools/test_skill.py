@@ -1,195 +1,68 @@
-"""Tests for SkillRegistry."""
+"""Tests for build_skill_tool."""
 
-from pathlib import Path
-
-from langchain_agentkit.tools.skill import SkillRegistry
-from langchain_agentkit.vfs import VirtualFilesystem
-
-FIXTURES = Path(__file__).parent.parent.parent / "fixtures"
+from langchain_agentkit.tools.skill import build_skill_tool
+from langchain_agentkit.types import SkillConfig
 
 
-class TestInit:
-    def test_accepts_single_string_path(self):
-        kit = SkillRegistry(str(FIXTURES / "skills"))
-
-        assert len(kit.skills_dirs) == 1
-
-    def test_accepts_path_object(self):
-        kit = SkillRegistry(FIXTURES / "skills")
-
-        assert len(kit.skills_dirs) == 1
-        assert len(kit.tools) == 1
-
-    def test_accepts_list_of_paths(self):
-        kit = SkillRegistry(
-            [
-                str(FIXTURES / "skills"),
-                str(FIXTURES / "skills_extra"),
-            ]
-        )
-
-        assert len(kit.skills_dirs) == 2
-
-    def test_accepts_list_of_path_objects(self):
-        kit = SkillRegistry(
-            [
-                FIXTURES / "skills",
-                FIXTURES / "skills_extra",
-            ]
-        )
-
-        assert len(kit.skills_dirs) == 2
-        assert "market-sizing" in kit.tools[0].description
+def _make_configs() -> list[SkillConfig]:
+    return [
+        SkillConfig(
+            name="market-sizing",
+            description="Calculate TAM, SAM, and SOM for market analysis",
+            instructions="# Market Sizing Methodology\n\nStep 1: Define boundaries.",
+        ),
+        SkillConfig(
+            name="research",
+            description="Web research methodology",
+            instructions="# Research Guide\n\nUse multiple sources.",
+        ),
+    ]
 
 
-class TestTools:
-    def test_returns_one_tool(self):
-        kit = SkillRegistry(str(FIXTURES / "skills"))
+class TestBuildSkillTool:
+    def test_returns_tool_named_skill(self):
+        tool = build_skill_tool(_make_configs())
 
-        tools = kit.tools
+        assert tool.name == "Skill"
 
-        assert len(tools) == 1
+    def test_description_lists_available_skills(self):
+        tool = build_skill_tool(_make_configs())
 
-    def test_first_tool_is_skill(self):
-        kit = SkillRegistry(str(FIXTURES / "skills"))
+        assert "market-sizing" in tool.description
+        assert "research" in tool.description
 
-        tools = kit.tools
+    def test_empty_configs_returns_tool(self):
+        tool = build_skill_tool([])
 
-        assert tools[0].name == "Skill"
-
-    def test_skill_description_lists_available_skills(self):
-        kit = SkillRegistry(str(FIXTURES / "skills"))
-
-        tools = kit.tools
-        skill_tool = tools[0]
-
-        assert "market-sizing" in skill_tool.description
-
-    def test_tools_property_is_cached(self):
-        kit = SkillRegistry(str(FIXTURES / "skills"))
-
-        first = kit.tools
-        second = kit.tools
-
-        assert first is second
+        assert tool.name == "Skill"
 
 
-class TestSkillTool:
+class TestSkillToolInvocation:
     def test_loads_skill_instructions(self):
-        kit = SkillRegistry(str(FIXTURES / "skills"))
-        skill_tool = kit.tools[0]
+        tool = build_skill_tool(_make_configs())
 
-        result = skill_tool.invoke({"skill_name": "market-sizing"})
+        result = tool.invoke({"skill_name": "market-sizing"})
 
         assert "# Market Sizing Methodology" in result
 
     def test_unknown_skill_returns_error(self):
-        kit = SkillRegistry(str(FIXTURES / "skills"))
-        skill_tool = kit.tools[0]
+        tool = build_skill_tool(_make_configs())
 
-        result = skill_tool.invoke({"skill_name": "nonexistent"})
+        result = tool.invoke({"skill_name": "nonexistent"})
 
         assert "not found" in result
 
     def test_invalid_skill_name_returns_error(self):
-        kit = SkillRegistry(str(FIXTURES / "skills"))
-        skill_tool = kit.tools[0]
+        tool = build_skill_tool(_make_configs())
 
-        result = skill_tool.invoke({"skill_name": "../escape"})
+        result = tool.invoke({"skill_name": "../escape"})
 
         assert "Invalid skill name" in result
 
+    def test_lists_available_skills_in_error(self):
+        tool = build_skill_tool(_make_configs())
 
-class TestPopulateFilesystem:
-    def test_populates_skill_md(self):
-        kit = SkillRegistry(str(FIXTURES / "skills"))
-        vfs = VirtualFilesystem()
+        result = tool.invoke({"skill_name": "nonexistent"})
 
-        kit.populate_filesystem(vfs)
-
-        assert vfs.exists("/skills/market-sizing/SKILL.md")
-
-    def test_populates_reference_files(self):
-        kit = SkillRegistry(str(FIXTURES / "skills"))
-        vfs = VirtualFilesystem()
-
-        kit.populate_filesystem(vfs)
-
-        assert vfs.exists("/skills/market-sizing/calculator.py")
-
-    def test_custom_base_path(self):
-        kit = SkillRegistry(str(FIXTURES / "skills"))
-        vfs = VirtualFilesystem()
-
-        kit.populate_filesystem(vfs, base_path="/custom")
-
-        assert vfs.exists("/custom/market-sizing/SKILL.md")
-
-    def test_multiple_directories(self):
-        kit = SkillRegistry(
-            [
-                str(FIXTURES / "skills"),
-                str(FIXTURES / "skills_extra"),
-            ]
-        )
-        vfs = VirtualFilesystem()
-
-        kit.populate_filesystem(vfs)
-
-        assert vfs.exists("/skills/market-sizing/SKILL.md")
-        assert vfs.exists("/skills/competitive-analysis/SKILL.md")
-
-    def test_skill_md_content_matches_real_file(self):
-        kit = SkillRegistry(str(FIXTURES / "skills"))
-        vfs = VirtualFilesystem()
-        kit.populate_filesystem(vfs)
-
-        real_content = (FIXTURES / "skills" / "market-sizing" / "SKILL.md").read_text()
-        virtual_content = vfs.read("/skills/market-sizing/SKILL.md")
-
-        assert virtual_content == real_content
-
-
-class TestAvailableSkillsDescription:
-    def test_includes_reference_files(self):
-        kit = SkillRegistry(str(FIXTURES / "skills"))
-
-        description = kit._build_available_skills_description()
-
-        assert "calculator.py" in description
-
-    def test_includes_skill_name(self):
-        kit = SkillRegistry(str(FIXTURES / "skills"))
-
-        description = kit._build_available_skills_description()
-
-        assert "market-sizing" in description
-
-
-class TestMultipleDirectories:
-    def test_discovers_skills_from_both_directories(self):
-        kit = SkillRegistry(
-            [
-                str(FIXTURES / "skills"),
-                str(FIXTURES / "skills_extra"),
-            ]
-        )
-
-        tools = kit.tools
-        skill_tool = tools[0]
-
-        assert "market-sizing" in skill_tool.description
-        assert "competitive-analysis" in skill_tool.description
-
-    def test_loads_skill_from_extra_directory(self):
-        kit = SkillRegistry(
-            [
-                str(FIXTURES / "skills"),
-                str(FIXTURES / "skills_extra"),
-            ]
-        )
-        skill_tool = kit.tools[0]
-
-        result = skill_tool.invoke({"skill_name": "competitive-analysis"})
-
-        assert "Competitive Analysis" in result
+        assert "market-sizing" in result
+        assert "research" in result

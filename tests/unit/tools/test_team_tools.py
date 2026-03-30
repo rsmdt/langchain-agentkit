@@ -14,13 +14,13 @@ from langchain_agentkit.extensions.teams import (
     TeamMessageBus,
 )
 from langchain_agentkit.tools.team import (
+    _agent_team,
     _assign_task,
     _check_teammates,
     _dissolve_team,
     _message_teammate,
     _require_active_team,
     _require_member,
-    _agent_team,
 )
 
 FAKE_TOOL_CALL_ID = "call_team_test"

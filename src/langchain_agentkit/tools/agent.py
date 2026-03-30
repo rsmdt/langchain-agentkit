@@ -255,6 +255,7 @@ async def _agent_tool(
             delegation_timeout=delegation_timeout,
             parent_tools_getter=parent_tools_getter,
             tool_call_id=tool_call_id,
+            parent_llm_getter=parent_llm_getter,
         )
 
     if "prompt" in agent_ref:
@@ -285,11 +286,31 @@ async def _delegate_predefined(
     delegation_timeout: float,
     parent_tools_getter: Callable[[], list[BaseTool]] | None,
     tool_call_id: str,
+    parent_llm_getter: Callable[[], Any] | None = None,
 ) -> Any:
-    """Delegate a task to a named pre-defined agent."""
+    """Delegate a task to a named pre-defined agent.
+
+    Handles both compiled agents and filesystem-discovered agents.
+    Filesystem agents (those with ``_filesystem_agent_def``) are routed
+    through the dynamic agent path using the parent's LLM.
+    """
     from langchain_agentkit.extensions import resolve_agent
 
     target = resolve_agent(agent_id, agents_by_name)
+
+    # Filesystem-discovered agents → delegate via dynamic path
+    from langchain_agentkit.extensions.agents import FilesystemAgentDef
+
+    agent_def = getattr(target, "_filesystem_agent_def", None)
+    if isinstance(agent_def, FilesystemAgentDef):
+        return await _delegate_dynamic(
+            prompt=agent_def.instructions,
+            message=message,
+            delegation_timeout=delegation_timeout,
+            parent_llm_getter=parent_llm_getter,
+            tool_call_id=tool_call_id,
+        )
+
     compiled = _compile_or_resolve(target, compiled_cache, parent_tools_getter)
     scoped_state = _build_scoped_state(message)
 

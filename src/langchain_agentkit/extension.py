@@ -22,7 +22,6 @@ from __future__ import annotations
 from collections import defaultdict
 from typing import Any
 
-
 # Named method patterns recognized as hooks
 _NAMED_HOOK_METHODS: dict[str, tuple[str, str]] = {
     "before_run": ("before", "run"),

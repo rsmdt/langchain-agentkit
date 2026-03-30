@@ -15,7 +15,7 @@ All support per-tool filtering via the ``tools`` parameter::
 
 from __future__ import annotations
 
-from typing import Callable
+from collections.abc import Callable
 
 
 def before(point: str, *, tools: list[str] | None = None) -> Callable:

@@ -1,6 +1,5 @@
 """Tests for TeamExtension and TeamMessageBus."""
 
-import asyncio
 from unittest.mock import MagicMock
 
 import pytest

@@ -10,9 +10,9 @@ from langgraph.types import Command
 from langchain_agentkit.tools.agent import (
     Dynamic,
     Predefined,
+    _agent_tool,
     _AgentDynamicInput,
     _AgentInput,
-    _agent_tool,
     _build_scoped_state,
     _delegate_dynamic,
     _delegate_predefined,

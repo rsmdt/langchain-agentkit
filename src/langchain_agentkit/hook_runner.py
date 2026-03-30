@@ -15,7 +15,8 @@ Also handles:
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, Callable
+from collections.abc import Callable
+from typing import Any
 
 # Sentinel for jump_to routing
 JUMP_TO_END = "end"

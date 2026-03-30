@@ -2,11 +2,8 @@
 
 from __future__ import annotations
 
-import pytest
-
-from langchain_agentkit.hooks import before, after, wrap
 from langchain_agentkit.extension import Extension
-
+from langchain_agentkit.hooks import after, before, wrap
 
 # --- Decorator metadata tests ---
 
@@ -61,7 +58,6 @@ class TestDecorators:
         @before("model")
         async def my_named_hook(self, state, runtime):
             """My docstring."""
-            pass
 
         assert my_named_hook.__name__ == "my_named_hook"
         assert my_named_hook.__doc__ == "My docstring."

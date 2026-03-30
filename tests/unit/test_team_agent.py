@@ -6,13 +6,9 @@ The inner team runs to completion, then the result is returned.
 
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock
-
 import pytest
 
-from langchain_agentkit.composability import AgentLike, CompiledAgent, TeamAgent
-
+from langchain_agentkit.composability import AgentLike, TeamAgent
 
 # --- Helpers ---
 

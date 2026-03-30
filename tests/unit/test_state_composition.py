@@ -1,15 +1,13 @@
 """Tests for progressive state schema composition."""
 
 import typing
-from pathlib import Path
 
 from langchain_agentkit.agent_kit import AgentKit
 from langchain_agentkit.extensions.filesystem import FilesystemExtension
 from langchain_agentkit.extensions.skills import SkillsExtension
 from langchain_agentkit.extensions.tasks import TasksExtension
 from langchain_agentkit.state import AgentKitState, TasksState
-
-FIXTURES = Path(__file__).parent.parent / "fixtures"
+from langchain_agentkit.types import SkillConfig
 
 
 class TestAgentKitState:
@@ -39,7 +37,9 @@ class TestAgentKitStateSchema:
         assert kit.state_schema is AgentKitState
 
     def test_skills_only_returns_base(self):
-        kit = AgentKit([SkillsExtension(skills=str(FIXTURES / "skills"))])
+        kit = AgentKit([SkillsExtension(skills=[
+                SkillConfig(name="test", description="test", instructions="test"),
+            ])])
 
         schema = kit.state_schema
         annotations = typing.get_type_hints(schema, include_extras=True)
@@ -75,7 +75,9 @@ class TestAgentKitStateSchema:
     def test_multiple_extensions_compose(self):
         kit = AgentKit(
             [
-                SkillsExtension(skills=str(FIXTURES / "skills")),
+                SkillsExtension(skills=[
+                SkillConfig(name="test", description="test", instructions="test"),
+            ]),
                 TasksExtension(),
                 FilesystemExtension(),
             ]

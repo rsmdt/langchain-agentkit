@@ -6,13 +6,11 @@ code must handle both raw StateGraph objects and AgentLike objects.
 
 from __future__ import annotations
 
-import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
 from langchain_agentkit.composability import AgentLike, TeamAgent
-
 
 # --- Helpers ---
 
