@@ -56,7 +56,7 @@ def _build_calculator():
     _llm = _get_llm()
 
     class calculator(agent):
-        llm = _llm
+        model = _llm
         description = "Answers simple math questions with just the numeric result"
         prompt = (
             "You are a calculator. When asked a math question, respond with "
@@ -78,7 +78,7 @@ def _build_greeter():
     _llm = _get_llm()
 
     class greeter(agent):
-        llm = _llm
+        model = _llm
         description = "Greets people warmly in one sentence"
         prompt = (
             "You are a friendly greeter. When someone asks you to greet a person, "
@@ -105,7 +105,7 @@ def _build_lead_with_extension(mw: AgentExtension):
     _llm = _get_llm()
 
     class lead(agent):
-        llm = _llm
+        model = _llm
         extensions = [mw]
         prompt = (
             "You are a lead agent. You MUST delegate tasks to specialist agents. "
@@ -201,7 +201,7 @@ class TestDynamicDelegation:
         _llm = _get_llm()
 
         class dynamic_lead(agent):
-            llm = _llm
+            model = _llm
             extensions = [mw]
             prompt = (
                 "You are a lead agent. Use the Agent tool to create a custom agent. "

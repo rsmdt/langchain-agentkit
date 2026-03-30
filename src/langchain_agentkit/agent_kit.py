@@ -30,6 +30,9 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from langchain_core.language_models import BaseChatModel
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
 
@@ -58,10 +61,50 @@ class AgentKit:
         self,
         extensions: list[Extension] | None = None,
         prompt: str | Path | list[str | Path] | None = None,
+        model_resolver: Callable[[str], BaseChatModel] | None = None,
     ) -> None:
         self._extensions = self._resolve_dependencies(list(extensions or []))
         self._prompt = _load_prompt(prompt)
         self._tools_cache: list[BaseTool] | None = None
+        self._model_resolver = model_resolver
+        self._wire_extensions()
+
+    def _wire_extensions(self) -> None:
+        """Wire cross-extension callbacks after all extensions are resolved.
+
+        Sets model_resolver and skills_resolver on AgentExtension if present,
+        using the AgentKit's model_resolver and sibling SkillsExtension configs.
+        """
+        from langchain_agentkit.extensions.agents import AgentExtension
+        from langchain_agentkit.extensions.skills import SkillsExtension
+
+        # Find sibling SkillsExtension for skills resolution
+        skills_ext = None
+        for ext in self._extensions:
+            if isinstance(ext, SkillsExtension):
+                skills_ext = ext
+                break
+
+        for ext in self._extensions:
+            if isinstance(ext, AgentExtension):
+                if self._model_resolver is not None:
+                    ext.set_model_resolver(self._model_resolver)
+                if skills_ext is not None:
+                    configs = skills_ext.configs
+
+                    def _resolve_skills(
+                        names: list[str],
+                        _configs: list = configs,
+                    ) -> str:
+                        index = {c.name: c for c in _configs}
+                        parts = []
+                        for name in names:
+                            config = index.get(name)
+                            if config:
+                                parts.append(config.prompt)
+                        return "\n\n".join(parts)
+
+                    ext.set_skills_resolver(_resolve_skills)
 
     @staticmethod
     def _resolve_dependencies(extensions: list) -> list:
@@ -124,6 +167,29 @@ class AgentKit:
         if len(bases) == 1:
             return AgentKitState
         return type("ComposedState", tuple(bases), {})
+
+    @property
+    def model_resolver(self) -> Callable[[str], BaseChatModel] | None:
+        """The model resolver for string-based model references."""
+        return self._model_resolver
+
+    def resolve_model(self, model: Any) -> Any:
+        """Resolve a model reference to a BaseChatModel instance.
+
+        If *model* is a string, passes it through ``model_resolver``.
+        Otherwise returns it as-is (assumed to be a BaseChatModel already).
+
+        Raises:
+            ValueError: If *model* is a string but no ``model_resolver`` is configured.
+        """
+        if isinstance(model, str):
+            if self._model_resolver is None:
+                raise ValueError(
+                    f"model='{model}' is a string but no model_resolver is configured "
+                    f"on AgentKit. Pass model_resolver=<callable> to AgentKit()."
+                )
+            return self._model_resolver(model)
+        return model
 
     def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
         """Compose prompt from template + all extension sections.

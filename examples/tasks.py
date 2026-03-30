@@ -18,7 +18,7 @@ from langchain_agentkit import TasksExtension, agent
 
 
 class planner(agent):
-    llm = ChatOpenAI(model="gpt-4o")
+    model = ChatOpenAI(model="gpt-4o")
     extensions = [TasksExtension()]
     prompt = """\
 You are a project planner. When given a complex objective:

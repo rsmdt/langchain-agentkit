@@ -17,7 +17,7 @@ from langchain_agentkit import WebSearchExtension, agent
 
 
 class quick_researcher(agent):
-    llm = ChatOpenAI(model="gpt-4o")
+    model = ChatOpenAI(model="gpt-4o")
     extensions = [WebSearchExtension()]
     prompt = "You are a research assistant. Use web search to find current information."
 

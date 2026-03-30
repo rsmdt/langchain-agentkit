@@ -32,7 +32,7 @@ def calculate(expression: str) -> str:
 
 
 class researcher(agent):
-    llm = ChatOpenAI(model="gpt-4o")
+    model = ChatOpenAI(model="gpt-4o")
     tools = [web_search]
     extensions = [SkillsExtension(skills="skills/")]
     prompt = "You are a research assistant."
@@ -44,7 +44,7 @@ class researcher(agent):
 
 
 class analyst(agent):
-    llm = ChatOpenAI(model="gpt-4o")
+    model = ChatOpenAI(model="gpt-4o")
     tools = [sql_query, calculate]
     prompt = "You are a data analyst."
 

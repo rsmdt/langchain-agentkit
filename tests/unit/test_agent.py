@@ -94,7 +94,7 @@ class TestAgentMetaclass:
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
 
         class test_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             tools = []
 
             async def handler(state, *, llm):
@@ -111,10 +111,10 @@ class TestAgentMetaclass:
         with pytest.raises(ValueError, match="must define.*handler"):
 
             class bad_agent(agent):
-                llm = MagicMock()
+                model = MagicMock()
 
-    def test_requires_llm(self):
-        with pytest.raises(ValueError, match="must define.*llm"):
+    def test_requires_model(self):
+        with pytest.raises(ValueError, match="must define.*model"):
 
             class bad_agent(agent):
                 async def handler(state):
@@ -124,14 +124,14 @@ class TestAgentMetaclass:
         with pytest.raises(ValueError, match="callable"):
 
             class bad_agent(agent):
-                llm = MagicMock()
+                model = MagicMock()
                 handler = "not a function"
 
     def test_tools_must_be_list(self):
         with pytest.raises(ValueError, match="tools must be a list"):
 
             class bad_agent(agent):
-                llm = MagicMock()
+                model = MagicMock()
                 tools = "not a list"
 
                 async def handler(state, *, llm):
@@ -141,7 +141,7 @@ class TestAgentMetaclass:
         with pytest.raises(ValueError, match="must be a list"):
 
             class bad_agent(agent):
-                llm = MagicMock()
+                model = MagicMock()
                 extensions = "not a list"
 
                 async def handler(state, *, llm):
@@ -157,9 +157,9 @@ class TestAgentMetaclass:
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
 
         class skilled_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             extensions = [SkillsExtension(skills=[
-                SkillConfig(name="test", description="test", instructions="test"),
+                SkillConfig(name="test", description="test", prompt="test"),
             ])]
 
             async def handler(state, *, llm):
@@ -176,7 +176,7 @@ class TestAgentMetaclass:
         mock_llm = MagicMock()
 
         class prompted_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             prompt = "You are a helpful assistant."
 
             async def handler(state, *, llm):
@@ -194,7 +194,7 @@ class TestAgentInvocation:
         mock_llm = MagicMock()
 
         class simple(agent):
-            llm = mock_llm
+            model = mock_llm
 
             async def handler(state, *, llm):
                 return {
@@ -217,7 +217,7 @@ class TestAgentInvocation:
         captured = {}
 
         class prompt_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             prompt = "You are helpful."
 
             async def handler(state, *, llm, prompt):
@@ -244,7 +244,7 @@ class TestAgentInvocation:
                 return "Extension section"
 
         class mw_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             extensions = [StubMW()]
             prompt = "Base template"
 
@@ -282,7 +282,7 @@ class TestAgentInvocation:
         )
 
         class tools_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             tools = [user_tool]
             extensions = [ToolMW()]
 
@@ -310,7 +310,7 @@ class TestAgentInvocation:
         mock_llm = MagicMock()
 
         class react_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             tools = [greet]
 
             async def handler(state, *, llm):
@@ -346,7 +346,7 @@ class TestAgentInvocation:
         mock_llm = MagicMock()
 
         class sync_agent(agent):
-            llm = mock_llm
+            model = mock_llm
 
             def handler(state, *, llm):  # noqa: N805
                 return {
@@ -374,7 +374,7 @@ class TestAgentInvocation:
         hitl = HITLExtension(interrupt_on={"send_email": True})
 
         class hitl_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             tools = [send_email]
             extensions = [hitl]
 
@@ -404,7 +404,7 @@ class TestAgentInvocation:
         with pytest.raises(ValueError, match="multiple extensions provide wrap_tool_call"):
 
             class bad_agent(agent):
-                llm = mock_llm
+                model = mock_llm
                 tools = [action]
                 extensions = [
                     HITLExtension(interrupt_on={"action": True}),

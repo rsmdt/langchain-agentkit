@@ -5,7 +5,7 @@ Usage::
     from langchain_agentkit import agent
 
     class researcher(agent):
-        llm = ChatOpenAI(model="gpt-4o")
+        model = ChatOpenAI(model="gpt-4o")
         tools = [web_search]
         extensions = [SkillsExtension("skills/"), TasksExtension()]
         prompt = "You are a research assistant."
@@ -17,6 +17,9 @@ Usage::
 ``researcher`` is a ``StateGraph`` — call ``.compile()`` to get a
 runnable graph, optionally passing a checkpointer for ``interrupt()``
 support.
+
+The ``model`` attribute accepts either a ``BaseChatModel`` instance or
+a string. Strings are resolved at build time via ``AgentKit.model_resolver``.
 """
 
 from __future__ import annotations
@@ -101,12 +104,13 @@ class _AgentMeta(type):
 
     When a class inherits from ``agent``, this metaclass:
 
-    1. Extracts ``llm``, ``tools``, ``extensions``, ``prompt``, ``handler``
-       from the class body.
+    1. Extracts ``model``, ``tools``, ``extensions``, ``prompt``, ``handler``,
+       ``skills``, ``max_turns`` from the class body.
     2. Validates the handler signature and infers state type from annotation.
     3. Builds an ``AgentKit`` from extensions and prompt source.
-    4. Merges user tools with kit tools.
-    5. Builds and returns an uncompiled ``StateGraph`` with the ReAct loop.
+    4. Resolves model via ``AgentKit.resolve_model()`` if it's a string.
+    5. Merges user tools with kit tools.
+    6. Builds and returns an uncompiled ``StateGraph`` with the ReAct loop.
 
     The result is NOT a class — it's a ``StateGraph``. Call ``.compile()``
     to get a runnable graph, optionally passing a checkpointer for
@@ -137,12 +141,12 @@ class _AgentMeta(type):
         # Validate handler signature and extract state type
         state_type = _validate_handler_signature(handler, name, _INJECTABLE_PARAMS, "agent")
 
-        # Extract class attributes
-        llm = namespace.get("llm")
-        if llm is None:
+        # Extract model (required) — string or BaseChatModel
+        model_raw = namespace.get("model")
+        if model_raw is None:
             raise ValueError(
-                f"class {name}(agent) must define an llm attribute "
-                f"(e.g. llm = ChatOpenAI(model='gpt-4o'))"
+                f"class {name}(agent) must define a model attribute "
+                f"(e.g. model = ChatOpenAI(model='gpt-4o') or model = 'gpt-4o')"
             )
 
         # Extract tools — supports list, "inherit" sentinel, or absent (no tools)
@@ -172,8 +176,13 @@ class _AgentMeta(type):
 
         prompt_source: str | Path | list[str | Path] | None = namespace.get("prompt")
         description: str = namespace.get("description", "")
+        skills: list[str] = namespace.get("skills", [])
+        max_turns: int | None = namespace.get("max_turns")
 
         kit = AgentKit(extensions=list(extensions), prompt=prompt_source)
+
+        # Resolve model — string goes through model_resolver, object used as-is
+        llm = kit.resolve_model(model_raw)
 
         # Use composed schema from extensions unless handler explicitly annotates state
         if state_type is AgentKitState:
@@ -191,10 +200,12 @@ class _AgentMeta(type):
             wrap_tool_call=wrap_tool_call,
         )
 
-        # Attach metadata — .name, .description, .tools_inherit
+        # Attach metadata
         graph.name = name  # type: ignore[attr-defined]
         graph.description = description  # type: ignore[attr-defined]
         graph.tools_inherit = tools_inherit  # type: ignore[attr-defined]
+        graph.skills = skills  # type: ignore[attr-defined]
+        graph.max_turns = max_turns  # type: ignore[attr-defined]
 
         return graph
 
@@ -211,7 +222,7 @@ class agent(metaclass=_AgentMeta):  # noqa: N801
         from langchain_agentkit import agent
 
         class researcher(agent):
-            llm = ChatOpenAI(model="gpt-4o")
+            model = ChatOpenAI(model="gpt-4o")
             tools = [web_search]
             extensions = [SkillsExtension("skills/"), TasksExtension()]
             prompt = "You are a research assistant."
@@ -220,24 +231,23 @@ class agent(metaclass=_AgentMeta):  # noqa: N801
                 response = await llm.ainvoke(state["messages"])
                 return {"messages": [response], "sender": "researcher"}
 
-        # Compile and use standalone
-        graph = researcher.compile()
-        graph.invoke({"messages": [HumanMessage("...")]})
-
-        # Compile with checkpointer for interrupt() support
-        from langgraph.checkpoint.memory import InMemorySaver
-        graph = researcher.compile(checkpointer=InMemorySaver())
-
-        # Use as subgraph in a parent graph
-        workflow.add_node("researcher", researcher.compile())
+        # Model can be a string (resolved via model_resolver):
+        class fast_agent(agent):
+            model = "gpt-4o-mini"
+            extensions = [SkillsExtension("skills/")]
+            ...
 
     Class attributes:
 
-        llm: Required. The language model instance.
+        model: Required. A BaseChatModel instance or a string resolved
+            via ``AgentKit.model_resolver``.
         tools: Optional. Agent-specific tools (not from extensions).
         extensions: Optional. Ordered list of Extension instances.
         prompt: Optional. System prompt template — inline string, file path,
             or list of either.
+        description: Optional. Used for delegation matching.
+        skills: Optional. List of skill names to preload into the prompt.
+        max_turns: Optional. Maximum agentic turns before the agent stops.
 
     Handler signature::
 
@@ -253,19 +263,4 @@ class agent(metaclass=_AgentMeta):  # noqa: N801
         prompt: Fully composed system prompt (template + extension sections).
         runtime: ToolRuntime — unified runtime context. Use
             ``runtime.config`` for the full ``RunnableConfig``.
-
-    Annotate ``state`` to use a custom state type::
-
-        class MyState(TypedDict, total=False):
-            messages: Annotated[list, add_messages]
-            draft: dict | None
-
-        class my_agent(agent):
-            llm = ChatOpenAI(model="gpt-4o")
-
-            async def handler(state: MyState, *, llm, prompt):
-                ...
-
-    Without an annotation, the state schema is composed automatically
-    from extension ``state_schema`` properties.
     """

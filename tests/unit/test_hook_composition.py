@@ -340,7 +340,7 @@ class TestRunLifecycleHooksWired:
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
 
         class my_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             extensions = [LifecycleExtension()]
 
             async def handler(state, *, llm, prompt):
@@ -360,7 +360,7 @@ class TestRunLifecycleHooksWired:
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
 
         class my_agent(agent):
-            llm = mock_llm
+            model = mock_llm
 
             async def handler(state, *, llm, prompt):
                 pass

@@ -42,7 +42,7 @@ skills_dir = Path(__file__).parent.parent / "tests" / "fixtures" / "skills"
 
 
 class researcher(agent):
-    llm = ChatOpenAI(model="gpt-4o")
+    model = ChatOpenAI(model="gpt-4o")
     extensions = [
         # Skills discovered from real directory — provides only Skill tool
         SkillsExtension(skills=skills_dir),

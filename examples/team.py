@@ -55,7 +55,7 @@ def web_search(query: str) -> str:
 class researcher(agent):
     """Worker: researches topics and reports findings."""
 
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     description = "Research worker — investigates topics and reports concise findings"
     tools = [web_search]
     prompt = (
@@ -71,7 +71,7 @@ class researcher(agent):
 class coder(agent):
     """Worker: writes code and implementation plans."""
 
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     description = "Coding worker — writes code, designs APIs, creates implementation plans"
     prompt = (
         "You are a coding worker on a team. Write concise code or plans "
@@ -90,7 +90,7 @@ class coder(agent):
 class lead(agent):
     """Team lead that coordinates researcher and coder."""
 
-    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    model = ChatOpenAI(model="gpt-4o", temperature=0)
     extensions = [
         TasksExtension(),
         TeamExtension(

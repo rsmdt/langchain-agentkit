@@ -57,7 +57,7 @@ def _build_worker():
     _llm = _get_llm()
 
     class worker(agent):
-        llm = _llm
+        model = _llm
         description = "General-purpose worker that answers questions concisely"
         prompt = (
             "You are a helpful assistant. Answer questions concisely "
@@ -79,7 +79,7 @@ def _build_math_worker():
     _llm = _get_llm()
 
     class math_worker(agent):
-        llm = _llm
+        model = _llm
         description = "Answers math questions with just the numeric result"
         prompt = (
             "You are a calculator. When asked a math question, respond with "
@@ -121,7 +121,7 @@ def _build_team_lead(mw_team, mw_tasks):
     _llm = _get_llm()
 
     class team_lead(agent):
-        llm = _llm
+        model = _llm
         extensions = [mw_tasks, mw_team]
         prompt = _TEAM_LEAD_PROMPT
 

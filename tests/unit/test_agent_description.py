@@ -15,7 +15,7 @@ class TestAgentDescription:
         mock_llm = MagicMock()
 
         class described_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             description = "A research specialist"
 
             async def handler(state, *, llm):
@@ -28,7 +28,7 @@ class TestAgentDescription:
         mock_llm = MagicMock()
 
         class no_desc_agent(agent):
-            llm = mock_llm
+            model = mock_llm
 
             async def handler(state, *, llm):
                 return {"messages": [AIMessage(content="ok")], "sender": "no_desc_agent"}
@@ -40,7 +40,7 @@ class TestAgentDescription:
         mock_llm = MagicMock()
 
         class empty_desc_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             description = ""
 
             async def handler(state, *, llm):
@@ -54,7 +54,7 @@ class TestAgentToolsInherit:
         mock_llm = MagicMock()
 
         class inheriting_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             tools = "inherit"
 
             async def handler(state, *, llm):
@@ -73,7 +73,7 @@ class TestAgentToolsInherit:
         )
 
         class list_tools_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             tools = [dummy_tool]
 
             async def handler(state, *, llm):
@@ -85,7 +85,7 @@ class TestAgentToolsInherit:
         mock_llm = MagicMock()
 
         class no_tools_agent(agent):
-            llm = mock_llm
+            model = mock_llm
 
             async def handler(state, *, llm):
                 return {"messages": [AIMessage(content="ok")], "sender": "no_tools_agent"}
@@ -98,7 +98,7 @@ class TestAgentToolsInherit:
         with pytest.raises(ValueError, match="tools must be a list or 'inherit'"):
 
             class bad_tools_agent(agent):
-                llm = mock_llm
+                model = mock_llm
                 tools = "invalid"
 
                 async def handler(state, *, llm):
@@ -108,7 +108,7 @@ class TestAgentToolsInherit:
         mock_llm = MagicMock()
 
         class empty_tools_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             tools = []
 
             async def handler(state, *, llm):
@@ -122,7 +122,7 @@ class TestAgentKitName:
         mock_llm = MagicMock()
 
         class my_researcher(agent):
-            llm = mock_llm
+            model = mock_llm
 
             async def handler(state, *, llm):
                 return {"messages": [AIMessage(content="ok")], "sender": "my_researcher"}
@@ -133,7 +133,7 @@ class TestAgentKitName:
         mock_llm = MagicMock()
 
         class code_writer(agent):
-            llm = mock_llm
+            model = mock_llm
 
             async def handler(state, *, llm):
                 return {"messages": [AIMessage(content="ok")], "sender": "code_writer"}

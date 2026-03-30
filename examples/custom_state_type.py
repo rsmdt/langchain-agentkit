@@ -38,7 +38,7 @@ def save_component(name: str, content: str) -> str:
 
 
 class drafter(agent):
-    llm = ChatOpenAI(model="gpt-4o")
+    model = ChatOpenAI(model="gpt-4o")
     tools = [save_component]
 
     async def handler(state: WorkflowState, *, llm):

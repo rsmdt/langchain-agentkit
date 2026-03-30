@@ -46,7 +46,7 @@ for quarter in range(1, 4):
 # --- Create an agent with filesystem access ---
 
 class analyst(agent):
-    llm = ChatOpenAI(model="gpt-4o")
+    model = ChatOpenAI(model="gpt-4o")
     extensions = [FilesystemExtension(root=workspace)]
     prompt = """\
 You are a data analyst. You have access to a filesystem with

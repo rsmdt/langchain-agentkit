@@ -51,7 +51,7 @@ def calculator(expression: str) -> str:
 class researcher(agent):
     """Specialist: information gathering."""
 
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     description = "Research specialist — gathers information from the web"
     tools = [web_search]
     prompt = "You are a research specialist. Answer questions using web_search. Be concise."
@@ -64,7 +64,7 @@ class researcher(agent):
 class analyst(agent):
     """Specialist: data analysis and calculations."""
 
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     description = "Data analyst — performs calculations and analysis"
     tools = [calculator]
     prompt = "You are a data analyst. Use the calculator for any math. Be concise."
@@ -81,7 +81,7 @@ class analyst(agent):
 class lead(agent):
     """Lead agent that delegates to specialists."""
 
-    llm = ChatOpenAI(model="gpt-4o", temperature=0)
+    model = ChatOpenAI(model="gpt-4o", temperature=0)
     extensions = [
         TasksExtension(),
         AgentExtension(

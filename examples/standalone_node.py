@@ -19,7 +19,7 @@ def web_search(query: str) -> str:
 
 
 class researcher(agent):
-    llm = ChatOpenAI(model="gpt-4o")
+    model = ChatOpenAI(model="gpt-4o")
     tools = [web_search]
     extensions = [SkillsExtension(skills="skills/")]
     prompt = "You are a research assistant."
