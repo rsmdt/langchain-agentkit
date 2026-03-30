@@ -1,20 +1,23 @@
-"""SkillsExtension — skill loading with optional filesystem integration.
+"""SkillsExtension — skill loading with two input modes.
 
 Provides the ``Skill`` tool for progressive disclosure of skill instructions.
-Optionally includes filesystem tools (Read, Write, Edit, Glob, Grep) when
-no external VFS is provided.
 
-Usage::
+Two modes:
 
-    # Convenience: auto-includes filesystem tools
-    mw = SkillsExtension(skills="skills/")
-    mw.tools   # [Skill, Read, Write, Edit, Glob, Grep]
+1. **Programmatic** — pass ``SkillConfig`` objects directly::
 
-    # Explicit: provide shared VFS, manage filesystem tools separately
-    vfs = VirtualFilesystem()
-    mw = SkillsExtension(skills="skills/", filesystem=vfs)
-    mw.tools   # [Skill] only
-    fs = FilesystemExtension(vfs)  # provides Read, Write, Edit, Glob, Grep
+    mw = SkillsExtension(skills=[
+        SkillConfig(name="research", description="...", instructions="..."),
+    ])
+
+2. **Directory discovery** — pass a directory path to scan for SKILL.md files::
+
+    mw = SkillsExtension(skills="./skills")
+
+    # Or with a custom backend (e.g. Daytona sandbox):
+    mw = SkillsExtension(skills="/skills", backend=my_backend)
+
+Never provides filesystem tools — that's FilesystemExtension's job.
 """
 
 from __future__ import annotations
@@ -24,79 +27,147 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_core.prompts import PromptTemplate
 
-from langchain_agentkit.tools.filesystem import create_filesystem_tools
-from langchain_agentkit.tools.skill import SkillRegistry
-from langchain_agentkit.types import SkillConfig
-from langchain_agentkit.vfs import VirtualFilesystem
-
 from langchain_agentkit.extension import Extension
+from langchain_agentkit.frontmatter import parse_frontmatter, parse_frontmatter_string
+from langchain_agentkit.tools.skill import build_skill_tool
+from langchain_agentkit.types import SkillConfig
+from langchain_agentkit.validate import validate_skill_config
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
+
+    from langchain_agentkit.backend import BackendProtocol
 
 _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 
 _skills_system_prompt = PromptTemplate.from_file(_PROMPTS_DIR / "skills_system.md")
 
 
-class SkillsExtension(Extension):
-    """Extension providing skill tools and optional filesystem access.
+def _strip_line_numbers(formatted: str) -> str:
+    """Strip line-number prefixes from BackendProtocol.read() output.
 
-    Loads skills from real filesystem directories into a
-    :class:`VirtualFilesystem`. The ``Skill`` tool is always provided.
-    Filesystem tools are included only when no external VFS is given.
+    BackendProtocol.read() returns ``{line_num}\\t{content}`` per line.
+    This strips the prefix to recover raw file content.
+    """
+    lines = []
+    for line in formatted.splitlines(keepends=True):
+        _, _, content = line.partition("\t")
+        lines.append(content)
+    return "".join(lines)
+
+
+def _discover_skills_from_directory(
+    path: Path,
+) -> list[SkillConfig]:
+    """Discover skills by scanning a local directory for SKILL.md files."""
+    if not path.is_dir():
+        return []
+
+    configs: list[SkillConfig] = []
+    seen_names: set[str] = set()
+
+    for skill_file in sorted(path.rglob("SKILL.md")):
+        try:
+            result = parse_frontmatter(skill_file)
+        except (OSError, UnicodeDecodeError):
+            continue
+        config = SkillConfig.from_frontmatter(result.metadata, result.content)
+
+        errors = validate_skill_config(config)
+        if errors:
+            continue
+
+        if config.name in seen_names:
+            continue
+        seen_names.add(config.name)
+        configs.append(config)
+
+    return configs
+
+
+def _discover_skills_from_backend(
+    backend: BackendProtocol,
+    path: str,
+) -> list[SkillConfig]:
+    """Discover skills via a BackendProtocol by globbing for SKILL.md files."""
+    matches = backend.glob("**/SKILL.md", path=path)
+    configs: list[SkillConfig] = []
+    seen_names: set[str] = set()
+
+    for match in sorted(matches):
+        try:
+            formatted = backend.read(match, limit=100_000)
+        except (FileNotFoundError, OSError):
+            continue
+        content = _strip_line_numbers(formatted)
+        result = parse_frontmatter_string(content)
+        config = SkillConfig.from_frontmatter(result.metadata, result.content)
+
+        errors = validate_skill_config(config)
+        if errors:
+            continue
+
+        if config.name in seen_names:
+            continue
+        seen_names.add(config.name)
+        configs.append(config)
+
+    return configs
+
+
+class SkillsExtension(Extension):
+    """Extension providing the Skill tool for progressive disclosure.
+
+    Two input modes:
+
+    - **List**: Pass ``SkillConfig`` objects directly.
+    - **Path**: Pass a string or Path to a directory to scan for SKILL.md files.
+      When ``backend`` is provided, discovery uses the backend's filesystem.
+      Otherwise, scans the local OS filesystem.
 
     Args:
-        skills: Path(s) to directories containing skill subdirectories.
-        filesystem: Optional shared VirtualFilesystem. When provided,
-            skills are populated into it but filesystem tools are NOT
-            included — the caller manages file tools via
-            ``FilesystemExtension(filesystem)``. When ``None``, an
-            internal VFS is created and filesystem tools are bundled.
-        skills_base_path: Virtual path prefix for skills. Default ``/skills``.
+        skills: Either a list of SkillConfig objects, or a string/Path
+            pointing to a directory to scan for skills.
+        backend: Optional BackendProtocol for remote filesystem discovery.
+
+    Raises:
+        TypeError: If ``skills`` is not a list, str, or Path.
     """
 
     def __init__(
         self,
-        skills: str | Path | list[str | Path],
-        filesystem: VirtualFilesystem | None = None,
-        skills_base_path: str = "/skills",
+        skills: list[SkillConfig] | str | Path,
+        backend: BackendProtocol | None = None,
     ) -> None:
-        self._registry = SkillRegistry(skills)
-        self._skills_base_path = skills_base_path
-
-        if filesystem is not None:
-            self._filesystem = filesystem
-            self._owns_filesystem = False
+        if isinstance(skills, list):
+            self._configs = list(skills)
+        elif isinstance(skills, (str, Path)):
+            if backend is not None:
+                self._configs = _discover_skills_from_backend(backend, str(skills))
+            else:
+                self._configs = _discover_skills_from_directory(Path(skills))
         else:
-            self._filesystem = VirtualFilesystem()
-            self._owns_filesystem = True
+            msg = f"skills must be list[SkillConfig], str, or Path, got {type(skills).__name__}"
+            raise TypeError(msg)
 
-        self._registry.populate_filesystem(
-            self._filesystem,
-            base_path=skills_base_path,
-        )
         self._tools_cache: list[BaseTool] | None = None
 
     @property
-    def filesystem(self) -> VirtualFilesystem:
-        """The VirtualFilesystem containing skill files."""
-        return self._filesystem
+    def configs(self) -> list[SkillConfig]:
+        """The resolved skill configurations."""
+        return list(self._configs)
 
     @property
     def state_schema(self) -> None:
-        """No additional state keys — skills are in-memory."""
+        """No additional state keys — skills are stateless."""
         return None
 
     @property
     def tools(self) -> list[BaseTool]:
-        """Skill tool, plus filesystem tools if VFS is internally owned."""
+        """The Skill tool. Always exactly one tool."""
         if self._tools_cache is None:
-            tools = list(self._registry.tools)
-            if self._owns_filesystem:
-                tools.extend(create_filesystem_tools(self._filesystem))
-            self._tools_cache = tools
+            self._tools_cache = [build_skill_tool(self._configs)]
         return self._tools_cache
 
     def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
@@ -106,18 +177,11 @@ class SkillsExtension(Extension):
         )
 
     def _format_skills_list(self) -> str:
-        skills = self._registry.skill_index
-        if not skills:
+        if not self._configs:
             return "(No skills available)"
 
         lines = []
-        for _name, skill_dir in sorted(skills.items()):
-            config = SkillConfig.from_directory(skill_dir)
+        for config in sorted(self._configs, key=lambda c: c.name):
             lines.append(f"- **{config.name}**: {config.description}")
-            vfs_path = f"{self._skills_base_path}/{config.name}"
             lines.append(f'  -> Load via Skill("{config.name}")')
-            if config.reference_files:
-                files_str = ", ".join(config.reference_files)
-                lines.append(f"  -> Reference files: {files_str}")
-                lines.append(f'  -> Read via Read("{vfs_path}/{{filename}}")')
         return "\n".join(lines)
