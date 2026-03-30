@@ -86,7 +86,7 @@ class TestDirectoryMode:
             mw = AgentExtension(agents=tmpdir)
 
             agent = mw._agents_by_name["researcher"]
-            assert "Research Assistant" in agent._filesystem_agent_def.instructions
+            assert "Research Assistant" in agent._agent_config.prompt
 
     def test_empty_directory_returns_empty_roster(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -122,14 +122,14 @@ class TestDirectoryMode:
 
             mw = AgentExtension(agents=tmpdir)
 
-            assert mw._has_filesystem_agents is True
+            assert mw._has_config_agents is True
 
     def test_programmatic_mode_has_no_filesystem_flag(self):
         agent = _make_mock_agent("researcher")
 
         mw = AgentExtension(agents=[agent])
 
-        assert mw._has_filesystem_agents is False
+        assert mw._has_config_agents is False
 
 
 class TestBackendMode:

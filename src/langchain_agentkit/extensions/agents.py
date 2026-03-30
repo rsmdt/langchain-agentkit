@@ -69,27 +69,76 @@ def _strip_line_numbers(formatted: str) -> str:
     return "".join(lines)
 
 
-@dataclass(frozen=True)
-class FilesystemAgentDef:
-    """Agent definition discovered from a markdown file.
+def _parse_comma_list(value: Any) -> list[str] | None:
+    """Parse a comma-separated frontmatter value into a list of strings.
 
-    These are compiled at delegation time using the parent's LLM,
-    following the same path as ephemeral/dynamic agents.
+    Returns None if the value is absent or empty.
+    """
+    if value is None:
+        return None
+    if isinstance(value, list):
+        return [str(v).strip() for v in value if str(v).strip()]
+    raw = str(value).strip()
+    if not raw:
+        return None
+    return [s.strip() for s in raw.split(",") if s.strip()]
+
+
+@dataclass(frozen=True)
+class AgentConfig:
+    """Agent definition — used by both programmatic and file-based agents.
+
+    At delegation time, these fields are resolved:
+    - ``model``: resolved via ``model_resolver`` if string, or used as-is
+    - ``tools``: filtered from parent's available tools by name
+    - ``skills``: resolved by name → content concatenated into prompt
+    - ``max_turns``: used as recursion limit on the compiled graph
     """
 
     name: str
     description: str
-    instructions: str
+    prompt: str
+    tools: list[str] | None = None
+    model: str | None = None
+    max_turns: int | None = None
+    skills: list[str] | None = None
+
+
+
+def _agent_config_from_metadata(
+    metadata: dict[str, Any],
+    content: str,
+) -> AgentConfig | None:
+    """Parse an AgentConfig from frontmatter metadata and body content.
+
+    Returns None if the name is missing or invalid.
+    """
+    name = metadata.get("name", "")
+    if not name or validate_name(name) is not None:
+        return None
+
+    max_turns_raw = metadata.get("maxTurns")
+    max_turns = int(max_turns_raw) if max_turns_raw is not None else None
+
+    return AgentConfig(
+        name=name,
+        description=metadata.get("description", ""),
+        prompt=content,
+        tools=_parse_comma_list(metadata.get("tools")),
+        model=metadata.get("model") or None,
+        max_turns=max_turns,
+        skills=_parse_comma_list(metadata.get("skills")),
+    )
 
 
 def _discover_agents_from_directory(
     path: Path,
-) -> list[FilesystemAgentDef]:
+) -> list[AgentConfig]:
     """Discover agents by scanning a local directory for .md files."""
     if not path.is_dir():
         return []
 
-    agents: list[FilesystemAgentDef] = []
+    agents: list[AgentConfig] = []
     seen_names: set[str] = set()
 
     for md_file in sorted(path.rglob("*.md")):
@@ -97,19 +146,11 @@ def _discover_agents_from_directory(
             result = parse_frontmatter(md_file)
         except (OSError, UnicodeDecodeError):
             continue
-        name = result.metadata.get("name", "")
-        if not name or validate_name(name) is not None:
+        agent_config = _agent_config_from_metadata(result.metadata, result.content)
+        if agent_config is None or agent_config.name in seen_names:
             continue
-        description = result.metadata.get("description", "")
-
-        if name in seen_names:
-            continue
-        seen_names.add(name)
-        agents.append(FilesystemAgentDef(
-            name=name,
-            description=description,
-            instructions=result.content,
-        ))
+        seen_names.add(agent_config.name)
+        agents.append(agent_config)
 
     return agents
 
@@ -117,10 +158,10 @@ def _discover_agents_from_directory(
 def _discover_agents_from_backend(
     backend: BackendProtocol,
     path: str,
-) -> list[FilesystemAgentDef]:
+) -> list[AgentConfig]:
     """Discover agents via a BackendProtocol by globbing for .md files."""
     matches = backend.glob("**/*.md", path=path)
-    agents: list[FilesystemAgentDef] = []
+    agents: list[AgentConfig] = []
     seen_names: set[str] = set()
 
     for match in sorted(matches):
@@ -130,36 +171,43 @@ def _discover_agents_from_backend(
             continue
         content = _strip_line_numbers(formatted)
         result = parse_frontmatter_string(content)
-        name = result.metadata.get("name", "")
-        if not name or validate_name(name) is not None:
+        agent_config = _agent_config_from_metadata(result.metadata, result.content)
+        if agent_config is None or agent_config.name in seen_names:
             continue
-        description = result.metadata.get("description", "")
-
-        if name in seen_names:
-            continue
-        seen_names.add(name)
-        agents.append(FilesystemAgentDef(
-            name=name,
-            description=description,
-            instructions=result.content,
-        ))
+        seen_names.add(agent_config.name)
+        agents.append(agent_config)
 
     return agents
 
 
-class _FilesystemAgentProxy:
-    """Proxy that makes a FilesystemAgentDef look like an agent to the roster.
+class _AgentConfigProxy:
+    """Proxy that makes an AgentConfig look like an agent to the roster.
 
     Has ``name``, ``description``, and ``tools_inherit = False``.
-    The delegation tool detects ``_filesystem_agent_def`` attribute and
-    routes to the dynamic agent path with the stored prompt.
+    The delegation tool detects ``_agent_config`` attribute and
+    routes to the definition-based delegation path.
     """
 
-    def __init__(self, definition: FilesystemAgentDef) -> None:
+    def __init__(self, definition: AgentConfig) -> None:
         self.name = definition.name
         self.description = definition.description
         self.tools_inherit = False
-        self._filesystem_agent_def = definition
+        self._agent_config = definition
+
+
+def _wrap_agents(agents: list[Any]) -> list[Any]:
+    """Wrap AgentConfig instances in proxies, pass everything else through.
+
+    Allows mixed lists of compiled StateGraphs, AgentLike objects, and
+    AgentConfig definitions in a single agents list.
+    """
+    result = []
+    for a in agents:
+        if isinstance(a, AgentConfig):
+            result.append(_AgentConfigProxy(a))
+        else:
+            result.append(a)
+    return result
 
 
 class AgentExtension(Extension):
@@ -167,12 +215,19 @@ class AgentExtension(Extension):
 
     Two input modes:
 
-    - **List**: Pass agent objects (StateGraph/AgentLike) directly.
+    - **List**: Pass agent objects (StateGraph, AgentLike, or AgentConfig).
+      AgentConfig definitions are compiled at delegation time using the
+      parent's LLM and resolved tools/skills.
     - **Path**: Pass a string or Path to a directory to scan for ``.md`` files
       with frontmatter. When ``backend`` is provided, discovery uses the
       backend's filesystem. Otherwise, scans the local OS filesystem.
 
-    Filesystem-discovered agents use the parent's LLM at delegation time.
+    Example::
+
+        ext = AgentExtension(agents=[
+            researcher_graph,                          # compiled StateGraph
+            AgentConfig(name="coder", prompt="..."),   # definition
+        ])
 
     Args:
         agents: List of agent objects, or a string/Path to a directory.
@@ -196,19 +251,22 @@ class AgentExtension(Extension):
         from langchain_agentkit.extensions import validate_agent_list
 
         if isinstance(agents, list):
-            self._agents_by_name: dict[str, Any] = validate_agent_list(agents)
-            self._has_filesystem_agents = False
+            wrapped = _wrap_agents(agents)
+            self._agents_by_name: dict[str, Any] = validate_agent_list(wrapped)
+            self._has_config_agents = any(
+                isinstance(a, _AgentConfigProxy) for a in wrapped
+            )
         elif isinstance(agents, (str, Path)):
             if backend is not None:
                 defs = _discover_agents_from_backend(backend, str(agents))
             else:
                 defs = _discover_agents_from_directory(Path(agents))
-            proxies = [_FilesystemAgentProxy(d) for d in defs]
-            if not proxies:
-                self._agents_by_name = {}
-            else:
+            proxies = [_AgentConfigProxy(d) for d in defs]
+            if proxies:
                 self._agents_by_name = validate_agent_list(proxies)
-            self._has_filesystem_agents = True
+            else:
+                self._agents_by_name = {}
+            self._has_config_agents = bool(proxies)
         else:
             msg = f"agents must be list, str, or Path, got {type(agents).__name__}"
             raise TypeError(msg)
@@ -221,6 +279,8 @@ class AgentExtension(Extension):
         # Placeholder — resolved lazily by tools when parent context is available
         self._parent_tools_getter: Any = list
         self._parent_llm_getter: Any = None
+        self._model_resolver: Any = None
+        self._skills_resolver: Any = None
 
         self._tools = tuple(self._create_tools())
 
@@ -228,8 +288,8 @@ class AgentExtension(Extension):
         """Create the unified Agent tool with closures over extensions state."""
         from langchain_agentkit.tools.agent import create_agent_tools
 
-        # Filesystem agents always need parent LLM for delegation
-        needs_llm = self._ephemeral or self._has_filesystem_agents
+        # Filesystem/def agents always need parent LLM for delegation
+        needs_llm = self._ephemeral or self._has_config_agents
 
         return create_agent_tools(
             agents_by_name=self._agents_by_name,
@@ -238,6 +298,14 @@ class AgentExtension(Extension):
             parent_tools_getter=lambda: self._parent_tools_getter(),
             ephemeral=self._ephemeral,
             parent_llm_getter=(lambda: self._parent_llm_getter()) if needs_llm else None,
+            model_resolver=(
+                lambda name: self._model_resolver(name)
+                if self._model_resolver else None
+            ),
+            skills_resolver=(
+                lambda names: self._skills_resolver(names)
+                if self._skills_resolver else None
+            ),
         )
 
     def set_parent_tools_getter(self, getter: Any) -> None:
@@ -247,6 +315,14 @@ class AgentExtension(Extension):
     def set_parent_llm_getter(self, getter: Any) -> None:
         """Set the callable that returns the parent agent's LLM."""
         self._parent_llm_getter = getter
+
+    def set_model_resolver(self, resolver: Any) -> None:
+        """Set the callable that resolves model name strings to BaseChatModel."""
+        self._model_resolver = resolver
+
+    def set_skills_resolver(self, resolver: Any) -> None:
+        """Set the callable that resolves skill names to concatenated content."""
+        self._skills_resolver = resolver
 
     @property
     def tools(self) -> list[BaseTool]:

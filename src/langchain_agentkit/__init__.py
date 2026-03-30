@@ -15,7 +15,7 @@ Two layers:
     from langchain_agentkit import agent, SkillsExtension
 
     class researcher(agent):
-        llm = ChatOpenAI(model="gpt-4o")
+        model = ChatOpenAI(model="gpt-4o")
         extensions = [SkillsExtension("skills/")]
         prompt = "You are a research assistant."
 
@@ -29,7 +29,7 @@ Two layers:
 
     from langchain_agentkit import SkillConfig, build_skill_tool
 
-    configs = [SkillConfig(name="research", description="...", instructions="...")]
+    configs = [SkillConfig(name="research", description="...", prompt="...")]
     tool = build_skill_tool(configs)  # Skill tool
 """
 
@@ -62,6 +62,9 @@ from langchain_agentkit.extensions import (
     TeamExtension,
     WebSearchExtension,
 )
+
+# Types
+from langchain_agentkit.extensions.agents import AgentConfig
 from langchain_agentkit.hooks import after, before, wrap
 from langchain_agentkit.state import (
     AgentKitState,
@@ -77,8 +80,6 @@ from langchain_agentkit.tools import (
     create_filesystem_tools,
     create_task_tools,
 )
-
-# Types
 from langchain_agentkit.types import SkillConfig
 
 __all__ = [
@@ -114,6 +115,7 @@ __all__ = [
     "OSBackend",
     "SandboxProtocol",
     # Types
+    "AgentConfig",
     "SkillConfig",
     # Tools
     "Task",

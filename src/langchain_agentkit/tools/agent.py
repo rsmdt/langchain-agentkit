@@ -241,6 +241,8 @@ async def _agent_tool(
     parent_tools_getter: Callable[[], list[BaseTool]] | None,
     ephemeral: bool,
     parent_llm_getter: Callable[[], Any] | None,
+    model_resolver: Callable[[str], Any] | None = None,
+    skills_resolver: Callable[[list[str]], str] | None = None,
 ) -> Any:
     """Delegate a task to a pre-defined or dynamically created agent."""
     # Normalise to dict — LangChain may pass a Pydantic model or a raw dict
@@ -256,6 +258,8 @@ async def _agent_tool(
             parent_tools_getter=parent_tools_getter,
             tool_call_id=tool_call_id,
             parent_llm_getter=parent_llm_getter,
+            model_resolver=model_resolver,
+            skills_resolver=skills_resolver,
         )
 
     if "prompt" in agent_ref:
@@ -287,27 +291,32 @@ async def _delegate_predefined(
     parent_tools_getter: Callable[[], list[BaseTool]] | None,
     tool_call_id: str,
     parent_llm_getter: Callable[[], Any] | None = None,
+    model_resolver: Callable[[str], Any] | None = None,
+    skills_resolver: Callable[[list[str]], str] | None = None,
 ) -> Any:
     """Delegate a task to a named pre-defined agent.
 
-    Handles both compiled agents and filesystem-discovered agents.
-    Filesystem agents (those with ``_filesystem_agent_def``) are routed
-    through the dynamic agent path using the parent's LLM.
+    Handles both compiled agents and definition-based agents.
+    Definition-based agents (those with ``_agent_config``) are compiled
+    at delegation time with resolved model, tools, skills, and max_turns.
     """
     from langchain_agentkit.extensions import resolve_agent
 
     target = resolve_agent(agent_id, agents_by_name)
 
-    # Filesystem-discovered agents → delegate via dynamic path
-    from langchain_agentkit.extensions.agents import FilesystemAgentDef
+    # Definition-based agents → resolve and compile at delegation time
+    from langchain_agentkit.extensions.agents import AgentConfig
 
-    agent_def = getattr(target, "_filesystem_agent_def", None)
-    if isinstance(agent_def, FilesystemAgentDef):
-        return await _delegate_dynamic(
-            prompt=agent_def.instructions,
+    agent_config = getattr(target, "_agent_config", None)
+    if isinstance(agent_config, AgentConfig):
+        return await _delegate_agent_config(
+            agent_config=agent_config,
             message=message,
             delegation_timeout=delegation_timeout,
             parent_llm_getter=parent_llm_getter,
+            parent_tools_getter=parent_tools_getter,
+            model_resolver=model_resolver,
+            skills_resolver=skills_resolver,
             tool_call_id=tool_call_id,
         )
 
@@ -318,6 +327,94 @@ async def _delegate_predefined(
         compiled=compiled,
         scoped_state=scoped_state,
         agent=agent_id,
+        timeout=delegation_timeout,
+        tool_call_id=tool_call_id,
+    )
+
+
+async def _delegate_agent_config(
+    agent_config: Any,
+    message: str,
+    delegation_timeout: float,
+    parent_llm_getter: Callable[[], Any] | None,
+    parent_tools_getter: Callable[[], list[BaseTool]] | None,
+    model_resolver: Callable[[str], Any] | None,
+    skills_resolver: Callable[[list[str]], str] | None,
+    tool_call_id: str,
+) -> Any:
+    """Delegate to an AgentConfig — resolve model, tools, skills, max_turns."""
+    # Resolve LLM
+    if agent_config.model and model_resolver:
+        llm = model_resolver(agent_config.model)
+    elif parent_llm_getter is not None:
+        llm = parent_llm_getter()
+    else:
+        raise ToolException(
+            "Agent definition requires a model but no parent LLM "
+            "or model_resolver is available."
+        )
+
+    # Resolve tools — filter from parent's tools by name
+    agent_tools: list[BaseTool] = []
+    if agent_config.tools is not None and parent_tools_getter is not None:
+        parent_tools = parent_tools_getter()
+        allowed = set(agent_config.tools)
+        agent_tools = [t for t in parent_tools if t.name in allowed]
+
+    # Resolve skills — concatenate into prompt
+    prompt = agent_config.prompt
+    if agent_config.skills and skills_resolver:
+        skill_content = skills_resolver(agent_config.skills)
+        if skill_content:
+            prompt = prompt + "\n\n" + skill_content
+
+    from langchain_agentkit._graph_builder import build_graph
+    from langchain_agentkit.agent_kit import AgentKit
+
+    agent_name = agent_config.name
+
+    async def _def_handler(
+        state_inner: dict[str, Any],
+        *,
+        llm: Any,
+        prompt: str,
+        tools: Any = None,
+    ) -> dict[str, Any]:
+        from langchain_core.messages import SystemMessage
+
+        msgs = [SystemMessage(content=prompt)] + list(
+            state_inner.get("messages", [])
+        )
+        response = await llm.ainvoke(msgs)
+        return {"messages": [response], "sender": agent_name}
+
+    try:
+        kit = AgentKit([], prompt=prompt)
+        graph = build_graph(
+            name=agent_name,
+            handler=_def_handler,
+            llm=llm,
+            user_tools=agent_tools,
+            kit=kit,
+            state_type=AgentKitState,
+        )
+        # Apply max_turns as recursion limit (each turn ≈ 2 recursions)
+        recursion_limit = agent_config.max_turns * 2 if agent_config.max_turns else None
+        compile_kwargs: dict[str, Any] = {}
+        if recursion_limit is not None:
+            compile_kwargs["recursion_limit"] = recursion_limit
+        compiled = graph.compile(**compile_kwargs)
+    except Exception as exc:
+        raise ToolException(
+            f"Failed to create agent '{agent_name}': {exc}"
+        ) from exc
+
+    scoped_state = _build_scoped_state(message)
+
+    return await _run_delegation(
+        compiled=compiled,
+        scoped_state=scoped_state,
+        agent=agent_name,
         timeout=delegation_timeout,
         tool_call_id=tool_call_id,
     )
@@ -420,6 +517,8 @@ def create_agent_tools(
     parent_tools_getter: Callable[[], list[BaseTool]] | None,
     ephemeral: bool,
     parent_llm_getter: Callable[[], Any] | None,
+    model_resolver: Callable[[str], Any] | None = None,
+    skills_resolver: Callable[[list[str]], str] | None = None,
 ) -> list[BaseTool]:
     """Create the unified Agent tool for agent-to-agent delegation.
 
@@ -433,6 +532,8 @@ def create_agent_tools(
         parent_tools_getter: Callable returning parent's tools (for inherit).
         ephemeral: Whether to include the Dynamic agent variant in the schema.
         parent_llm_getter: Callable returning the parent LLM (for dynamic).
+        model_resolver: Callable resolving model name strings to BaseChatModel.
+        skills_resolver: Callable resolving skill name list to concatenated prompt content.
     """
     if ephemeral and parent_llm_getter is None:
         msg = "parent_llm_getter is required when ephemeral=True"
@@ -448,6 +549,8 @@ def create_agent_tools(
         parent_tools_getter=parent_tools_getter,
         ephemeral=ephemeral,
         parent_llm_getter=parent_llm_getter,
+        model_resolver=model_resolver,
+        skills_resolver=skills_resolver,
     )
 
     tool = StructuredTool.from_function(
