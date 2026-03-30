@@ -25,12 +25,12 @@ Two layers:
 
     graph = researcher.compile()
 
-**Standalone** — use ``SkillRegistry`` directly::
+**Standalone** — use ``build_skill_tool`` directly::
 
-    from langchain_agentkit import SkillRegistry
+    from langchain_agentkit import SkillConfig, build_skill_tool
 
-    registry = SkillRegistry("skills/")
-    tools = registry.tools  # [Skill]
+    configs = [SkillConfig(name="research", description="...", instructions="...")]
+    tool = build_skill_tool(configs)  # Skill tool
 """
 
 from langgraph.prebuilt import ToolRuntime
@@ -38,8 +38,17 @@ from langgraph.prebuilt import ToolRuntime
 # Core
 from langchain_agentkit.agent import agent
 from langchain_agentkit.agent_kit import AgentKit
+
+# Backend
+from langchain_agentkit.backend import (
+    BackendProtocol,
+    OSBackend,
+    SandboxProtocol,
+)
+
+# Composability
+from langchain_agentkit.composability import AgentLike, CompiledAgent, TeamAgent, wrap_if_needed
 from langchain_agentkit.extension import Extension
-from langchain_agentkit.hooks import after, before, wrap
 
 # Extensions
 from langchain_agentkit.extensions import (
@@ -53,6 +62,7 @@ from langchain_agentkit.extensions import (
     TeamExtension,
     WebSearchExtension,
 )
+from langchain_agentkit.hooks import after, before, wrap
 from langchain_agentkit.state import (
     AgentKitState,
     TasksState,
@@ -61,27 +71,15 @@ from langchain_agentkit.state import (
 
 # Tools
 from langchain_agentkit.tools import (
-    SkillRegistry,
     Task,
     TaskStatus,
+    build_skill_tool,
     create_filesystem_tools,
     create_task_tools,
 )
 
-# Composability
-from langchain_agentkit.composability import AgentLike, CompiledAgent, TeamAgent, wrap_if_needed
-
-# Backend
-from langchain_agentkit.backend import (
-    BackendProtocol,
-    CompositeBackend,
-    LocalBackend,
-    MemoryBackend,
-    SandboxProtocol,
-)
-
-# VFS
-from langchain_agentkit.vfs import VirtualFilesystem
+# Types
+from langchain_agentkit.types import SkillConfig
 
 __all__ = [
     # Core
@@ -91,7 +89,6 @@ __all__ = [
     "TasksState",
     "TeamState",
     "ToolRuntime",
-    "VirtualFilesystem",
     "agent",
     # Hook decorators
     "after",
@@ -114,14 +111,14 @@ __all__ = [
     "wrap_if_needed",
     # Backend
     "BackendProtocol",
-    "CompositeBackend",
-    "LocalBackend",
-    "MemoryBackend",
+    "OSBackend",
     "SandboxProtocol",
+    # Types
+    "SkillConfig",
     # Tools
-    "SkillRegistry",
     "Task",
     "TaskStatus",
+    "build_skill_tool",
     "create_filesystem_tools",
     "create_task_tools",
 ]
