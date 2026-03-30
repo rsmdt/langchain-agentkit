@@ -9,7 +9,7 @@ Usage::
     from langchain_agentkit.extensions.teams import TeamExtension
 
     mw = TeamExtension([researcher, coder])
-    mw.tools  # [SpawnTeam, AssignTask, MessageTeammate, CheckTeammates, DissolveTeam]
+    mw.tools  # [AgentTeam, AssignTask, MessageTeammate, CheckTeammates, DissolveTeam]
 """
 
 from __future__ import annotations
@@ -26,6 +26,8 @@ from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
+from langchain_agentkit.tools.agent import Dynamic, Predefined
+
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
@@ -37,19 +39,25 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-class _MemberSpec(BaseModel):
-    """Specification for a single team member."""
+class _AgentSpec(BaseModel):
+    """Specification for a single team agent."""
 
-    name: str = Field(description="Unique name for this team member.")
-    agent_type: str = Field(description="Agent type — must match a registered agent.")
-
-
-class _SpawnTeamInput(BaseModel):
-    team_name: str = Field(description="Name for the team.")
-    members: list[_MemberSpec] = Field(
+    name: str = Field(description="Unique name for this agent in the team.")
+    agent: Predefined | Dynamic = Field(
         description=(
-            "List of members to create. Each needs a unique name and "
-            "an agent_type that matches a registered agent."
+            "Agent to use. Use {id: name} to select a pre-defined agent "
+            "from the roster, or {prompt: text} to create an ephemeral "
+            "reasoning agent for this team role."
+        ),
+    )
+
+
+class _AgentTeamInput(BaseModel):
+    name: str = Field(description="Name for the team.")
+    agents: list[_AgentSpec] = Field(
+        description=(
+            "List of agents to include. Each needs a unique name and "
+            "an agent reference ({id} or {prompt})."
         ),
     )
     state: Annotated[dict[str, Any], InjectedState]
@@ -93,7 +101,7 @@ def _require_active_team(ext: TeamExtension) -> Any:
     """Return the active team or raise ToolException."""
     team = ext._active_team  # noqa: SLF001
     if team is None:
-        raise ToolException("No active team. Call SpawnTeam first.")
+        raise ToolException("No active team. Call AgentTeam first.")
     return team
 
 
@@ -109,102 +117,160 @@ def _require_member(ext: TeamExtension, member_name: str) -> None:
 # ---------------------------------------------------------------------------
 
 
-async def _spawn_team(
-    team_name: str,
-    members: list[dict[str, Any]],
+async def _agent_team(
+    name: str,
+    agents: list[dict[str, Any]],
     state: dict[str, Any],
     tool_call_id: str,
     *,
     ext: TeamExtension,
 ) -> Command:  # type: ignore[type-arg]
-    """Create a team with named members running as asyncio.Tasks."""
+    """Create a team with named agents running as asyncio.Tasks."""
     from langchain_agentkit.extensions.teams import ActiveTeam, TeamMessageBus, _teammate_loop
 
     if ext._active_team is not None:  # noqa: SLF001
         raise ToolException("Team already active. Dissolve first.")
 
-    if not members:
-        raise ToolException("Members list cannot be empty.")
+    if not agents:
+        raise ToolException("Agents list cannot be empty.")
 
-    # Validate no duplicate member names
-    names = [m["name"] if isinstance(m, dict) else m.name for m in members]
-    if len(set(names)) != len(names):
-        dupes = [n for n in names if names.count(n) > 1]
-        raise ToolException(f"Duplicate member names: {set(dupes)}")
+    # Validate no duplicate agent names
+    agent_names = [a["name"] if isinstance(a, dict) else a.name for a in agents]
+    if len(set(agent_names)) != len(agent_names):
+        dupes = [n for n in agent_names if agent_names.count(n) > 1]
+        raise ToolException(f"Duplicate agent names: {set(dupes)}")
 
     # Validate max team size
-    if len(members) > ext._max_team_size:  # noqa: SLF001
+    if len(agents) > ext._max_team_size:  # noqa: SLF001
         raise ToolException(
-            f"Team size {len(members)} exceeds maximum of {ext._max_team_size}."  # noqa: SLF001
+            f"Team size {len(agents)} exceeds maximum of {ext._max_team_size}."  # noqa: SLF001
         )
 
-    # Validate all agent_types exist
-    agents_by_name = ext._agents_by_name  # noqa: SLF001
+    # Resolve agent references
+    registered_agents = ext._agents_by_name  # noqa: SLF001
     from langchain_agentkit.extensions import resolve_agent
 
-    for member in members:
-        agent_type = member["agent_type"] if isinstance(member, dict) else member.agent_type
-        resolve_agent(agent_type, agents_by_name)
+    def _parse_ref(agent_spec: Any) -> tuple[str, str | None, str | None]:
+        """Extract (member_name, agent_id, agent_prompt) from a spec."""
+        member_name = agent_spec["name"] if isinstance(agent_spec, dict) else agent_spec.name
+        ref = agent_spec["agent"] if isinstance(agent_spec, dict) else agent_spec.agent
+        if isinstance(ref, Dynamic):
+            return member_name, None, ref.prompt
+        if isinstance(ref, Predefined):
+            return member_name, ref.id, None
+        # Dict from LLM tool call
+        if isinstance(ref, dict):
+            return member_name, ref.get("id"), ref.get("prompt")
+        return member_name, getattr(ref, "id", None), getattr(ref, "prompt", None)
 
-    # Create message bus and register all members + lead
+    for agent_spec in agents:
+        _, agent_id, agent_prompt = _parse_ref(agent_spec)
+
+        if agent_prompt is not None:
+            ephemeral_enabled = getattr(ext, "_ephemeral", False)
+            if not ephemeral_enabled:
+                raise ToolException(
+                    "Dynamic/ephemeral agents are not enabled. "
+                    "Set ephemeral=True on TeamExtension to allow custom agents."
+                )
+        elif agent_id is not None:
+            resolve_agent(agent_id, registered_agents)
+
+    # Create message bus and register all agents + lead
     bus = TeamMessageBus()
     bus.register("lead")
 
     member_tasks: dict[str, asyncio.Task[str]] = {}
     member_types: dict[str, str] = {}
-    team_members_state: list[dict[str, Any]] = []
+    team_agents_state: list[dict[str, Any]] = []
 
-    for member in members:
-        member_name = member["name"] if isinstance(member, dict) else member.name
-        agent_type = member["agent_type"] if isinstance(member, dict) else member.agent_type
+    for agent_spec in agents:
+        member_name, agent_id, agent_prompt = _parse_ref(agent_spec)
 
         bus.register(member_name)
 
-        # Compile graph with a per-member checkpointer for conversation history
-        agent_graph = agents_by_name[agent_type]
-        from langgraph.checkpoint.memory import InMemorySaver
+        if agent_prompt is not None:
+            # Ephemeral agent — build on-the-fly graph
+            from langchain_agentkit._graph_builder import build_graph
+            from langchain_agentkit.agent_kit import AgentKit
 
-        member_checkpointer = InMemorySaver()
-        compiled = agent_graph.compile(checkpointer=member_checkpointer)
-        thread_id = f"team-{team_name}-{member_name}"
+            parent_llm_getter = getattr(ext, "_parent_llm_getter", None)
+            if parent_llm_getter is not None:
+                ephemeral_llm = parent_llm_getter()
+            else:
+                raise ToolException("No parent LLM available for ephemeral agent.")
 
-        # Create asyncio.Task for the teammate loop
+            async def _ephemeral_handler(
+                handler_state: dict[str, Any], *, llm: Any, prompt: str, **kwargs: Any
+            ) -> dict[str, Any]:
+                from langchain_core.messages import SystemMessage
+
+                messages = [SystemMessage(content=prompt)] + handler_state["messages"]
+                response = await llm.ainvoke(messages)
+                return {"messages": [response], "sender": member_name}
+
+            ephemeral_graph = build_graph(
+                name=member_name,
+                handler=_ephemeral_handler,
+                llm=ephemeral_llm,
+                user_tools=[],
+                kit=AgentKit(extensions=[], prompt=agent_prompt),
+            )
+            from langgraph.checkpoint.memory import InMemorySaver
+
+            compiled = ephemeral_graph.compile(checkpointer=InMemorySaver())
+            agent_type_label = f"ephemeral:{member_name}"
+        else:
+            # Predefined agent — resolve and compile
+            agent_target = registered_agents[agent_id]
+            from langchain_agentkit.composability import AgentLike
+
+            if isinstance(agent_target, AgentLike):
+                compiled = agent_target
+            else:
+                from langgraph.checkpoint.memory import InMemorySaver
+
+                compiled = agent_target.compile(checkpointer=InMemorySaver())
+            agent_type_label = agent_id
+
+        thread_id = f"team-{name}-{member_name}"
+
         task = asyncio.create_task(
             _teammate_loop(member_name, compiled, bus, thread_id=thread_id),
             name=thread_id,
         )
         member_tasks[member_name] = task
-        member_types[member_name] = agent_type
+        member_types[member_name] = agent_type_label
 
-        team_members_state.append({
+        team_agents_state.append({
             "name": member_name,
-            "agent_type": agent_type,
+            "agent": {"id": agent_id} if agent_id else {"prompt": agent_prompt},
             "status": "idle",
         })
 
     # Store active team on extension
     ext._active_team = ActiveTeam(  # noqa: SLF001
-        name=team_name,
+        name=name,
         bus=bus,
         members=member_tasks,
         member_types=member_types,
     )
 
     result = {
-        "team_name": team_name,
-        "members": [
-            {
-                "name": m["name"] if isinstance(m, dict) else m.name,
-                "agent_type": m["agent_type"] if isinstance(m, dict) else m.agent_type,
-            }
-            for m in members
+        "team_name": name,
+        "agents": [
+            {"name": a["name"], "agent": a["agent"]}
+            for a in team_agents_state
         ],
     }
 
     return Command(
         update={
-            "team_members": team_members_state,
-            "team_name": team_name,
+            "team_members": [
+                {"name": a["name"], "agent_type": member_types.get(a["name"], ""), "status": "idle"}
+                for a in team_agents_state
+            ],
+            "team_name": name,
             "messages": [ToolMessage(content=json.dumps(result), tool_call_id=tool_call_id)],
         }
     )
@@ -428,8 +494,8 @@ Each member runs as an independent agent. You coordinate by assigning tasks \
 and sending messages. Members report results back automatically.
 
 Important:
-- member names must be unique within the team
-- agent_type must match a registered agent name
+- agent names must be unique within the team
+- Use {id: name} for predefined agents, {prompt: text} for ephemeral
 - Only one team can be active at a time\
 """
 
@@ -498,16 +564,16 @@ def create_team_tools(ext: TeamExtension) -> list[BaseTool]:
     Tools are bound to the extension instance via closures so they can
     access the active team and message bus.
 
-    Returns five tools: SpawnTeam, AssignTask, MessageTeammate,
+    Returns five tools: AgentTeam, AssignTask, MessageTeammate,
     CheckTeammates, DissolveTeam.
     """
 
     return [
         StructuredTool.from_function(
-            coroutine=partial(_spawn_team, ext=ext),
-            name="SpawnTeam",
+            coroutine=partial(_agent_team, ext=ext),
+            name="AgentTeam",
             description=_SPAWN_TEAM_DESCRIPTION,
-            args_schema=_SpawnTeamInput,
+            args_schema=_AgentTeamInput,
             handle_tool_error=True,
         ),
         StructuredTool.from_function(

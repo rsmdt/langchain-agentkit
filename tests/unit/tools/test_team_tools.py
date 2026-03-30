@@ -20,7 +20,7 @@ from langchain_agentkit.tools.team import (
     _message_teammate,
     _require_active_team,
     _require_member,
-    _spawn_team,
+    _agent_team,
 )
 
 FAKE_TOOL_CALL_ID = "call_team_test"
@@ -29,9 +29,9 @@ FAKE_TOOL_CALL_ID = "call_team_test"
 def _make_mock_agent(name: str, description: str = "") -> MagicMock:
     """Create a mock agent graph with agentkit metadata."""
     mock = MagicMock()
-    mock.agentkit_name = name
-    mock.agentkit_description = description
-    mock.agentkit_tools_inherit = False
+    mock.name = name
+    mock.description = description
+    mock.tools_inherit = False
     mock.compile.return_value = AsyncMock()
     return mock
 
@@ -107,20 +107,20 @@ class TestRequireMember:
 
 
 # ---------------------------------------------------------------------------
-# SpawnTeam
+# AgentTeam
 # ---------------------------------------------------------------------------
 
 
-class TestSpawnTeam:
+class TestAgentTeam:
     @pytest.mark.asyncio
-    async def test_spawn_team_creates_team(self):
+    async def test_agent_team_creates_team(self):
         mw = _make_extension_with_agents("researcher", "coder")
 
-        result = await _spawn_team(
-            team_name="dev-team",
-            members=[
-                {"name": "alice", "agent_type": "researcher"},
-                {"name": "bob", "agent_type": "coder"},
+        result = await _agent_team(
+            name="dev-team",
+            agents=[
+                {"name": "alice", "agent": {"id": "researcher"}},
+                {"name": "bob", "agent": {"id": "coder"}},
             ],
             state={},
             tool_call_id=FAKE_TOOL_CALL_ID,
@@ -141,15 +141,15 @@ class TestSpawnTeam:
                 pass
 
     @pytest.mark.asyncio
-    async def test_spawn_team_with_duplicate_names_raises(self):
+    async def test_agent_team_with_duplicate_names_raises(self):
         mw = _make_extension_with_agents("researcher")
 
-        with pytest.raises(ToolException, match="Duplicate member names"):
-            await _spawn_team(
-                team_name="bad-team",
-                members=[
-                    {"name": "alice", "agent_type": "researcher"},
-                    {"name": "alice", "agent_type": "researcher"},
+        with pytest.raises(ToolException, match="Duplicate agent names"):
+            await _agent_team(
+                name="bad-team",
+                agents=[
+                    {"name": "alice", "agent": {"id": "researcher"}},
+                    {"name": "alice", "agent": {"id": "researcher"}},
                 ],
                 state={},
                 tool_call_id=FAKE_TOOL_CALL_ID,
@@ -157,42 +157,42 @@ class TestSpawnTeam:
             )
 
     @pytest.mark.asyncio
-    async def test_spawn_team_when_team_already_active_raises(self):
+    async def test_agent_team_when_team_already_active_raises(self):
         mw = _make_extension_with_active_team(["researcher"])
 
         with pytest.raises(ToolException, match="Team already active"):
-            await _spawn_team(
-                team_name="second-team",
-                members=[{"name": "bob", "agent_type": "researcher"}],
+            await _agent_team(
+                name="second-team",
+                agents=[{"name": "bob", "agent": {"id": "researcher"}}],
                 state={},
                 tool_call_id=FAKE_TOOL_CALL_ID,
                 ext=mw,
             )
 
     @pytest.mark.asyncio
-    async def test_spawn_team_with_unknown_agent_type_raises(self):
+    async def test_agent_team_with_unknown_agent_type_raises(self):
         mw = _make_extension_with_agents("researcher")
 
         with pytest.raises(ToolException, match="not found"):
-            await _spawn_team(
-                team_name="bad-team",
-                members=[{"name": "alice", "agent_type": "nonexistent"}],
+            await _agent_team(
+                name="bad-team",
+                agents=[{"name": "alice", "agent": {"id": "nonexistent"}}],
                 state={},
                 tool_call_id=FAKE_TOOL_CALL_ID,
                 ext=mw,
             )
 
     @pytest.mark.asyncio
-    async def test_spawn_team_exceeding_max_size_raises(self):
+    async def test_agent_team_exceeding_max_size_raises(self):
         mw = _make_extension_with_agents("researcher")
         mw._max_team_size = 1
 
         with pytest.raises(ToolException, match="exceeds maximum"):
-            await _spawn_team(
-                team_name="big-team",
-                members=[
-                    {"name": "alice", "agent_type": "researcher"},
-                    {"name": "bob", "agent_type": "researcher"},
+            await _agent_team(
+                name="big-team",
+                agents=[
+                    {"name": "alice", "agent": {"id": "researcher"}},
+                    {"name": "bob", "agent": {"id": "researcher"}},
                 ],
                 state={},
                 tool_call_id=FAKE_TOOL_CALL_ID,
@@ -200,13 +200,13 @@ class TestSpawnTeam:
             )
 
     @pytest.mark.asyncio
-    async def test_spawn_team_with_empty_members_raises(self):
+    async def test_agent_team_with_empty_members_raises(self):
         mw = _make_extension_with_agents("researcher")
 
         with pytest.raises(ToolException, match="empty"):
-            await _spawn_team(
-                team_name="empty-team",
-                members=[],
+            await _agent_team(
+                name="empty-team",
+                agents=[],
                 state={},
                 tool_call_id=FAKE_TOOL_CALL_ID,
                 ext=mw,

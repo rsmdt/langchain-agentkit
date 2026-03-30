@@ -8,7 +8,7 @@ You can manage a team of concurrent agents for complex, multi-step work that req
 
 ### Team Lifecycle
 
-1. **SpawnTeam**: Create the team with named members
+1. **AgentTeam**: Create the team with named members
 2. **AssignTask**: Give work to specific members
 3. **React to messages**: Members send results back automatically — process them as they arrive
 4. **MessageTeammate**: Send guidance, answers, or new instructions to members

@@ -2,7 +2,7 @@
 """Real-LLM integration evals for TeamExtension coordination.
 
 Tests exercise the FULL compiled graph flow: lead agent receives a message,
-uses team coordination tools (SpawnTeam, AssignTask, CheckTeammates,
+uses team coordination tools (AgentTeam, AssignTask, CheckTeammates,
 DissolveTeam) via LangGraph's ReAct loop, teammates process with real LLM
 calls as asyncio.Tasks, and results propagate back through the lead.
 
@@ -103,7 +103,7 @@ def _build_math_worker():
 _TEAM_LEAD_PROMPT = """\
 You are a team lead. Follow these steps EXACTLY in order:
 
-1. Use SpawnTeam to create a team with the workers you need.
+1. Use AgentTeam to create a team with the workers you need.
    - Each member needs a unique "name" and an "agent_type" matching a registered agent.
 2. Use AssignTask to give each worker their task.
 3. Use CheckTeammates to collect results. If no pending messages yet, call \
@@ -243,7 +243,7 @@ class TestTeamToolsExposed:
             "CheckTeammates",
             "DissolveTeam",
             "MessageTeammate",
-            "SpawnTeam",
+            "AgentTeam",
         ]
 
 

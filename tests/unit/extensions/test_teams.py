@@ -15,9 +15,9 @@ from langchain_agentkit.state import TeamState
 def _make_mock_agent(name: str, description: str = "") -> MagicMock:
     """Create a mock agent graph with agentkit metadata."""
     mock = MagicMock()
-    mock.agentkit_name = name
-    mock.agentkit_description = description
-    mock.agentkit_tools_inherit = False
+    mock.name = name
+    mock.description = description
+    mock.tools_inherit = False
     mock.compile.return_value = MagicMock()
     return mock
 
@@ -188,10 +188,10 @@ class TestTeamExtensionConstruction:
         with pytest.raises(ValueError, match="Duplicate agent names"):
             TeamExtension([agent_a, agent_b])
 
-    def test_construction_with_missing_agentkit_name_raises(self):
+    def test_construction_with_missing_name_raises(self):
         mock = MagicMock(spec=[])
 
-        with pytest.raises(ValueError, match="agentkit_name"):
+        with pytest.raises(ValueError, match="name"):
             TeamExtension([mock])
 
     def test_max_team_size_validation(self):
@@ -210,7 +210,7 @@ class TestTeamExtensionTools:
 
         # 5 team tools only — task tools come from TasksExtension if user adds it
         assert len(mw.tools) == 5
-        assert "SpawnTeam" in tool_names
+        assert "AgentTeam" in tool_names
         assert "TaskCreate" not in tool_names
 
     def test_tool_names_include_team_tools(self):
@@ -219,7 +219,7 @@ class TestTeamExtensionTools:
         mw = TeamExtension([agent_a])
         tool_names = [t.name for t in mw.tools]
 
-        assert "SpawnTeam" in tool_names
+        assert "AgentTeam" in tool_names
         assert "AssignTask" in tool_names
         assert "MessageTeammate" in tool_names
         assert "CheckTeammates" in tool_names

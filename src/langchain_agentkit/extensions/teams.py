@@ -1,7 +1,7 @@
 """TeamExtension — message-driven team coordination.
 
 Teammates run as asyncio.Tasks. The lead coordinates via tools
-(SpawnTeam, AssignTask, MessageTeammate, CheckTeammates, DissolveTeam).
+(AgentTeam, AssignTask, MessageTeammate, CheckTeammates, DissolveTeam).
 Communication flows through a ``TeamMessageBus`` backed by asyncio.Queue.
 
 Usage::
@@ -207,8 +207,8 @@ class TeamExtension(Extension):
     AutoGen-inspired message dispatch primitives.
 
     Args:
-        agents: List of StateGraph objects with ``.agentkit_name`` and
-            ``.agentkit_description`` attributes (from the agent metaclass).
+        agents: List of StateGraph objects with ``.name`` and
+            ``.description`` attributes (from the agent metaclass).
         max_team_size: Maximum number of team members allowed.
         router_timeout: Seconds to wait for messages in the Router Node.
 
@@ -231,6 +231,7 @@ class TeamExtension(Extension):
     def __init__(
         self,
         agents: list[Any],
+        ephemeral: bool = False,
         max_team_size: int = 5,
         router_timeout: float = 30.0,
     ) -> None:
@@ -240,14 +241,25 @@ class TeamExtension(Extension):
             raise ValueError("max_team_size must be >= 1")
 
         self._agents_by_name: dict[str, Any] = validate_agent_list(agents)
+        self._ephemeral = ephemeral
         self._max_team_size = max_team_size
         self._router_timeout = router_timeout
         self._active_team: ActiveTeam | None = None
+
+        # Placeholder — resolved lazily when parent context is available
+        self._parent_llm_getter: Any = None
 
         # Build tools bound to this extensions instance
         from langchain_agentkit.tools.team import create_team_tools
 
         self._tools = tuple(create_team_tools(self))
+
+    def set_parent_llm_getter(self, getter: Any) -> None:
+        """Set the callable that returns the parent agent's LLM.
+
+        Required for ephemeral team members.
+        """
+        self._parent_llm_getter = getter
 
     @property
     def tools(self) -> list[BaseTool]:
@@ -267,7 +279,7 @@ class TeamExtension(Extension):
         # Build agent roster
         roster_lines = []
         for name, graph in self._agents_by_name.items():
-            desc = getattr(graph, "agentkit_description", "")
+            desc = getattr(graph, "description", "")
             roster_lines.append(f"- **{name}**: {desc}" if desc else f"- **{name}**")
         agent_roster = "\n".join(roster_lines)
 
