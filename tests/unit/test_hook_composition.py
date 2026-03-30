@@ -319,6 +319,59 @@ class TestHookRunnerStateUpdates:
         assert updates == []
 
 
+class TestRunLifecycleHooksWired:
+    """before_run/after_run hooks are wired into the graph via _run_entry/_run_exit nodes."""
+
+    def test_graph_has_run_entry_exit_when_hooks_present(self):
+        """When extensions define before_run/after_run, the graph has lifecycle nodes."""
+        from unittest.mock import MagicMock
+
+        from langchain_agentkit import agent
+
+        log = []
+
+        class LifecycleExtension(Extension):
+            async def before_run(self, state, runtime):
+                log.append("before_run")
+                return None
+
+            async def after_run(self, state, runtime):
+                log.append("after_run")
+                return None
+
+        mock_llm = MagicMock()
+        mock_llm.bind_tools = MagicMock(return_value=mock_llm)
+
+        class my_agent(agent):
+            llm = mock_llm
+            extensions = [LifecycleExtension()]
+
+            async def handler(state, *, llm, prompt):
+                pass
+
+        # my_agent is a StateGraph — check it has the lifecycle nodes
+        assert "_run_entry" in my_agent.nodes
+        assert "_run_exit" in my_agent.nodes
+
+    def test_graph_no_lifecycle_nodes_without_hooks(self):
+        """Without run lifecycle hooks, no extra nodes are added."""
+        from unittest.mock import MagicMock
+
+        from langchain_agentkit import agent
+
+        mock_llm = MagicMock()
+        mock_llm.bind_tools = MagicMock(return_value=mock_llm)
+
+        class my_agent(agent):
+            llm = mock_llm
+
+            async def handler(state, *, llm, prompt):
+                pass
+
+        assert "_run_entry" not in my_agent.nodes
+        assert "_run_exit" not in my_agent.nodes
+
+
 class TestBeforeAfterToolFiltering:
     """Per-tool filtering works on before/after hooks, not just wrap."""
 

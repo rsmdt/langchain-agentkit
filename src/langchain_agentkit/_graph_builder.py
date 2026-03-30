@@ -67,12 +67,17 @@ def build_graph(
     # Build HookRunner from extensions for lifecycle hooks
     hook_runner = HookRunner(extensions_list)
 
+    # Mutable closure for jump_to routing — avoids polluting state schema
+    _jump_target: list[str | None] = [None]
+
     # Resolve which params the handler actually accepts (once, at build time)
     handler_params = inspect.signature(handler).parameters
 
     async def _agent_node(
         state: dict[str, Any], config: RunnableConfig, **kwargs: Any
     ) -> dict[str, Any]:
+        _jump_target[0] = None  # Reset each step
+
         runtime = ToolRuntime(
             state=state,
             context=kwargs.get("context"),
@@ -82,25 +87,21 @@ def build_graph(
             store=kwargs.get("store"),
         )
 
-        # --- before_run hooks (first invocation only) ---
-        # Note: before_run/after_run are run externally by the caller
-        # who manages the full run lifecycle, not per-step here.
-
         # --- before_model hooks ---
         before_updates = await hook_runner.run_before("model", state=state, runtime=runtime)
 
-        # Check for jump_to in before_model results
+        # Check for jump_to routing directive
         for update in before_updates:
             if "jump_to" in update:
-                # Return the update with jump_to for the routing function to handle
-                return update
+                _jump_target[0] = update["jump_to"]
+                return {k: v for k, v in update.items() if k != "jump_to"}
 
         # --- process_history ---
-        messages = state.get("messages", [])
-        messages = hook_runner.run_process_history(list(messages))
+        processed_messages = hook_runner.run_process_history(list(state.get("messages", [])))
+        handler_state = {**state, "messages": processed_messages}
 
         # --- compose prompt and bind tools ---
-        composed_prompt = kit.prompt(state, runtime)
+        composed_prompt = kit.prompt(handler_state, runtime)
         bound_llm = llm.bind_tools(all_tools) if all_tools else llm
 
         available = {
@@ -113,7 +114,7 @@ def build_graph(
 
         # --- wrap_model hooks (onion around handler) ---
         async def _call_handler(request: Any) -> dict[str, Any]:
-            result = handler(state, **inject)
+            result = handler(handler_state, **inject)
             if inspect.isawaitable(result):
                 result = await result
             return result  # type: ignore[no-any-return]
@@ -127,12 +128,10 @@ def build_graph(
         # --- after_model hooks ---
         after_updates = await hook_runner.run_after("model", state=state, runtime=runtime)
 
-        # Merge after_model updates into result if they contain state changes
         if isinstance(result, dict):
             for update in after_updates:
                 if "jump_to" in update:
-                    # Propagate jump_to through the result
-                    result["jump_to"] = update["jump_to"]
+                    _jump_target[0] = update["jump_to"]
                 else:
                     result.update(update)
 
@@ -140,6 +139,46 @@ def build_graph(
 
     _agent_node.__name__ = node_name
     _agent_node.__qualname__ = f"agent.<locals>.{node_name}"
+
+    # --- Run lifecycle nodes ---
+
+    has_run_hooks = (
+        hook_runner._hooks.get(("before", "run"))
+        or hook_runner._hooks.get(("after", "run"))
+        or hook_runner._error_hooks
+    )
+
+    async def _run_entry_node(
+        state: dict[str, Any], config: RunnableConfig, **kwargs: Any
+    ) -> dict[str, Any]:
+        """Run before_run hooks once at graph entry."""
+        runtime = ToolRuntime(
+            state=state, context=kwargs.get("context"), config=config,
+            stream_writer=kwargs.get("stream_writer", lambda _: None),
+            tool_call_id=None, store=kwargs.get("store"),
+        )
+        updates = await hook_runner.run_before("run", state=state, runtime=runtime)
+        result: dict[str, Any] = {}
+        for update in updates:
+            result.update(update)
+        return result
+
+    async def _run_exit_node(
+        state: dict[str, Any], config: RunnableConfig, **kwargs: Any
+    ) -> dict[str, Any]:
+        """Run after_run hooks once before graph ends."""
+        runtime = ToolRuntime(
+            state=state, context=kwargs.get("context"), config=config,
+            stream_writer=kwargs.get("stream_writer", lambda _: None),
+            tool_call_id=None, store=kwargs.get("store"),
+        )
+        updates = await hook_runner.run_after("run", state=state, runtime=runtime)
+        result: dict[str, Any] = {}
+        for update in updates:
+            result.update(update)
+        return result
+
+    # --- Build graph ---
 
     workflow: StateGraph[Any] = StateGraph(state_type)
     workflow.add_node(node_name, _agent_node)  # type: ignore[type-var]
@@ -153,39 +192,75 @@ def build_graph(
 
     has_router = "router" in workflow.nodes
 
+    # Add run lifecycle nodes if any run hooks are registered
+    if has_run_hooks:
+        workflow.add_node("_run_entry", _run_entry_node)
+        workflow.add_node("_run_exit", _run_exit_node)
+
     if all_tools:
-        tool_node_kwargs: dict[str, Any] = {}
-        if wrap_tool_call is not None:
-            tool_node_kwargs["wrap_tool_call"] = wrap_tool_call
-        tool_node = ToolNode(all_tools, **tool_node_kwargs)
+        # Build async tool call wrapper that integrates HookRunner + legacy wrap_tool_call
+        async def _hooked_wrap_tool_call(request: Any, handler: Any) -> Any:
+            tool_name = request.tool_call.get("name", "") if isinstance(request.tool_call, dict) else getattr(request.tool_call, "name", "")
+
+            # --- before_tool hooks ---
+            await hook_runner.run_before("tool", state=request.state, runtime=request.runtime, tool_name=tool_name)
+
+            # --- wrap_tool hooks (onion) + legacy wrap_tool_call ---
+            async def _inner_handler(req: Any) -> Any:
+                if wrap_tool_call is not None:
+                    return wrap_tool_call(req, handler)
+                return await handler(req)
+
+            result = await hook_runner.run_wrap("tool", request=request, handler=_inner_handler, tool_name=tool_name)
+
+            # --- after_tool hooks ---
+            await hook_runner.run_after("tool", state=request.state, runtime=request.runtime, tool_name=tool_name)
+
+            return result
+
+        tool_node = ToolNode(all_tools, awrap_tool_call=_hooked_wrap_tool_call)
         workflow.add_node("tools", tool_node)
 
         def _should_continue(state: dict[str, Any]) -> str:
-            # Check for jump_to routing from hooks
-            jump_to = state.get("jump_to")
-            if jump_to == "end":
-                return END
-            if jump_to == "tools":
+            # Check for jump_to routing from hooks (stored in closure, not state)
+            jump = _jump_target[0]
+            if jump == "end":
+                return "_run_exit" if has_run_hooks else END
+            if jump == "tools":
                 return "tools"
+            if jump == "model":
+                return node_name
 
             last = state["messages"][-1]
             if hasattr(last, "tool_calls") and last.tool_calls:
                 return "tools"
-            return END
+            return "_run_exit" if has_run_hooks else END
 
-        workflow.set_entry_point(node_name)
-        workflow.add_conditional_edges(
-            node_name,
-            _should_continue,
-            {"tools": "tools", END: END},
-        )
+        if has_run_hooks:
+            # START → _run_entry → agent → [tools ⇄ agent]* → _run_exit → END
+            workflow.set_entry_point("_run_entry")
+            workflow.add_edge("_run_entry", node_name)
+            destinations = {"tools": "tools", "_run_exit": "_run_exit", node_name: node_name}
+            workflow.add_conditional_edges(node_name, _should_continue, destinations)
+            workflow.add_edge("_run_exit", END)
+        else:
+            # START → agent → [tools ⇄ agent]* → END
+            workflow.set_entry_point(node_name)
+            destinations = {"tools": "tools", END: END, node_name: node_name}
+            workflow.add_conditional_edges(node_name, _should_continue, destinations)
 
         if has_router:
             workflow.add_edge("tools", "router")
         else:
             workflow.add_edge("tools", node_name)
     else:
-        workflow.set_entry_point(node_name)
-        workflow.add_edge(node_name, END)
+        if has_run_hooks:
+            workflow.set_entry_point("_run_entry")
+            workflow.add_edge("_run_entry", node_name)
+            workflow.add_edge(node_name, "_run_exit")
+            workflow.add_edge("_run_exit", END)
+        else:
+            workflow.set_entry_point(node_name)
+            workflow.add_edge(node_name, END)
 
     return workflow
