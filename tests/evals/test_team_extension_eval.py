@@ -239,11 +239,11 @@ class TestTeamToolsExposed:
         tool_names = sorted(t.name for t in mw.tools)
 
         assert tool_names == [
+            "AgentTeam",
             "AssignTask",
             "CheckTeammates",
             "DissolveTeam",
             "MessageTeammate",
-            "AgentTeam",
         ]
 
 
