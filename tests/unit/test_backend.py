@@ -23,10 +23,13 @@ class TestProtocolChecks:
             backend = OSBackend(tmpdir)
             assert isinstance(backend, BackendProtocol)
 
-    def test_os_backend_is_not_sandbox(self):
+    def test_os_backend_supports_execute(self):
+        """OSBackend now implements the full 6-method protocol including execute."""
         with tempfile.TemporaryDirectory() as tmpdir:
             backend = OSBackend(tmpdir)
-            assert not isinstance(backend, SandboxProtocol)
+            # All backends now support execute (unified protocol)
+            assert isinstance(backend, BackendProtocol)
+            assert hasattr(backend, "execute")
 
 
 # --- OSBackend tests ---

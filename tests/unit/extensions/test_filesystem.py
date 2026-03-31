@@ -34,14 +34,12 @@ class TestConstructor:
     def test_custom_backend(self):
 
         class StubBackend:
-            def ls(self, path): return []
             def read(self, path, offset=0, limit=2000): return ""
             def write(self, path, content): return {"path": path, "bytes_written": 0}
             def edit(self, path, old_string, new_string, replace_all=False): return {"path": path, "replacements": 0}
             def glob(self, pattern, path="/"): return []
-            def grep(self, pattern, path=None, glob=None): return []
-            def exists(self, path): return False
-            def delete(self, path): pass
+            def grep(self, pattern, path=None, glob=None, ignore_case=False): return []
+            def execute(self, command, timeout=None, workdir=None): return {"output": "", "exit_code": 0, "truncated": False}
 
         ext = FilesystemExtension(backend=StubBackend())
 
@@ -55,16 +53,16 @@ class TestConstructor:
 
 
 class TestTools:
-    def test_returns_seven_tools(self):
+    def test_returns_six_tools(self):
         ext = FilesystemExtension()
 
-        assert len(ext.tools) == 7
+        assert len(ext.tools) == 6
 
     def test_tool_names(self):
         ext = FilesystemExtension()
         names = [t.name for t in ext.tools]
 
-        assert names == ["Read", "Write", "Edit", "Glob", "Grep", "LS", "MultiEdit"]
+        assert names == ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 
     def test_read_tool_works(self):
         with tempfile.TemporaryDirectory() as tmpdir:

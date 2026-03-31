@@ -342,88 +342,30 @@ class TestGrepTool:
 # --- LS Tool ---
 
 
-class TestLSTool:
-    def test_lists_files(self):
-        from langchain_agentkit.extensions.filesystem import _build_ls_tool
+class TestBashTool:
+    """Test the Bash tool built by FilesystemExtension."""
 
-        backend, _ = _make_backend_with_files({
-            "/a.txt": "a",
-            "/b.txt": "b",
-        })
-        tool = _build_ls_tool(backend)
-
-        result = tool.invoke({"path": "/"})
-
-        assert "a.txt" in result
-        assert "b.txt" in result
-
-    def test_shows_size(self):
-        from langchain_agentkit.extensions.filesystem import _build_ls_tool
-
-        backend, _ = _make_backend_with_files({"/file.txt": "hello"})
-        tool = _build_ls_tool(backend)
-
-        result = tool.invoke({"path": "/"})
-
-        assert "5 bytes" in result
-
-    def test_shows_directory_indicator(self):
-        from langchain_agentkit.extensions.filesystem import _build_ls_tool
-
-        backend, _ = _make_backend_with_files({"/sub/file.txt": "data"})
-        tool = _build_ls_tool(backend)
-
-        result = tool.invoke({"path": "/"})
-
-        assert "sub/" in result
-
-    def test_empty_directory(self):
-        from langchain_agentkit.extensions.filesystem import _build_ls_tool
+    def test_bash_tool_runs_command(self):
+        from langchain_agentkit.extensions.filesystem import _build_bash_tool
 
         with tempfile.TemporaryDirectory() as tmpdir:
             backend = OSBackend(tmpdir)
-            tool = _build_ls_tool(backend)
+            tool = _build_bash_tool(backend)
 
-            result = tool.invoke({"path": "/"})
+            result = tool.invoke({"command": "echo hello"})
 
-            assert "empty" in result.lower()
+            assert "hello" in result
 
+    def test_bash_tool_returns_exit_code_on_failure(self):
+        from langchain_agentkit.extensions.filesystem import _build_bash_tool
 
-# --- MultiEdit Tool ---
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = OSBackend(tmpdir)
+            tool = _build_bash_tool(backend)
 
+            result = tool.invoke({"command": "exit 1"})
 
-class TestMultiEditTool:
-    def test_applies_multiple_edits(self):
-        from langchain_agentkit.extensions.filesystem import _build_multi_edit_tool
-
-        backend, tmpdir = _make_backend_with_files({"/f.txt": "hello world foo"})
-        tool = _build_multi_edit_tool(backend)
-
-        result = tool.invoke({
-            "file_path": "/f.txt",
-            "edits": [
-                {"old_string": "hello", "new_string": "hi"},
-                {"old_string": "foo", "new_string": "bar"},
-            ],
-        })
-
-        assert "2 replacement(s)" in result
-        assert "2 edit(s)" in result
-        assert (Path(tmpdir) / "f.txt").read_text() == "hi world bar"
-
-    def test_single_edit(self):
-        from langchain_agentkit.extensions.filesystem import _build_multi_edit_tool
-
-        backend, tmpdir = _make_backend_with_files({"/f.txt": "hello world"})
-        tool = _build_multi_edit_tool(backend)
-
-        result = tool.invoke({
-            "file_path": "/f.txt",
-            "edits": [{"old_string": "hello", "new_string": "hi"}],
-        })
-
-        assert "1 replacement(s)" in result
-        assert (Path(tmpdir) / "f.txt").read_text() == "hi world"
+            assert "Exit code 1" in result
 
 
 # --- _strip_line_numbers ---

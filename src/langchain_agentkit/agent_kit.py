@@ -72,18 +72,22 @@ class AgentKit:
     def _wire_extensions(self) -> None:
         """Wire cross-extension callbacks after all extensions are resolved.
 
-        Sets model_resolver and skills_resolver on AgentExtension if present,
-        using the AgentKit's model_resolver and sibling SkillsExtension configs.
+        - Sets model_resolver and skills_resolver on AgentExtension if present.
+        - Detects HITLExtension and notifies FilesystemExtension for permission gating.
         """
         from langchain_agentkit.extensions.agents import AgentExtension
+        from langchain_agentkit.extensions.filesystem import FilesystemExtension
+        from langchain_agentkit.extensions.hitl import HITLExtension
         from langchain_agentkit.extensions.skills import SkillsExtension
 
-        # Find sibling SkillsExtension for skills resolution
+        # Find sibling extensions for cross-wiring
         skills_ext = None
+        has_hitl = False
         for ext in self._extensions:
             if isinstance(ext, SkillsExtension):
                 skills_ext = ext
-                break
+            if isinstance(ext, HITLExtension):
+                has_hitl = True
 
         for ext in self._extensions:
             if isinstance(ext, AgentExtension):
@@ -105,6 +109,10 @@ class AgentKit:
                         return "\n\n".join(parts)
 
                     ext.set_skills_resolver(_resolve_skills)
+
+            # Wire HITL availability into FilesystemExtension for permission gating
+            if isinstance(ext, FilesystemExtension) and has_hitl:
+                ext.set_hitl_available(True)
 
     @staticmethod
     def _resolve_dependencies(extensions: list) -> list:

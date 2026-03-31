@@ -280,9 +280,10 @@ LS_TOOL_DATASET = [
     {
         "description": "Agent lists directory contents when asked",
         "inputs": "What files are in the /data directory?",
+        # LS tool removed — agent uses Glob or Bash to list files
         "reference_trajectory": [
             _assistant_with_tools(
-                _tool_call("LS", path="/data"),
+                _tool_call("Glob"),
             ),
         ],
     },
