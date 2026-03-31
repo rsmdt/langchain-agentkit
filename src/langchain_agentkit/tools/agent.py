@@ -204,12 +204,16 @@ async def _run_delegation(
                 ),
             ],
         })
-    except Exception as exc:
-        error_msg = f"{type(exc).__name__}: {exc}"
+    except Exception:
+        import logging
+
+        logging.getLogger(__name__).exception(
+            "Delegation to '%s' failed", agent,
+        )
         return Command(update={
             "messages": [
                 ToolMessage(
-                    content=f"Delegation failed: {error_msg}",
+                    content=f"Delegation to '{agent}' failed due to an internal error.",
                     tool_call_id=tool_call_id,
                 ),
             ],
@@ -332,6 +336,52 @@ async def _delegate_predefined(
     )
 
 
+def _compile_ephemeral_graph(
+    name: str,
+    llm: Any,
+    prompt: str,
+    tools: list[BaseTool] | None = None,
+    max_turns: int | None = None,
+) -> Any:
+    """Build and compile a minimal ReAct graph for ephemeral/config-based agents.
+
+    Shared by both ``_delegate_agent_config`` and ``_delegate_dynamic``.
+    """
+    from langchain_agentkit._graph_builder import build_graph
+    from langchain_agentkit.agent_kit import AgentKit
+
+    agent_tools = list(tools or [])
+
+    async def _handler(
+        state_inner: dict[str, Any],
+        *,
+        llm: Any,
+        prompt: str,
+        tools: Any = None,
+    ) -> dict[str, Any]:
+        from langchain_core.messages import SystemMessage
+
+        msgs = [SystemMessage(content=prompt)] + list(
+            state_inner.get("messages", [])
+        )
+        response = await llm.ainvoke(msgs)
+        return {"messages": [response], "sender": name}
+
+    kit = AgentKit([], prompt=prompt)
+    graph = build_graph(
+        name=name,
+        handler=_handler,
+        llm=llm,
+        user_tools=agent_tools,
+        kit=kit,
+        state_type=AgentKitState,
+    )
+    compile_kwargs: dict[str, Any] = {}
+    if max_turns is not None:
+        compile_kwargs["recursion_limit"] = max_turns * 2
+    return graph.compile(**compile_kwargs)
+
+
 async def _delegate_agent_config(
     agent_config: Any,
     message: str,
@@ -368,42 +418,16 @@ async def _delegate_agent_config(
         if skill_content:
             prompt = prompt + "\n\n" + skill_content
 
-    from langchain_agentkit._graph_builder import build_graph
-    from langchain_agentkit.agent_kit import AgentKit
-
     agent_name = agent_config.name
 
-    async def _def_handler(
-        state_inner: dict[str, Any],
-        *,
-        llm: Any,
-        prompt: str,
-        tools: Any = None,
-    ) -> dict[str, Any]:
-        from langchain_core.messages import SystemMessage
-
-        msgs = [SystemMessage(content=prompt)] + list(
-            state_inner.get("messages", [])
-        )
-        response = await llm.ainvoke(msgs)
-        return {"messages": [response], "sender": agent_name}
-
     try:
-        kit = AgentKit([], prompt=prompt)
-        graph = build_graph(
+        compiled = _compile_ephemeral_graph(
             name=agent_name,
-            handler=_def_handler,
             llm=llm,
-            user_tools=agent_tools,
-            kit=kit,
-            state_type=AgentKitState,
+            prompt=prompt,
+            tools=agent_tools,
+            max_turns=agent_config.max_turns,
         )
-        # Apply max_turns as recursion limit (each turn ≈ 2 recursions)
-        recursion_limit = agent_config.max_turns * 2 if agent_config.max_turns else None
-        compile_kwargs: dict[str, Any] = {}
-        if recursion_limit is not None:
-            compile_kwargs["recursion_limit"] = recursion_limit
-        compiled = graph.compile(**compile_kwargs)
     except Exception as exc:
         raise ToolException(
             f"Failed to create agent '{agent_name}': {exc}"
@@ -437,34 +461,12 @@ async def _delegate_dynamic(
     llm = parent_llm_getter()
     ephemeral_name = "dynamic"
 
-    from langchain_agentkit._graph_builder import build_graph
-    from langchain_agentkit.agent_kit import AgentKit
-
-    async def _ephemeral_handler(
-        state_inner: dict[str, Any],
-        *,
-        llm: Any,
-        prompt: str,
-    ) -> dict[str, Any]:
-        from langchain_core.messages import SystemMessage
-
-        msgs = [SystemMessage(content=prompt)] + list(
-            state_inner.get("messages", [])
-        )
-        response = await llm.ainvoke(msgs)
-        return {"messages": [response], "sender": ephemeral_name}
-
     try:
-        kit = AgentKit([], prompt=prompt)
-        graph = build_graph(
+        compiled = _compile_ephemeral_graph(
             name=ephemeral_name,
-            handler=_ephemeral_handler,
             llm=llm,
-            user_tools=[],
-            kit=kit,
-            state_type=AgentKitState,
+            prompt=prompt,
         )
-        compiled = graph.compile()
     except Exception as exc:
         raise ToolException(
             f"Failed to create dynamic agent: {exc}"
