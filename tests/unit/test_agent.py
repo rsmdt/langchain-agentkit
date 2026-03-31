@@ -151,7 +151,7 @@ class TestAgentMetaclass:
         from langgraph.graph import StateGraph
 
         from langchain_agentkit.extensions.skills import SkillsExtension
-        from langchain_agentkit.types import SkillConfig
+        from langchain_agentkit.extensions.skills.types import SkillConfig
 
         mock_llm = MagicMock()
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)

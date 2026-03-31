@@ -19,6 +19,3 @@ from langchain_agentkit.backends.protocol import (
     GrepMatch as GrepMatch,
     WriteResult as WriteResult,
 )
-
-# Legacy protocol — kept for backward compat
-SandboxProtocol = BackendProtocol  # All backends now support execute()

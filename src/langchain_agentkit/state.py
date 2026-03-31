@@ -5,7 +5,8 @@ Extensions add state keys via mixins (e.g., ``TasksState``, ``TeamState``).
 
 Usage::
 
-    from langchain_agentkit.state import AgentKitState, TasksState
+    from langchain_agentkit.state import AgentKitState
+    from langchain_agentkit.extensions.tasks.state import TasksState
 
     # Compose manually
     class MyState(AgentKitState, TasksState):
@@ -38,9 +39,3 @@ class AgentKitState(TypedDict, total=False):
     messages: Annotated[list[Any], add_messages]
     sender: str
     _agentkit_jump_to: Annotated[str | None, _last_writer_wins]
-
-
-# Re-export extension state schemas from their canonical locations.
-# This preserves backward compat for `from langchain_agentkit.state import TasksState`.
-from langchain_agentkit.extensions.tasks.state import TasksState as TasksState  # noqa: E402
-from langchain_agentkit.extensions.teams.state import TeamState as TeamState  # noqa: E402

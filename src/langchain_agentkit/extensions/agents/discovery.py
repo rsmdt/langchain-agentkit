@@ -23,20 +23,15 @@ def _parse_comma_list(value: Any) -> list[str] | None:
     return [s.strip() for s in raw.split(",") if s.strip()]
 
 
-def _validate_name(name: str) -> str | None:
-    """Validate a dasherized name. Returns error message or None if valid."""
-    from langchain_agentkit.extensions.skills.discovery import validate_name
-
-    return validate_name(name)
-
-
 def _agent_config_from_metadata(
     metadata: dict[str, Any],
     content: str,
 ) -> AgentConfig | None:
     """Parse an AgentConfig from frontmatter metadata and body content."""
+    from langchain_agentkit.extensions.skills.discovery import validate_name
+
     name = metadata.get("name", "")
-    if not name or _validate_name(name) is not None:
+    if not name or validate_name(name) is not None:
         return None
 
     max_turns_raw = metadata.get("maxTurns")
@@ -55,11 +50,11 @@ def _agent_config_from_metadata(
 
 def _strip_line_numbers(formatted: str) -> str:
     """Strip line-number prefixes from BackendProtocol.read() output."""
-    lines = []
-    for line in formatted.splitlines(keepends=True):
-        _, _, content = line.partition("\t")
-        lines.append(content)
-    return "".join(lines)
+    from langchain_agentkit.extensions.skills.discovery import (
+        _strip_line_numbers as _impl,
+    )
+
+    return _impl(formatted)
 
 
 def discover_agents_from_directory(path: Path) -> list[AgentConfig]:

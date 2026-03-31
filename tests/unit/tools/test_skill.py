@@ -1,7 +1,7 @@
 """Tests for build_skill_tool."""
 
-from langchain_agentkit.tools.skill import build_skill_tool
-from langchain_agentkit.types import SkillConfig
+from langchain_agentkit.extensions.skills.tools import build_skill_tool
+from langchain_agentkit.extensions.skills.types import SkillConfig
 
 
 def _make_configs() -> list[SkillConfig]:

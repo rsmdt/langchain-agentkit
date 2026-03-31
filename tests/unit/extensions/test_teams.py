@@ -8,7 +8,7 @@ from langchain_agentkit.extensions.teams import (
     TeamExtension,
     TeamMessageBus,
 )
-from langchain_agentkit.state import TeamState
+from langchain_agentkit.extensions.teams.state import TeamState
 
 
 def _make_mock_agent(name: str, description: str = "") -> MagicMock:

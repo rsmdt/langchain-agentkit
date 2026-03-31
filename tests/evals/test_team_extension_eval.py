@@ -256,7 +256,7 @@ class TestTeamStateSchema:
     """Verify state_schema returns TeamState."""
 
     def test_team_state_schema(self):
-        from langchain_agentkit.state import TeamState
+        from langchain_agentkit.extensions.teams.state import TeamState
 
         worker = _build_worker()
         mw = TeamExtension([worker])

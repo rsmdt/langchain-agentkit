@@ -2,7 +2,7 @@
 
 import pytest
 
-from langchain_agentkit.types import SkillConfig
+from langchain_agentkit.extensions.skills.types import SkillConfig
 
 
 class TestSkillConfig:

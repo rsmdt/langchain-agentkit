@@ -4,7 +4,7 @@ import tempfile
 from pathlib import Path
 
 from langchain_agentkit.backend import OSBackend
-from langchain_agentkit.tools.filesystem import create_filesystem_tools
+from langchain_agentkit.extensions.filesystem.tools import create_filesystem_tools
 
 
 def _make_backend_with_files(files: dict[str, str]) -> tuple[OSBackend, str]:

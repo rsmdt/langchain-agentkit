@@ -9,7 +9,6 @@ import pytest
 from langchain_agentkit.backend import (
     BackendProtocol,
     OSBackend,
-    SandboxProtocol,
 )
 
 # --- Protocol tests ---
