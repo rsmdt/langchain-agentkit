@@ -33,7 +33,6 @@ from langchain_agentkit.extension import Extension
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from langgraph.prebuilt import ToolRuntime
 
 _PROMPT_FILE = Path(__file__).parent / "prompt.md"
 
@@ -77,7 +76,7 @@ class DuckDuckGoSearchProvider(BaseTool):
             {"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
         )
         url = f"https://api.duckduckgo.com/?{params}"
-        request = urllib.request.Request(url, headers=self.headers)
+        request = urllib.request.Request(url, headers=self.headers)  # type: ignore[arg-type]
         with urllib.request.urlopen(request, timeout=10) as response:
             data = json.loads(response.read().decode())
 
@@ -148,7 +147,7 @@ class QwantSearchProvider(BaseTool):
             },
         )
         url = f"https://api.qwant.com/v3/search/web?{params}"
-        request = urllib.request.Request(url, headers=self.headers)
+        request = urllib.request.Request(url, headers=self.headers)  # type: ignore[arg-type]
         with urllib.request.urlopen(request, timeout=10) as response:
             data = json.loads(response.read().decode())
         items = data.get("data", {}).get("result", {}).get("items", [])
@@ -166,7 +165,6 @@ class QwantSearchProvider(BaseTool):
         """Async version — runs sync in executor."""
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._run, query)
-
 
 
 class _WebSearchTool(BaseTool):
@@ -272,7 +270,7 @@ class WebSearchExtension(Extension):
         """Returns [WebSearch] — same list object on every access."""
         return self._tools
 
-    def prompt(self, state: dict[str, Any], runtime: ToolRuntime) -> str | None:
+    def prompt(self, state: dict[str, Any], runtime: Any | None = None) -> str | None:
         """Search guidance listing configured provider names."""
         provider_names = ", ".join(p.name for p in self._providers)
         return self._prompt_template.format(provider_names=provider_names)

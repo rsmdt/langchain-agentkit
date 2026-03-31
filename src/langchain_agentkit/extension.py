@@ -66,7 +66,7 @@ class Extension:
     # --- Required protocol (with defaults) ---
 
     @property
-    def tools(self) -> list:
+    def tools(self) -> list[Any]:
         """Tools this extension provides to the agent."""
         return []
 

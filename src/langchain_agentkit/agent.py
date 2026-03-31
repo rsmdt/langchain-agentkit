@@ -95,6 +95,7 @@ def _validate_handler_signature(
 
     return state_type
 
+
 # Valid injectable parameter names for handler (besides 'state')
 _INJECTABLE_PARAMS = frozenset({"llm", "tools", "prompt", "runtime"})
 
@@ -201,11 +202,11 @@ class _AgentMeta(type):
         )
 
         # Attach metadata
-        graph.name = name  # type: ignore[attr-defined]
-        graph.description = description  # type: ignore[attr-defined]
-        graph.tools_inherit = tools_inherit  # type: ignore[attr-defined]
-        graph.skills = skills  # type: ignore[attr-defined]
-        graph.max_turns = max_turns  # type: ignore[attr-defined]
+        graph.name = name
+        graph.description = description
+        graph.tools_inherit = tools_inherit
+        graph.skills = skills
+        graph.max_turns = max_turns
 
         return graph
 

@@ -1,4 +1,4 @@
-# ruff: noqa: N801
+# ruff: noqa: N801, N805
 """Real-LLM integration evals for AgentExtension delegation pipeline.
 
 Tests exercise the FULL compiled graph flow: lead agent receives a message,
@@ -138,9 +138,7 @@ class TestDelegationFullFlow:
         lead = _build_lead_with_extension(mw)
 
         graph = lead.compile()
-        result = await graph.ainvoke(
-            {"messages": [HumanMessage(content="What is 2+2?")]}
-        )
+        result = await graph.ainvoke({"messages": [HumanMessage(content="What is 2+2?")]})
 
         final = result["messages"][-1].content
         assert "4" in final, f"Expected '4' in final response, got: {final}"
@@ -152,9 +150,7 @@ class TestDelegationFullFlow:
         lead = _build_lead_with_extension(mw)
 
         graph = lead.compile()
-        result = await graph.ainvoke(
-            {"messages": [HumanMessage(content="What is 7 times 8?")]}
-        )
+        result = await graph.ainvoke({"messages": [HumanMessage(content="What is 7 times 8?")]})
 
         final = result["messages"][-1].content
         assert "56" in final, f"Expected '56' in final response, got: {final}"
@@ -176,9 +172,7 @@ class TestMultiAgentDelegation:
         lead = _build_lead_with_extension(mw)
 
         graph = lead.compile()
-        result = await graph.ainvoke(
-            {"messages": [HumanMessage(content="What is 3+5?")]}
-        )
+        result = await graph.ainvoke({"messages": [HumanMessage(content="What is 3+5?")]})
 
         assert "8" in result["messages"][-1].content
 
@@ -217,9 +211,7 @@ class TestDynamicDelegation:
                 return {"messages": [response], "sender": "dynamic_lead"}
 
         graph = dynamic_lead.compile()
-        result = await graph.ainvoke(
-            {"messages": [HumanMessage(content="Write about the ocean")]}
-        )
+        result = await graph.ainvoke({"messages": [HumanMessage(content="Write about the ocean")]})
 
         final = result["messages"][-1].content
         assert final, "Expected non-empty response from dynamic delegation"
@@ -241,11 +233,13 @@ class TestScopedContext:
 
         graph = lead.compile()
 
-        result = await graph.ainvoke({
-            "messages": [
-                HumanMessage(content="What is 9+1?"),
-            ],
-        })
+        result = await graph.ainvoke(
+            {
+                "messages": [
+                    HumanMessage(content="What is 9+1?"),
+                ],
+            }
+        )
 
         final = result["messages"][-1].content
         assert "10" in final, f"Expected '10' in final response, got: {final}"

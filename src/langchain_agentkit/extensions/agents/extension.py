@@ -49,7 +49,7 @@ def _validate_agent_list(agents: list[Any]) -> dict[str, Any]:
     if len(set(names)) != len(names):
         dupes = [n for n in names if names.count(n) > 1]
         raise ValueError(f"Duplicate agent names: {set(dupes)}")
-    return {name: agent for name, agent in zip(names, agents, strict=True)}
+    return {name: agent for name, agent in zip(names, agents, strict=True)}  # type: ignore[misc]
 
 
 def _resolve_agent(agent_name: str, agents_by_name: dict[str, Any]) -> Any:
@@ -60,7 +60,9 @@ def _resolve_agent(agent_name: str, agents_by_name: dict[str, Any]) -> Any:
 
     if agent_name not in agents_by_name:
         logging.getLogger(__name__).warning(
-            "Agent '%s' not found. Registered: %s", agent_name, sorted(agents_by_name.keys()),
+            "Agent '%s' not found. Registered: %s",
+            agent_name,
+            sorted(agents_by_name.keys()),
         )
         raise ToolException(
             f"Agent '{agent_name}' not found. Check the agent roster for available names."
@@ -94,9 +96,7 @@ class AgentExtension(Extension):
         if isinstance(agents, list):
             wrapped = _wrap_agents(agents)
             self._agents_by_name: dict[str, Any] = _validate_agent_list(wrapped)
-            self._has_config_agents = any(
-                isinstance(a, _AgentConfigProxy) for a in wrapped
-            )
+            self._has_config_agents = any(isinstance(a, _AgentConfigProxy) for a in wrapped)
         elif isinstance(agents, (str, Path)):
             if backend is not None:
                 defs = discover_agents_from_backend(backend, str(agents))
@@ -139,7 +139,7 @@ class AgentExtension(Extension):
                 lambda name: self._model_resolver(name) if self._model_resolver else None
             ),
             skills_resolver=(
-                lambda names: self._skills_resolver(names) if self._skills_resolver else None
+                lambda names: self._skills_resolver(names) if self._skills_resolver else None  # type: ignore[arg-type, return-value]
             ),
             resolve_agent_fn=_resolve_agent,
         )
@@ -162,7 +162,7 @@ class AgentExtension(Extension):
 
     @property
     def tools(self) -> list[BaseTool]:
-        return self._tools
+        return self._tools  # type: ignore[return-value]
 
     def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
         roster_lines = []
@@ -172,7 +172,8 @@ class AgentExtension(Extension):
         roster = "\n".join(roster_lines)
         dynamic_section = _DYNAMIC_SECTION if self._ephemeral else ""
         result = _agent_delegation_template.format(
-            agent_roster=roster, dynamic_section=dynamic_section,
+            agent_roster=roster,
+            dynamic_section=dynamic_section,
         )
         if self._default_conciseness:
             result += _CONCISENESS_DIRECTIVE

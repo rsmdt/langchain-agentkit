@@ -1,4 +1,4 @@
-# ruff: noqa: N801
+# ruff: noqa: N801, N805
 """Real-LLM integration evals for TeamExtension coordination.
 
 Tests exercise the FULL compiled graph flow: lead agent receives a message,

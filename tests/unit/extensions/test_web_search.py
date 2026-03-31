@@ -107,7 +107,6 @@ class TestDuckDuckGoSearchProviderStandalone:
         assert Imported is DuckDuckGoSearchProvider
 
 
-
 class TestQwantSearchProviderStandalone:
     def test_is_base_tool(self):
         tool = QwantSearchProvider()

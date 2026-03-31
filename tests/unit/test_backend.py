@@ -234,6 +234,7 @@ class TestOSBackend:
 
     def test_symlink_inside_root_allowed(self):
         import os
+
         with tempfile.TemporaryDirectory() as tmpdir:
             backend = OSBackend(tmpdir)
             backend.write("/real.txt", "content")
@@ -246,6 +247,7 @@ class TestOSBackend:
 
     def test_symlink_outside_root_blocked(self):
         import os
+
         with tempfile.TemporaryDirectory() as tmpdir:
             backend = OSBackend(tmpdir)
             # Create symlink pointing outside root

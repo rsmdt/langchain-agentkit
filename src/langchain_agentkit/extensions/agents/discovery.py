@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 from langchain_agentkit.extensions.agents.types import AgentConfig
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from langchain_agentkit.backends.protocol import BackendProtocol
 
 

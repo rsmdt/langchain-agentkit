@@ -15,10 +15,13 @@ All support per-tool filtering via the ``tools`` parameter::
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 
-def before(point: str, *, tools: list[str] | None = None) -> Callable:
+def before(point: str, *, tools: list[str] | None = None) -> Callable[..., Any]:
     """Mark a method as a before-hook for the given point.
 
     Args:
@@ -26,7 +29,7 @@ def before(point: str, *, tools: list[str] | None = None) -> Callable:
         tools: Optional list of tool names to filter on (tool hooks only).
     """
 
-    def decorator(fn: Callable) -> Callable:
+    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         fn._hook_phase = "before"  # type: ignore[attr-defined]
         fn._hook_point = point  # type: ignore[attr-defined]
         fn._hook_tool_filter = tools  # type: ignore[attr-defined]
@@ -35,7 +38,7 @@ def before(point: str, *, tools: list[str] | None = None) -> Callable:
     return decorator
 
 
-def after(point: str, *, tools: list[str] | None = None) -> Callable:
+def after(point: str, *, tools: list[str] | None = None) -> Callable[..., Any]:
     """Mark a method as an after-hook for the given point.
 
     Args:
@@ -43,7 +46,7 @@ def after(point: str, *, tools: list[str] | None = None) -> Callable:
         tools: Optional list of tool names to filter on (tool hooks only).
     """
 
-    def decorator(fn: Callable) -> Callable:
+    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         fn._hook_phase = "after"  # type: ignore[attr-defined]
         fn._hook_point = point  # type: ignore[attr-defined]
         fn._hook_tool_filter = tools  # type: ignore[attr-defined]
@@ -52,7 +55,7 @@ def after(point: str, *, tools: list[str] | None = None) -> Callable:
     return decorator
 
 
-def wrap(point: str, *, tools: list[str] | None = None) -> Callable:
+def wrap(point: str, *, tools: list[str] | None = None) -> Callable[..., Any]:
     """Mark a method as an onion-style wrapper for the given point.
 
     Args:
@@ -60,7 +63,7 @@ def wrap(point: str, *, tools: list[str] | None = None) -> Callable:
         tools: Optional list of tool names to filter on (tool hooks only).
     """
 
-    def decorator(fn: Callable) -> Callable:
+    def decorator(fn: Callable[..., Any]) -> Callable[..., Any]:
         fn._hook_phase = "wrap"  # type: ignore[attr-defined]
         fn._hook_point = point  # type: ignore[attr-defined]
         fn._hook_tool_filter = tools  # type: ignore[attr-defined]

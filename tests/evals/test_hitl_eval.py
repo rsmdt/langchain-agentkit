@@ -241,9 +241,7 @@ class TestDirectActionEval:
         for r in results:
             assert r["score"], _fail_msg(r)
             # Verify ask_user was NOT called for clear requests
-            ask_user_calls = [
-                tc for tc in r["actual_tool_calls"] if tc["name"] == "ask_user"
-            ]
+            ask_user_calls = [tc for tc in r["actual_tool_calls"] if tc["name"] == "ask_user"]
             assert not ask_user_calls, (
                 f"ask_user should not be called for clear requests, "
                 f"but was called: {ask_user_calls}"
@@ -286,9 +284,9 @@ class TestToolApprovalApproveFlow:
         messages = result["messages"]
         tool_messages = [m for m in messages if isinstance(m, ToolMessage)]
         assert tool_messages, "Tool should have executed after approval"
-        assert any(
-            "Successfully wrote" in m.content for m in tool_messages
-        ), f"Expected success message, got: {[m.content for m in tool_messages]}"
+        assert any("Successfully wrote" in m.content for m in tool_messages), (
+            f"Expected success message, got: {[m.content for m in tool_messages]}"
+        )
 
 
 class TestToolApprovalRejectFlow:
@@ -331,6 +329,6 @@ class TestToolApprovalRejectFlow:
             f"{[(m.content, m.status) for m in tool_messages]}"
         )
         # Tool should NOT have "Successfully wrote" in any message
-        assert not any(
-            "Successfully wrote" in m.content for m in tool_messages
-        ), "Tool should not have executed after rejection"
+        assert not any("Successfully wrote" in m.content for m in tool_messages), (
+            "Tool should not have executed after rejection"
+        )

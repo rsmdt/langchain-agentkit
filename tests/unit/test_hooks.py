@@ -65,9 +65,11 @@ class TestDecorators:
     def test_valid_points(self):
         """All valid hook points should work without error."""
         for point in ("run", "model", "tool"):
+
             @before(point)
             async def hook(self, state, runtime):
                 pass
+
             assert hook._hook_point == point
 
 
@@ -168,7 +170,7 @@ class TestExtensionNamedMethods:
         hooks = MyExt._get_named_hooks()
         assert ("wrap", "tool") in hooks
 
-    def test_discovers_all_named_hooks(self):
+    def test_discovers_all_named_hooks(self):  # noqa: C901
         class FullExt(Extension):
             async def before_run(self, state, runtime):
                 return None
@@ -199,9 +201,15 @@ class TestExtensionNamedMethods:
 
         hooks = FullExt._get_named_hooks()
         expected = [
-            ("before", "run"), ("after", "run"), ("on_error", "run"),
-            ("before", "model"), ("after", "model"), ("wrap", "model"),
-            ("before", "tool"), ("after", "tool"), ("wrap", "tool"),
+            ("before", "run"),
+            ("after", "run"),
+            ("on_error", "run"),
+            ("before", "model"),
+            ("after", "model"),
+            ("wrap", "model"),
+            ("before", "tool"),
+            ("after", "tool"),
+            ("wrap", "tool"),
         ]
         for key in expected:
             assert key in hooks, f"Missing named hook: {key}"
@@ -310,9 +318,12 @@ class TestExtensionProtocol:
 
     def test_process_history_optional(self):
         """process_history is optional — not present by default."""
+
         class MyExt(Extension):
             pass
 
         ext = MyExt()
-        assert not hasattr(ext.__class__, "process_history") or \
-            getattr(ext.__class__, "process_history", None) is None
+        assert (
+            not hasattr(ext.__class__, "process_history")
+            or getattr(ext.__class__, "process_history", None) is None
+        )

@@ -31,20 +31,21 @@ from langchain_core.tools import StructuredTool, ToolException
 from pydantic import BaseModel, Field
 
 from langchain_agentkit.backends.os import OSBackend
-from langchain_agentkit.backends.protocol import BackendProtocol
 from langchain_agentkit.extension import Extension
+from langchain_agentkit.extensions.filesystem.tools import create_filesystem_tools
 from langchain_agentkit.permissions.types import (
     PermissionOperation,
     PermissionRuleset,
     check_permission,
 )
-from langchain_agentkit.extensions.filesystem.tools import create_filesystem_tools
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
+
+    from langchain_agentkit.backends.protocol import BackendProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -255,7 +256,7 @@ def _wrap_with_permission_check(
     Returns a new StructuredTool that checks permissions before
     delegating to the original tool.
     """
-    original_func = tool.func
+    original_func = tool.func  # type: ignore[attr-defined]
 
     def _checked(**kwargs: Any) -> Any:
         target = kwargs.get(target_arg, "*")
@@ -275,17 +276,17 @@ def _wrap_with_permission_check(
             # HITL available — use LangGraph interrupt for human approval
             from langgraph.types import interrupt
 
-            decision = interrupt({
-                "operation": operation,
-                "target": target,
-                "tool": tool.name,
-                "message": f"Agent wants to {operation} '{target}'. Approve?",
-            })
+            decision = interrupt(
+                {
+                    "operation": operation,
+                    "target": target,
+                    "tool": tool.name,
+                    "message": f"Agent wants to {operation} '{target}'. Approve?",
+                }
+            )
 
             decision_type = (
-                decision.get("type", "reject")
-                if isinstance(decision, dict)
-                else "reject"
+                decision.get("type", "reject") if isinstance(decision, dict) else "reject"
             )
 
             if decision_type == "approve":

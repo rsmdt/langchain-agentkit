@@ -5,10 +5,10 @@ import typing
 from langchain_agentkit.agent_kit import AgentKit
 from langchain_agentkit.extensions.filesystem import FilesystemExtension
 from langchain_agentkit.extensions.skills import SkillsExtension
-from langchain_agentkit.extensions.tasks import TasksExtension
-from langchain_agentkit.state import AgentKitState
-from langchain_agentkit.extensions.tasks.state import TasksState
 from langchain_agentkit.extensions.skills.types import SkillConfig
+from langchain_agentkit.extensions.tasks import TasksExtension
+from langchain_agentkit.extensions.tasks.state import TasksState
+from langchain_agentkit.state import AgentKitState
 
 
 class TestAgentKitState:
@@ -38,9 +38,15 @@ class TestAgentKitStateSchema:
         assert kit.state_schema is AgentKitState
 
     def test_skills_only_returns_base(self):
-        kit = AgentKit([SkillsExtension(skills=[
-                SkillConfig(name="test", description="test", prompt="test"),
-            ])])
+        kit = AgentKit(
+            [
+                SkillsExtension(
+                    skills=[
+                        SkillConfig(name="test", description="test", prompt="test"),
+                    ]
+                )
+            ]
+        )
 
         schema = kit.state_schema
         annotations = typing.get_type_hints(schema, include_extras=True)
@@ -76,9 +82,11 @@ class TestAgentKitStateSchema:
     def test_multiple_extensions_compose(self):
         kit = AgentKit(
             [
-                SkillsExtension(skills=[
-                SkillConfig(name="test", description="test", prompt="test"),
-            ]),
+                SkillsExtension(
+                    skills=[
+                        SkillConfig(name="test", description="test", prompt="test"),
+                    ]
+                ),
                 TasksExtension(),
                 FilesystemExtension(),
             ]

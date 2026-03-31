@@ -14,9 +14,12 @@ from langchain_agentkit.extensions.tasks.tools import (
 )
 
 __all__ = [
+    "BASE_AGENT_PROMPT",
+    "TASK_MANAGEMENT_PROMPT",
     "Task",
     "TaskStatus",
     "TasksExtension",
     "TasksState",
     "create_task_tools",
+    "format_task_context",
 ]

@@ -13,7 +13,6 @@ from typing import TYPE_CHECKING, Any
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode, ToolRuntime
 
-from langchain_agentkit.agent_kit import AgentKit
 from langchain_agentkit.hook_runner import HookRunner
 from langchain_agentkit.state import AgentKitState
 
@@ -21,6 +20,8 @@ if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
     from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
+
+    from langchain_agentkit.agent_kit import AgentKit
 
 
 def _find_wrap_tool_call(
@@ -45,7 +46,7 @@ def _find_wrap_tool_call(
     return wrap_tool_call
 
 
-def build_graph(
+def build_graph(  # noqa: C901
     name: str,
     handler: Any,
     llm: BaseChatModel,
@@ -161,9 +162,12 @@ def build_graph(
     ) -> dict[str, Any]:
         """Run before_run hooks once at graph entry."""
         runtime = ToolRuntime(
-            state=state, context=kwargs.get("context"), config=config,
+            state=state,
+            context=kwargs.get("context"),
+            config=config,
             stream_writer=kwargs.get("stream_writer", lambda _: None),
-            tool_call_id=None, store=kwargs.get("store"),
+            tool_call_id=None,
+            store=kwargs.get("store"),
         )
         updates = await hook_runner.run_before("run", state=state, runtime=runtime)
         result: dict[str, Any] = {}
@@ -176,9 +180,12 @@ def build_graph(
     ) -> dict[str, Any]:
         """Run after_run hooks once before graph ends."""
         runtime = ToolRuntime(
-            state=state, context=kwargs.get("context"), config=config,
+            state=state,
+            context=kwargs.get("context"),
+            config=config,
             stream_writer=kwargs.get("stream_writer", lambda _: None),
-            tool_call_id=None, store=kwargs.get("store"),
+            tool_call_id=None,
+            store=kwargs.get("store"),
         )
         updates = await hook_runner.run_after("run", state=state, runtime=runtime)
         result: dict[str, Any] = {}
@@ -202,16 +209,25 @@ def build_graph(
 
     # Add run lifecycle nodes if any run hooks are registered
     if has_run_hooks:
-        workflow.add_node("_run_entry", _run_entry_node)
-        workflow.add_node("_run_exit", _run_exit_node)
+        workflow.add_node("_run_entry", _run_entry_node)  # type: ignore[type-var]
+        workflow.add_node("_run_exit", _run_exit_node)  # type: ignore[type-var]
 
     if all_tools:
         # Build async tool call wrapper that integrates HookRunner + legacy wrap_tool_call
         async def _hooked_wrap_tool_call(request: Any, handler: Any) -> Any:
-            tool_name = request.tool_call.get("name", "") if isinstance(request.tool_call, dict) else getattr(request.tool_call, "name", "")
+            tool_name = (
+                request.tool_call.get("name", "")
+                if isinstance(request.tool_call, dict)
+                else getattr(request.tool_call, "name", "")
+            )
 
             # --- before_tool hooks ---
-            await hook_runner.run_before("tool", state=request.state, runtime=request.runtime, tool_name=tool_name)
+            await hook_runner.run_before(
+                "tool",
+                state=request.state,
+                runtime=request.runtime,
+                tool_name=tool_name,
+            )
 
             # --- wrap_tool hooks (onion) + legacy wrap_tool_call ---
             async def _inner_handler(req: Any) -> Any:
@@ -219,10 +235,20 @@ def build_graph(
                     return wrap_tool_call(req, handler)
                 return await handler(req)
 
-            result = await hook_runner.run_wrap("tool", request=request, handler=_inner_handler, tool_name=tool_name)
+            result = await hook_runner.run_wrap(
+                "tool",
+                request=request,
+                handler=_inner_handler,
+                tool_name=tool_name,
+            )
 
             # --- after_tool hooks ---
-            await hook_runner.run_after("tool", state=request.state, runtime=request.runtime, tool_name=tool_name)
+            await hook_runner.run_after(
+                "tool",
+                state=request.state,
+                runtime=request.runtime,
+                tool_name=tool_name,
+            )
 
             return result
 
@@ -252,13 +278,21 @@ def build_graph(
             workflow.set_entry_point("_run_entry")
             workflow.add_edge("_run_entry", node_name)
             destinations = {"tools": "tools", "_run_exit": "_run_exit", node_name: node_name}
-            workflow.add_conditional_edges(node_name, _should_continue, destinations)
+            workflow.add_conditional_edges(
+                node_name,
+                _should_continue,
+                destinations,  # type: ignore[arg-type]
+            )
             workflow.add_edge("_run_exit", END)
         else:
             # START → agent → [tools ⇄ agent]* → END
             workflow.set_entry_point(node_name)
             destinations = {"tools": "tools", END: END, node_name: node_name}
-            workflow.add_conditional_edges(node_name, _should_continue, destinations)
+            workflow.add_conditional_edges(
+                node_name,
+                _should_continue,
+                destinations,  # type: ignore[arg-type]
+            )
 
         if has_router:
             workflow.add_edge("tools", "router")

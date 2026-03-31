@@ -3,7 +3,6 @@
 import tempfile
 from pathlib import Path
 
-import pytest
 from langgraph.prebuilt import ToolRuntime
 
 from langchain_agentkit.backend import BackendProtocol, OSBackend
@@ -34,12 +33,23 @@ class TestConstructor:
     def test_custom_backend(self):
 
         class StubBackend:
-            def read(self, path, offset=0, limit=2000): return ""
-            def write(self, path, content): return {"path": path, "bytes_written": 0}
-            def edit(self, path, old_string, new_string, replace_all=False): return {"path": path, "replacements": 0}
-            def glob(self, pattern, path="/"): return []
-            def grep(self, pattern, path=None, glob=None, ignore_case=False): return []
-            def execute(self, command, timeout=None, workdir=None): return {"output": "", "exit_code": 0, "truncated": False}
+            def read(self, path, offset=0, limit=2000):
+                return ""
+
+            def write(self, path, content):
+                return {"path": path, "bytes_written": 0}
+
+            def edit(self, path, old_string, new_string, replace_all=False):
+                return {"path": path, "replacements": 0}
+
+            def glob(self, pattern, path="/"):
+                return []
+
+            def grep(self, pattern, path=None, glob=None, ignore_case=False):
+                return []
+
+            def execute(self, command, timeout=None, workdir=None):
+                return {"output": "", "exit_code": 0, "truncated": False}
 
         ext = FilesystemExtension(backend=StubBackend())
 

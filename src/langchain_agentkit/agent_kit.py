@@ -69,7 +69,7 @@ class AgentKit:
         self._model_resolver = model_resolver
         self._wire_extensions()
 
-    def _wire_extensions(self) -> None:
+    def _wire_extensions(self) -> None:  # noqa: C901
         """Wire cross-extension callbacks after all extensions are resolved.
 
         - Sets model_resolver and skills_resolver on AgentExtension if present.
@@ -98,7 +98,7 @@ class AgentKit:
 
                     def _resolve_skills(
                         names: list[str],
-                        _configs: list = configs,
+                        _configs: list[Any] = configs,
                     ) -> str:
                         index = {c.name: c for c in _configs}
                         parts = []
@@ -115,7 +115,7 @@ class AgentKit:
                 ext.set_hitl_available(True)
 
     @staticmethod
-    def _resolve_dependencies(extensions: list) -> list:
+    def _resolve_dependencies(extensions: list[Any]) -> list[Any]:
         """Resolve extension dependencies. Auto-add missing dependencies.
 
         Uses isinstance/type for identity. Dependencies declared via

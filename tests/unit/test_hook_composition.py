@@ -1,3 +1,4 @@
+# ruff: noqa: N801, N805
 """Tests for hook composition and wiring in the graph builder."""
 
 from __future__ import annotations
@@ -9,6 +10,7 @@ from langchain_agentkit.hook_runner import HookRunner
 from langchain_agentkit.hooks import after, before, wrap
 
 # --- Test extensions ---
+
 
 class LoggingExtension(Extension):
     def __init__(self, name: str, log: list):
@@ -87,10 +89,12 @@ class TestHookRunnerBeforeAfterOrdering:
     @pytest.mark.asyncio
     async def test_before_model_runs_in_order(self):
         log = []
-        runner = HookRunner([
-            LoggingExtension("A", log),
-            LoggingExtension("B", log),
-        ])
+        runner = HookRunner(
+            [
+                LoggingExtension("A", log),
+                LoggingExtension("B", log),
+            ]
+        )
 
         await runner.run_before("model", state={}, runtime=None)
 
@@ -99,10 +103,12 @@ class TestHookRunnerBeforeAfterOrdering:
     @pytest.mark.asyncio
     async def test_after_model_runs_in_reverse_order(self):
         log = []
-        runner = HookRunner([
-            LoggingExtension("A", log),
-            LoggingExtension("B", log),
-        ])
+        runner = HookRunner(
+            [
+                LoggingExtension("A", log),
+                LoggingExtension("B", log),
+            ]
+        )
 
         await runner.run_after("model", state={}, runtime=None)
 
@@ -111,10 +117,12 @@ class TestHookRunnerBeforeAfterOrdering:
     @pytest.mark.asyncio
     async def test_before_run_runs_in_order(self):
         log = []
-        runner = HookRunner([
-            LoggingExtension("A", log),
-            LoggingExtension("B", log),
-        ])
+        runner = HookRunner(
+            [
+                LoggingExtension("A", log),
+                LoggingExtension("B", log),
+            ]
+        )
 
         await runner.run_before("run", state={}, runtime=None)
 
@@ -123,10 +131,12 @@ class TestHookRunnerBeforeAfterOrdering:
     @pytest.mark.asyncio
     async def test_after_run_runs_in_reverse_order(self):
         log = []
-        runner = HookRunner([
-            LoggingExtension("A", log),
-            LoggingExtension("B", log),
-        ])
+        runner = HookRunner(
+            [
+                LoggingExtension("A", log),
+                LoggingExtension("B", log),
+            ]
+        )
 
         await runner.run_after("run", state={}, runtime=None)
 
@@ -139,10 +149,12 @@ class TestHookRunnerWrapComposition:
     @pytest.mark.asyncio
     async def test_wrap_model_onion_order(self):
         log = []
-        runner = HookRunner([
-            LoggingExtension("A", log),
-            LoggingExtension("B", log),
-        ])
+        runner = HookRunner(
+            [
+                LoggingExtension("A", log),
+                LoggingExtension("B", log),
+            ]
+        )
 
         async def actual_model(request):
             log.append("model_call")
@@ -162,10 +174,12 @@ class TestHookRunnerWrapComposition:
     @pytest.mark.asyncio
     async def test_wrap_tool_onion_order(self):
         log = []
-        runner = HookRunner([
-            LoggingExtension("A", log),
-            LoggingExtension("B", log),
-        ])
+        runner = HookRunner(
+            [
+                LoggingExtension("A", log),
+                LoggingExtension("B", log),
+            ]
+        )
 
         async def actual_tool(request):
             log.append("tool_call")
@@ -248,10 +262,12 @@ class TestHookRunnerProcessHistory:
 
     def test_pipeline_order(self):
         log = []
-        runner = HookRunner([
-            HistoryExtension("A", log),
-            HistoryExtension("B", log),
-        ])
+        runner = HookRunner(
+            [
+                HistoryExtension("A", log),
+                HistoryExtension("B", log),
+            ]
+        )
 
         result = runner.run_process_history(["msg"])
 

@@ -13,9 +13,19 @@ The canonical location for backend types is now
 from langchain_agentkit.backends.os import OSBackend as OSBackend
 from langchain_agentkit.backends.protocol import (
     BackendProtocol as BackendProtocol,
+)
+from langchain_agentkit.backends.protocol import (
     EditResult as EditResult,
+)
+from langchain_agentkit.backends.protocol import (
     ExecuteResponse as ExecuteResponse,
+)
+from langchain_agentkit.backends.protocol import (
     FileInfo as FileInfo,
+)
+from langchain_agentkit.backends.protocol import (
     GrepMatch as GrepMatch,
+)
+from langchain_agentkit.backends.protocol import (
     WriteResult as WriteResult,
 )

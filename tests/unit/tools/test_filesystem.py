@@ -135,11 +135,13 @@ class TestEditTool:
         backend, tmpdir = _make_backend_with_files({"/f.txt": "hello world"})
         tool = create_filesystem_tools(backend)[2]
 
-        result = tool.invoke({
-            "file_path": "/f.txt",
-            "old_string": "hello",
-            "new_string": "hi",
-        })
+        result = tool.invoke(
+            {
+                "file_path": "/f.txt",
+                "old_string": "hello",
+                "new_string": "hi",
+            }
+        )
 
         assert "Replaced" in result
         assert (Path(tmpdir) / "f.txt").read_text() == "hi world"
@@ -148,12 +150,14 @@ class TestEditTool:
         backend, tmpdir = _make_backend_with_files({"/f.txt": "foo bar foo baz foo"})
         tool = create_filesystem_tools(backend)[2]
 
-        result = tool.invoke({
-            "file_path": "/f.txt",
-            "old_string": "foo",
-            "new_string": "qux",
-            "replace_all": True,
-        })
+        result = tool.invoke(
+            {
+                "file_path": "/f.txt",
+                "old_string": "foo",
+                "new_string": "qux",
+                "replace_all": True,
+            }
+        )
 
         assert "3 occurrence(s)" in result
         assert (Path(tmpdir) / "f.txt").read_text() == "qux bar qux baz qux"
@@ -162,11 +166,13 @@ class TestEditTool:
         backend, tmpdir = _make_backend_with_files({"/f.py": "def foo():\n    pass\n"})
         tool = create_filesystem_tools(backend)[2]
 
-        tool.invoke({
-            "file_path": "/f.py",
-            "old_string": "def foo():\n    pass",
-            "new_string": "def foo():\n    return 42",
-        })
+        tool.invoke(
+            {
+                "file_path": "/f.py",
+                "old_string": "def foo():\n    pass",
+                "new_string": "def foo():\n    return 42",
+            }
+        )
 
         assert (Path(tmpdir) / "f.py").read_text() == "def foo():\n    return 42\n"
 
@@ -176,10 +182,12 @@ class TestEditTool:
 
 class TestGlobTool:
     def test_finds_files(self):
-        backend, _ = _make_backend_with_files({
-            "/a/b.md": "",
-            "/a/c.txt": "",
-        })
+        backend, _ = _make_backend_with_files(
+            {
+                "/a/b.md": "",
+                "/a/c.txt": "",
+            }
+        )
         tool = create_filesystem_tools(backend)[3]
 
         result = tool.invoke({"pattern": "**/*.md"})
@@ -197,11 +205,13 @@ class TestGlobTool:
             assert "No files matched" in result
 
     def test_double_star_pattern(self):
-        backend, _ = _make_backend_with_files({
-            "/skills/a/SKILL.md": "",
-            "/skills/b/SKILL.md": "",
-            "/skills/b/ref.py": "",
-        })
+        backend, _ = _make_backend_with_files(
+            {
+                "/skills/a/SKILL.md": "",
+                "/skills/b/SKILL.md": "",
+                "/skills/b/ref.py": "",
+            }
+        )
         tool = create_filesystem_tools(backend)[3]
 
         result = tool.invoke({"pattern": "**/*.md"})
@@ -236,34 +246,42 @@ class TestGrepTool:
         backend, _ = _make_backend_with_files({"/f.txt": "hello world\ngoodbye"})
         tool = create_filesystem_tools(backend)[4]
 
-        result = tool.invoke({
-            "pattern": "hello",
-            "output_mode": "content",
-        })
+        result = tool.invoke(
+            {
+                "pattern": "hello",
+                "output_mode": "content",
+            }
+        )
 
         assert "/f.txt:1:" in result
         assert "hello world" in result
 
     def test_count_mode(self):
-        backend, _ = _make_backend_with_files({
-            "/a.txt": "match\nmatch\nmatch",
-            "/b.txt": "match",
-        })
+        backend, _ = _make_backend_with_files(
+            {
+                "/a.txt": "match\nmatch\nmatch",
+                "/b.txt": "match",
+            }
+        )
         tool = create_filesystem_tools(backend)[4]
 
-        result = tool.invoke({
-            "pattern": "match",
-            "output_mode": "count",
-        })
+        result = tool.invoke(
+            {
+                "pattern": "match",
+                "output_mode": "count",
+            }
+        )
 
         assert "/a.txt: 3 match(es)" in result
         assert "/b.txt: 1 match(es)" in result
 
     def test_path_restriction(self):
-        backend, _ = _make_backend_with_files({
-            "/a/file.txt": "target",
-            "/b/file.txt": "target",
-        })
+        backend, _ = _make_backend_with_files(
+            {
+                "/a/file.txt": "target",
+                "/b/file.txt": "target",
+            }
+        )
         tool = create_filesystem_tools(backend)[4]
 
         result = tool.invoke({"pattern": "target", "path": "/a"})
@@ -272,11 +290,13 @@ class TestGrepTool:
         assert "/b/file.txt" not in result
 
     def test_multiple_files_default_mode(self):
-        backend, _ = _make_backend_with_files({
-            "/a.txt": "match here",
-            "/b.txt": "match there",
-            "/c.txt": "no hit",
-        })
+        backend, _ = _make_backend_with_files(
+            {
+                "/a.txt": "match here",
+                "/b.txt": "match there",
+                "/c.txt": "no hit",
+            }
+        )
         tool = create_filesystem_tools(backend)[4]
 
         result = tool.invoke({"pattern": "match"})
@@ -286,17 +306,21 @@ class TestGrepTool:
         assert "/c.txt" not in result
 
     def test_head_limit_files_mode(self):
-        backend, _ = _make_backend_with_files({
-            "/a.txt": "match",
-            "/b.txt": "match",
-            "/c.txt": "match",
-        })
+        backend, _ = _make_backend_with_files(
+            {
+                "/a.txt": "match",
+                "/b.txt": "match",
+                "/c.txt": "match",
+            }
+        )
         tool = create_filesystem_tools(backend)[4]
 
-        result = tool.invoke({
-            "pattern": "match",
-            "head_limit": 2,
-        })
+        result = tool.invoke(
+            {
+                "pattern": "match",
+                "head_limit": 2,
+            }
+        )
 
         lines = result.strip().split("\n")
         assert len([x for x in lines if x.startswith("/")]) == 2
@@ -306,11 +330,13 @@ class TestGrepTool:
         backend, _ = _make_backend_with_files({"/f.txt": "Hello World"})
         tool = create_filesystem_tools(backend)[4]
 
-        result = tool.invoke({
-            "pattern": "hello",
-            "ignore_case": True,
-            "output_mode": "content",
-        })
+        result = tool.invoke(
+            {
+                "pattern": "hello",
+                "ignore_case": True,
+                "output_mode": "content",
+            }
+        )
 
         assert "Hello World" in result
 
@@ -323,16 +349,20 @@ class TestGrepTool:
         assert "No matches" in result
 
     def test_context_lines(self):
-        backend, _ = _make_backend_with_files({
-            "/f.txt": "line1\nline2\nTARGET\nline4\nline5",
-        })
+        backend, _ = _make_backend_with_files(
+            {
+                "/f.txt": "line1\nline2\nTARGET\nline4\nline5",
+            }
+        )
         tool = create_filesystem_tools(backend)[4]
 
-        result = tool.invoke({
-            "pattern": "TARGET",
-            "output_mode": "content",
-            "context": 1,
-        })
+        result = tool.invoke(
+            {
+                "pattern": "TARGET",
+                "output_mode": "content",
+                "context": 1,
+            }
+        )
 
         assert "line2" in result
         assert "TARGET" in result

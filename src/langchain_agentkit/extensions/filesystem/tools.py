@@ -197,15 +197,16 @@ def _format_grep_with_context(
 def _build_read(backend: Any) -> BaseTool:
     def read(file_path: str, offset: int = 0, limit: int = 2000) -> str:
         """Read a file."""
-        return backend.read(file_path, offset=offset, limit=limit)
+        return str(backend.read(file_path, offset=offset, limit=limit))
 
     return StructuredTool.from_function(
-        func=read, name="Read",
+        func=read,
+        name="Read",
         description=(
-            "Read a file. Results returned with line numbers. "
-            "Use offset and limit for large files."
+            "Read a file. Results returned with line numbers. Use offset and limit for large files."
         ),
-        args_schema=_ReadInput, handle_tool_error=True,
+        args_schema=_ReadInput,
+        handle_tool_error=True,
     )
 
 
@@ -216,12 +217,13 @@ def _build_write(backend: Any) -> BaseTool:
         return f"Wrote {result.get('bytes_written', len(content))} bytes to {file_path}"
 
     return StructuredTool.from_function(
-        func=write, name="Write",
+        func=write,
+        name="Write",
         description=(
-            "Write content to a file, creating or overwriting it. "
-            "Prefer Edit for modifications."
+            "Write content to a file, creating or overwriting it. Prefer Edit for modifications."
         ),
-        args_schema=_WriteInput, handle_tool_error=True,
+        args_schema=_WriteInput,
+        handle_tool_error=True,
     )
 
 
@@ -236,12 +238,14 @@ def _build_edit(backend: Any) -> BaseTool:
         return f"Replaced {count} occurrence(s) in {file_path}"
 
     return StructuredTool.from_function(
-        func=edit, name="Edit",
+        func=edit,
+        name="Edit",
         description=(
             "Perform exact string replacements in a file. "
             "Fails if old_string is not unique (use replace_all for multiple)."
         ),
-        args_schema=_EditInput, handle_tool_error=True,
+        args_schema=_EditInput,
+        handle_tool_error=True,
     )
 
 
@@ -254,12 +258,14 @@ def _build_glob(backend: Any) -> BaseTool:
         return "\n".join(matches)
 
     return StructuredTool.from_function(
-        func=glob, name="Glob",
+        func=glob,
+        name="Glob",
         description=(
             "Fast file pattern matching. "
             'Supports patterns like "**/*.py". Returns matching file paths.'
         ),
-        args_schema=_GlobInput, handle_tool_error=True,
+        args_schema=_GlobInput,
+        handle_tool_error=True,
     )
 
 
@@ -291,12 +297,14 @@ def _build_grep(backend: Any) -> BaseTool:
             return "\n".join(lines)
 
     return StructuredTool.from_function(
-        func=grep, name="Grep",
+        func=grep,
+        name="Grep",
         description=(
             "Search file contents for a regex pattern. "
             'Output modes: "content", "files_with_matches" (default), "count".'
         ),
-        args_schema=_GrepInput, handle_tool_error=True,
+        args_schema=_GrepInput,
+        handle_tool_error=True,
     )
 
 

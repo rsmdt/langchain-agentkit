@@ -28,7 +28,6 @@ from __future__ import annotations
 
 from typing import Protocol, TypedDict, runtime_checkable
 
-
 # ---------------------------------------------------------------------------
 # Data types
 # ---------------------------------------------------------------------------

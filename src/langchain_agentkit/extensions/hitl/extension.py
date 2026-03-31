@@ -181,9 +181,7 @@ class HITLExtension(Extension):
     def tools(self) -> list[BaseTool]:
         """Returns ask_user tool when enabled, empty list otherwise."""
         if self._tools_cache is None:
-            self._tools_cache = (
-                [create_ask_user_tool()] if self._provide_tools else []
-            )
+            self._tools_cache = [create_ask_user_tool()] if self._provide_tools else []
         return self._tools_cache
 
     def prompt(self, state: dict[str, Any], runtime: Any | None = None) -> str | None:
@@ -216,11 +214,7 @@ class HITLExtension(Extension):
         if config is None:
             return execute(request)
 
-        question_options = [
-            _DECISION_OPTIONS[d]
-            for d in config.options
-            if d in _DECISION_OPTIONS
-        ]
+        question_options = [_DECISION_OPTIONS[d] for d in config.options if d in _DECISION_OPTIONS]
 
         # Single option — auto-execute without interrupting
         if len(question_options) < 2:
@@ -316,8 +310,7 @@ class HITLExtension(Extension):
             )
 
         return ToolMessage(
-            content=f"Invalid answer '{answer}' for {tool_name}. "
-            f"Allowed: {config.options}",
+            content=f"Invalid answer '{answer}' for {tool_name}. Allowed: {config.options}",
             name=tool_name,
             tool_call_id=request.tool_call["id"],
             status="error",

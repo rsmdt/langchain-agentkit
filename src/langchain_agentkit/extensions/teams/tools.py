@@ -131,7 +131,7 @@ async def _agent_team(
         return await _agent_team_inner(name, agents, state, tool_call_id, ext=ext)
 
 
-async def _agent_team_inner(
+async def _agent_team_inner(  # noqa: C901
     name: str,
     agents: list[dict[str, Any]],
     state: dict[str, Any],
@@ -156,9 +156,7 @@ async def _agent_team_inner(
 
     # Validate max team size
     if len(agents) > ext.max_team_size:
-        raise ToolException(
-            f"Team size {len(agents)} exceeds maximum of {ext.max_team_size}."
-        )
+        raise ToolException(f"Team size {len(agents)} exceeds maximum of {ext.max_team_size}.")
 
     # Resolve agent references
     registered_agents = ext.agents_by_name
@@ -241,7 +239,7 @@ async def _agent_team_inner(
             agent_type_label = f"ephemeral:{member_name}"
         else:
             # Predefined agent — resolve and compile
-            agent_target = registered_agents[agent_id]
+            agent_target = registered_agents[agent_id]  # type: ignore[index]
             from langchain_agentkit.composability import AgentLike
 
             if isinstance(agent_target, AgentLike):
@@ -250,7 +248,7 @@ async def _agent_team_inner(
                 from langgraph.checkpoint.memory import InMemorySaver
 
                 compiled = agent_target.compile(checkpointer=InMemorySaver())
-            agent_type_label = agent_id
+            agent_type_label = agent_id  # type: ignore[assignment]
 
         thread_id = f"team-{name}-{member_name}"
 
@@ -261,11 +259,13 @@ async def _agent_team_inner(
         member_tasks[member_name] = task
         member_types[member_name] = agent_type_label
 
-        team_agents_state.append({
-            "name": member_name,
-            "agent": {"id": agent_id} if agent_id else {"prompt": agent_prompt},
-            "status": "idle",
-        })
+        team_agents_state.append(
+            {
+                "name": member_name,
+                "agent": {"id": agent_id} if agent_id else {"prompt": agent_prompt},
+                "status": "idle",
+            }
+        )
 
     # Store active team on extension
     ext.active_team = ActiveTeam(
@@ -277,10 +277,7 @@ async def _agent_team_inner(
 
     result = {
         "team_name": name,
-        "agents": [
-            {"name": a["name"], "agent": a["agent"]}
-            for a in team_agents_state
-        ],
+        "agents": [{"name": a["name"], "agent": a["agent"]} for a in team_agents_state],
     }
 
     return Command(
@@ -308,7 +305,7 @@ async def _assign_task(
     team = ext.active_team
 
     # Send task to member via bus
-    await team.bus.send("lead", member_name, task_description)
+    await team.bus.send("lead", member_name, task_description)  # type: ignore[union-attr]
 
     result = {"sent_to": member_name, "task": task_description[:80]}
     return Command(
@@ -330,7 +327,7 @@ async def _message_teammate(
     _require_member(ext, member_name)
     team = ext.active_team
 
-    await team.bus.send("lead", member_name, message)
+    await team.bus.send("lead", member_name, message)  # type: ignore[union-attr]
 
     result = {"sent_to": member_name, "message": message[:100]}
     return Command(
@@ -363,12 +360,14 @@ async def _check_teammates(
         else:
             status = "running"
 
-        member_statuses.append({
-            "name": name,
-            "agent_type": team.member_types.get(name, "unknown"),
-            "status": status,
-            "pending_messages": team.bus.pending_count(name),
-        })
+        member_statuses.append(
+            {
+                "name": name,
+                "agent_type": team.member_types.get(name, "unknown"),
+                "status": status,
+                "pending_messages": team.bus.pending_count(name),
+            }
+        )
 
     # Drain pending messages for lead
     lead_messages: list[dict[str, Any]] = []
@@ -376,10 +375,12 @@ async def _check_teammates(
         msg = await team.bus.receive("lead", timeout=0.1)
         if msg is None:
             break
-        lead_messages.append({
-            "from": msg.sender,
-            "content": msg.content,
-        })
+        lead_messages.append(
+            {
+                "from": msg.sender,
+                "content": msg.content,
+            }
+        )
 
     # Include task progress from state
     tasks = state.get("tasks") or []

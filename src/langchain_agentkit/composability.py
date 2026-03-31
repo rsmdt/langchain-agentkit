@@ -20,8 +20,10 @@ Usage::
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator
-from typing import Any, Protocol, runtime_checkable
+from typing import TYPE_CHECKING, Any, Protocol, runtime_checkable
+
+if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
 
 
 @runtime_checkable
@@ -42,7 +44,11 @@ class AgentLike(Protocol):
         """Agent or team description."""
         ...
 
-    async def ainvoke(self, input: dict[str, Any], config: dict[str, Any] | None = None) -> dict[str, Any]:
+    async def ainvoke(
+        self,
+        input: dict[str, Any],
+        config: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         """Invoke the agent with input and optional config."""
         ...
 
@@ -85,7 +91,7 @@ class CompiledAgent:
         self, input: dict[str, Any], config: dict[str, Any] | None = None
     ) -> dict[str, Any]:
         """Delegate to the underlying graph's ainvoke."""
-        return await self._graph.ainvoke(input, config)
+        return await self._graph.ainvoke(input, config)  # type: ignore[no-any-return]
 
     async def astream(
         self, input: dict[str, Any], config: dict[str, Any] | None = None
@@ -162,7 +168,7 @@ class TeamAgent:
         self, input: dict[str, Any], config: dict[str, Any] | None = None
     ) -> AsyncIterator[dict[str, Any]]:
         """Stream the lead agent's output."""
-        async for chunk in self._lead.astream(input, config):
+        async for chunk in self._lead.astream(input, config):  # type: ignore[attr-defined]
             yield chunk
 
 
@@ -181,4 +187,4 @@ def wrap_if_needed(target: Any) -> AgentLike:
     """
     if isinstance(target, AgentLike):
         return target
-    return CompiledAgent(target)
+    return CompiledAgent(target)  # type: ignore[return-value]

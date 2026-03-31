@@ -10,15 +10,15 @@ from langchain_core.messages import HumanMessage
 from langchain_core.prompts import PromptTemplate
 
 from langchain_agentkit.extension import Extension
-from langchain_agentkit.extensions.teams.bus import (
-    ActiveTeam,
-    TeamMessage,
-    TeamMessageBus,
-)
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
+
+    from langchain_agentkit.extensions.teams.bus import (
+        ActiveTeam,
+        TeamMessage,
+    )
 
 _PROMPT_FILE = Path(__file__).parent / "prompt.md"
 _team_coordination_template = PromptTemplate.from_file(_PROMPT_FILE)
@@ -93,7 +93,7 @@ class TeamExtension(Extension):
 
     @property
     def tools(self) -> list[BaseTool]:
-        return self._tools
+        return self._tools  # type: ignore[return-value]
 
     def prompt(
         self,
@@ -135,7 +135,7 @@ class TeamExtension(Extension):
 
         return base_prompt
 
-    def dependencies(self) -> list:
+    def dependencies(self) -> list[Any]:
         from langchain_agentkit.extensions.tasks.extension import TasksExtension
 
         return [TasksExtension()]
@@ -146,7 +146,7 @@ class TeamExtension(Extension):
 
         return TeamState
 
-    def graph_modifier(self, workflow: Any, node_name: str) -> Any:
+    def graph_modifier(self, workflow: Any, node_name: str) -> Any:  # noqa: C901
         """Inject the Router Node into the graph topology."""
         from langgraph.graph import END
 

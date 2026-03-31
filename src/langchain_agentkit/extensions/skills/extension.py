@@ -27,13 +27,13 @@ from langchain_agentkit.extensions.skills.discovery import (
     discover_skills_from_directory,
 )
 from langchain_agentkit.extensions.skills.tools import build_skill_tool
-from langchain_agentkit.extensions.skills.types import SkillConfig
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
 
     from langchain_agentkit.backends.protocol import BackendProtocol
+    from langchain_agentkit.extensions.skills.types import SkillConfig
 
 _PROMPT_FILE = Path(__file__).parent / "prompt.md"
 _skills_system_prompt = PromptTemplate.from_file(_PROMPT_FILE)
