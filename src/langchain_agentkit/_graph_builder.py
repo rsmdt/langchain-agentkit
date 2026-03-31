@@ -67,17 +67,12 @@ def build_graph(
     # Build HookRunner from extensions for lifecycle hooks
     hook_runner = HookRunner(extensions_list)
 
-    # Mutable closure for jump_to routing — avoids polluting state schema
-    _jump_target: list[str | None] = [None]
-
     # Resolve which params the handler actually accepts (once, at build time)
     handler_params = inspect.signature(handler).parameters
 
     async def _agent_node(
         state: dict[str, Any], config: RunnableConfig, **kwargs: Any
     ) -> dict[str, Any]:
-        _jump_target[0] = None  # Reset each step
-
         runtime = ToolRuntime(
             state=state,
             context=kwargs.get("context"),
@@ -90,18 +85,28 @@ def build_graph(
         # --- before_model hooks ---
         before_updates = await hook_runner.run_before("model", state=state, runtime=runtime)
 
-        # Check for jump_to routing directive
+        # Check for jump_to routing directive from before_model hooks.
+        # Stored in per-invocation state (_agentkit_jump_to) so concurrent
+        # graph invocations don't race on a shared variable.
         for update in before_updates:
             if "jump_to" in update:
-                _jump_target[0] = update["jump_to"]
-                return {k: v for k, v in update.items() if k != "jump_to"}
+                state_update = {k: v for k, v in update.items() if k != "jump_to"}
+                state_update["_agentkit_jump_to"] = update["jump_to"]
+                return state_update
 
         # --- process_history ---
         processed_messages = hook_runner.run_process_history(list(state.get("messages", [])))
         handler_state = {**state, "messages": processed_messages}
 
         # --- compose prompt and bind tools ---
+        # NOTE: kit.prompt() is called per-step intentionally. Extension prompts
+        # are dynamic — they render current state (e.g., task list, team status).
+        # Caching the result would serve stale context. Do NOT hoist this.
         composed_prompt = kit.prompt(handler_state, runtime)
+        # NOTE: bind_tools is called per-step intentionally (not cached at build
+        # time). This enables handlers to mutate the tool list dynamically — e.g.,
+        # enabling/disabling tools based on state, or injecting runtime-resolved
+        # tools. Do NOT hoist this outside _agent_node.
         bound_llm = llm.bind_tools(all_tools) if all_tools else llm
 
         available = {
@@ -131,9 +136,12 @@ def build_graph(
         if isinstance(result, dict):
             for update in after_updates:
                 if "jump_to" in update:
-                    _jump_target[0] = update["jump_to"]
+                    result["_agentkit_jump_to"] = update["jump_to"]
                 else:
                     result.update(update)
+            # Clear jump_to if no hook set it (reset from any previous step)
+            if "_agentkit_jump_to" not in result:
+                result["_agentkit_jump_to"] = None
 
         return result  # type: ignore[no-any-return]
 
@@ -222,8 +230,8 @@ def build_graph(
         workflow.add_node("tools", tool_node)
 
         def _should_continue(state: dict[str, Any]) -> str:
-            # Check for jump_to routing from hooks (stored in closure, not state)
-            jump = _jump_target[0]
+            # Read jump_to from per-invocation state (safe for concurrent invocations)
+            jump = state.get("_agentkit_jump_to")
             if jump == "end":
                 return "_run_exit" if has_run_hooks else END
             if jump == "tools":
@@ -231,7 +239,10 @@ def build_graph(
             if jump == "model":
                 return node_name
 
-            last = state["messages"][-1]
+            msgs = state.get("messages", [])
+            if not msgs:
+                return "_run_exit" if has_run_hooks else END
+            last = msgs[-1]
             if hasattr(last, "tool_calls") and last.tool_calls:
                 return "tools"
             return "_run_exit" if has_run_hooks else END

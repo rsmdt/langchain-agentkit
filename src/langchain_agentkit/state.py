@@ -95,6 +95,11 @@ def _merge_tasks(
 # ---------------------------------------------------------------------------
 
 
+def _last_writer_wins(left: str | None, right: str | None) -> str | None:
+    """Reducer that takes the most recent value (right wins)."""
+    return right
+
+
 class AgentKitState(TypedDict, total=False):
     """Minimal base state — always present in any agentkit graph.
 
@@ -104,6 +109,7 @@ class AgentKitState(TypedDict, total=False):
 
     messages: Annotated[list[Any], add_messages]
     sender: str
+    _agentkit_jump_to: Annotated[str | None, _last_writer_wins]
 
 
 class TasksState(TypedDict, total=False):
