@@ -99,7 +99,7 @@ class _DissolveTeamInput(BaseModel):
 
 def _require_active_team(ext: TeamExtension) -> Any:
     """Return the active team or raise ToolException."""
-    team = ext._active_team  # noqa: SLF001
+    team = ext.active_team
     if team is None:
         raise ToolException("No active team. Call AgentTeam first.")
     return team
@@ -126,9 +126,23 @@ async def _agent_team(
     ext: TeamExtension,
 ) -> Command:  # type: ignore[type-arg]
     """Create a team with named agents running as asyncio.Tasks."""
+    # Lock guards against concurrent AgentTeam calls from parallel ToolNode execution
+    async with ext.team_lock:
+        return await _agent_team_inner(name, agents, state, tool_call_id, ext=ext)
+
+
+async def _agent_team_inner(
+    name: str,
+    agents: list[dict[str, Any]],
+    state: dict[str, Any],
+    tool_call_id: str,
+    *,
+    ext: TeamExtension,
+) -> Command:  # type: ignore[type-arg]
+    """Inner implementation of _agent_team, called under _team_lock."""
     from langchain_agentkit.extensions.teams import ActiveTeam, TeamMessageBus, _teammate_loop
 
-    if ext._active_team is not None:  # noqa: SLF001
+    if ext.active_team is not None:
         raise ToolException("Team already active. Dissolve first.")
 
     if not agents:
@@ -141,13 +155,13 @@ async def _agent_team(
         raise ToolException(f"Duplicate agent names: {set(dupes)}")
 
     # Validate max team size
-    if len(agents) > ext._max_team_size:  # noqa: SLF001
+    if len(agents) > ext.max_team_size:
         raise ToolException(
-            f"Team size {len(agents)} exceeds maximum of {ext._max_team_size}."  # noqa: SLF001
+            f"Team size {len(agents)} exceeds maximum of {ext.max_team_size}."
         )
 
     # Resolve agent references
-    registered_agents = ext._agents_by_name  # noqa: SLF001
+    registered_agents = ext.agents_by_name
     from langchain_agentkit.extensions import resolve_agent
 
     def _parse_ref(agent_spec: Any) -> tuple[str, str | None, str | None]:
@@ -167,7 +181,7 @@ async def _agent_team(
         _, agent_id, agent_prompt = _parse_ref(agent_spec)
 
         if agent_prompt is not None:
-            ephemeral_enabled = getattr(ext, "_ephemeral", False)
+            ephemeral_enabled = ext.ephemeral
             if not ephemeral_enabled:
                 raise ToolException(
                     "Dynamic/ephemeral agents are not enabled. "
@@ -194,20 +208,25 @@ async def _agent_team(
             from langchain_agentkit._graph_builder import build_graph
             from langchain_agentkit.agent_kit import AgentKit
 
-            parent_llm_getter = getattr(ext, "_parent_llm_getter", None)
+            parent_llm_getter = ext.parent_llm_getter
             if parent_llm_getter is not None:
                 ephemeral_llm = parent_llm_getter()
             else:
                 raise ToolException("No parent LLM available for ephemeral agent.")
 
             async def _ephemeral_handler(
-                handler_state: dict[str, Any], *, llm: Any, prompt: str, **kwargs: Any
+                handler_state: dict[str, Any],
+                *,
+                llm: Any,
+                prompt: str,
+                _sender: str = member_name,
+                **kwargs: Any,
             ) -> dict[str, Any]:
                 from langchain_core.messages import SystemMessage
 
                 messages = [SystemMessage(content=prompt)] + handler_state["messages"]
                 response = await llm.ainvoke(messages)
-                return {"messages": [response], "sender": member_name}
+                return {"messages": [response], "sender": _sender}
 
             ephemeral_graph = build_graph(
                 name=member_name,
@@ -249,7 +268,7 @@ async def _agent_team(
         })
 
     # Store active team on extension
-    ext._active_team = ActiveTeam(  # noqa: SLF001
+    ext.active_team = ActiveTeam(
         name=name,
         bus=bus,
         members=member_tasks,
@@ -286,7 +305,7 @@ async def _assign_task(
 ) -> Command:  # type: ignore[type-arg]
     """Send a task to a team member via message bus."""
     _require_member(ext, member_name)
-    team = ext._active_team  # noqa: SLF001
+    team = ext.active_team
 
     # Send task to member via bus
     await team.bus.send("lead", member_name, task_description)
@@ -309,7 +328,7 @@ async def _message_teammate(
 ) -> Command:  # type: ignore[type-arg]
     """Send a message to a team member via the message bus."""
     _require_member(ext, member_name)
-    team = ext._active_team  # noqa: SLF001
+    team = ext.active_team
 
     await team.bus.send("lead", member_name, message)
 
@@ -417,7 +436,9 @@ async def _shutdown_team_tasks(
     """Send shutdown signals and wait for tasks to finish."""
     for member_name in team.members:
         with contextlib.suppress(Exception):
-            await team.bus.send("lead", member_name, "__shutdown__")
+            from langchain_agentkit.extensions.teams import SHUTDOWN_SIGNAL
+
+            await team.bus.send("lead", member_name, SHUTDOWN_SIGNAL)
 
     pending_tasks = [t for t in team.members.values() if not t.done()]
     if pending_tasks:
@@ -445,21 +466,23 @@ async def _dissolve_team(
     ext: TeamExtension,
 ) -> Command:  # type: ignore[type-arg]
     """Gracefully shut down the team."""
-    team = _require_active_team(ext)
+    # Lock guards against concurrent dissolve/create from parallel ToolNode execution
+    async with ext.team_lock:
+        team = _require_active_team(ext)
 
-    await _shutdown_team_tasks(team, timeout)
+        await _shutdown_team_tasks(team, timeout)
 
-    final_members: list[dict[str, Any]] = [
-        {
-            "name": name,
-            "agent_type": team.member_types.get(name, "unknown"),
-            "status": _task_final_status(task),
-        }
-        for name, task in team.members.items()
-    ]
+        final_members: list[dict[str, Any]] = [
+            {
+                "name": name,
+                "agent_type": team.member_types.get(name, "unknown"),
+                "status": _task_final_status(task),
+            }
+            for name, task in team.members.items()
+        ]
 
-    _cleanup_bus(team)
-    ext._active_team = None  # noqa: SLF001
+        _cleanup_bus(team)
+        ext.active_team = None
 
     result = {
         "dissolved": True,

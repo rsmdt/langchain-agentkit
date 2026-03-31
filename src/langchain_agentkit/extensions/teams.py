@@ -40,6 +40,9 @@ _PROMPTS_DIR = Path(__file__).parent.parent / "prompts"
 _team_coordination_template = PromptTemplate.from_file(_PROMPTS_DIR / "team_coordination.md")
 
 
+# Sentinel content string used to signal teammate shutdown via the message bus.
+SHUTDOWN_SIGNAL = "__shutdown__"
+
 # ---------------------------------------------------------------------------
 # TeamMessage & TeamMessageBus
 # ---------------------------------------------------------------------------
@@ -142,7 +145,7 @@ async def _teammate_loop(
     """Event loop for a single teammate.
 
     Blocks on ``receive()``, processes messages via the compiled graph,
-    and sends results back to the sender. Exits on ``"__shutdown__"`` signal.
+    and sends results back to the sender. Exits on ``SHUTDOWN_SIGNAL``.
 
     If the compiled graph has a checkpointer and a ``thread_id`` is provided,
     conversation history accumulates automatically across messages via
@@ -155,7 +158,7 @@ async def _teammate_loop(
         msg = await message_bus.receive(member_name, timeout=30.0)
         if msg is None:
             continue  # idle, waiting for work
-        if msg.content == "__shutdown__":
+        if msg.content == SHUTDOWN_SIGNAL:
             return "shutdown"
 
         # Execute the full ReAct loop — checkpointer accumulates history
@@ -245,6 +248,9 @@ class TeamExtension(Extension):
         self._max_team_size = max_team_size
         self._router_timeout = router_timeout
         self._active_team: ActiveTeam | None = None
+        # Guards _active_team against concurrent tool calls (e.g., LLM
+        # emitting AgentTeam + DissolveTeam in the same ToolNode batch).
+        self._team_lock: asyncio.Lock = asyncio.Lock()
 
         # Placeholder — resolved lazily when parent context is available
         self._parent_llm_getter: Any = None
@@ -260,6 +266,42 @@ class TeamExtension(Extension):
         Required for ephemeral team members.
         """
         self._parent_llm_getter = getter
+
+    # --- Public accessors for tool implementations ---
+
+    @property
+    def active_team(self) -> ActiveTeam | None:
+        """The currently active team, or None."""
+        return self._active_team
+
+    @active_team.setter
+    def active_team(self, value: ActiveTeam | None) -> None:
+        self._active_team = value
+
+    @property
+    def max_team_size(self) -> int:
+        """Maximum allowed team members."""
+        return self._max_team_size
+
+    @property
+    def ephemeral(self) -> bool:
+        """Whether ephemeral (dynamic) agents are enabled."""
+        return self._ephemeral
+
+    @property
+    def agents_by_name(self) -> dict[str, Any]:
+        """Registered agents keyed by name."""
+        return self._agents_by_name
+
+    @property
+    def parent_llm_getter(self) -> Any:
+        """Callable returning the parent agent's LLM, or None."""
+        return self._parent_llm_getter
+
+    @property
+    def team_lock(self) -> asyncio.Lock:
+        """Lock guarding _active_team against concurrent access."""
+        return self._team_lock
 
     @property
     def tools(self) -> list[BaseTool]:
@@ -358,13 +400,15 @@ class TeamExtension(Extension):
                 # No team active — pass through (let handler synthesize)
                 return {}  # _router_should_continue handles routing
 
-            # Drain all pending messages for the lead
+            # Drain all pending messages for the lead (non-blocking)
             messages: list[TeamMessage] = []
-            while True:
-                msg = await team.bus.receive("lead", timeout=0.1)
-                if msg is None:
-                    break
-                messages.append(msg)
+            lead_queue = team.bus._queues.get("lead")
+            if lead_queue is not None:
+                while not lead_queue.empty():
+                    try:
+                        messages.append(lead_queue.get_nowait())
+                    except asyncio.QueueEmpty:
+                        break
 
             if messages:
                 return {
