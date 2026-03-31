@@ -14,11 +14,18 @@ Skip with::
 """
 
 import os
+import tempfile
 from pathlib import Path
 
 import pytest
 
 from tests.evals.datasets import (
+    EDIT_TOOL_DATASET,
+    FILESYSTEM_MULTI_STEP_DATASET,
+    GLOB_TOOL_DATASET,
+    GREP_TOOL_DATASET,
+    LS_TOOL_DATASET,
+    MULTI_EDIT_TOOL_DATASET,
     MULTI_STEP_DATASET,
     READ_TOOL_DATASET,
     SKILL_LOADING_DATASET,
@@ -27,6 +34,7 @@ from tests.evals.datasets import (
     TASK_LIFECYCLE_DATASET,
     TASK_LIST_DATASET,
     TASK_STOP_DATASET,
+    WRITE_TOOL_DATASET,
 )
 from tests.evals.eval_runner import (
     print_eval_results,
@@ -49,15 +57,15 @@ except ImportError:
 skip_reason = "Requires OPENAI_API_KEY and langchain-openai"
 
 
-def _build_agent(middleware_list):
-    """Build a minimal ReAct agent from middleware, using composed state schema."""
+def _build_agent(extensions_list):
+    """Build a minimal ReAct agent from extensions, using composed state schema."""
     from langchain_core.messages import SystemMessage
     from langgraph.graph import END, START, StateGraph
     from langgraph.prebuilt import ToolNode
 
     from langchain_agentkit import AgentKit
 
-    kit = AgentKit(middleware_list)
+    kit = AgentKit(extensions_list)
     state_schema = kit.state_schema
 
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
@@ -89,19 +97,83 @@ def _build_agent(middleware_list):
 
 
 def _build_skills_agent():
-    from langchain_agentkit import SkillsMiddleware
+    from langchain_agentkit import SkillsExtension
+    from langchain_agentkit.frontmatter import parse_frontmatter
+    from langchain_agentkit.extensions.skills.types import SkillConfig
 
-    return _build_agent([SkillsMiddleware(skills=str(FIXTURES / "skills"))])
+    configs = []
+    skills_dir = FIXTURES / "skills"
+    if skills_dir.exists():
+        for d in skills_dir.iterdir():
+            if d.is_dir() and (d / "SKILL.md").exists():
+                result = parse_frontmatter(d / "SKILL.md")
+                configs.append(SkillConfig.from_frontmatter(result.metadata, result.content))
+
+    return _build_agent([SkillsExtension(skills=configs)])
+
+
+def _build_filesystem_agent():
+    """Build an agent with FilesystemExtension backed by a temp directory."""
+    from langchain_agentkit import FilesystemExtension
+
+    tmpdir = tempfile.mkdtemp(prefix="eval_fs_")
+    workspace = Path(tmpdir)
+
+    # Pre-populate workspace
+    (workspace / "workspace").mkdir()
+    (workspace / "workspace" / "config.json").write_text(
+        '{"debug": true, "verbose": false}'
+    )
+    (workspace / "workspace" / "notes.txt").write_text(
+        "Some notes here\nTODO: finish review\n"
+    )
+    (workspace / "workspace" / "readme.md").write_text(
+        "# Project\nA sample project for testing.\n"
+    )
+    (workspace / "data").mkdir()
+    (workspace / "data" / "report.csv").write_text(
+        "metric,value\nrevenue,1000\ngrowth,5%\n"
+    )
+    (workspace / "data" / "users.txt").write_text(
+        "alice\nbob\ncharlie\n"
+    )
+
+    return _build_agent([FilesystemExtension(root=tmpdir)])
+
+
+def _build_skills_and_filesystem_agent():
+    """Build an agent with both SkillsExtension and FilesystemExtension."""
+    from langchain_agentkit import FilesystemExtension, SkillsExtension
+
+    tmpdir = tempfile.mkdtemp(prefix="eval_sf_")
+    workspace = Path(tmpdir)
+
+    # Pre-populate workspace
+    (workspace / "workspace").mkdir()
+    (workspace / "workspace" / "config.json").write_text(
+        '{"debug": true, "verbose": false}'
+    )
+    (workspace / "workspace" / "notes.txt").write_text(
+        "Some notes here\nTODO: review this\n"
+    )
+
+    # Load skills from fixtures
+    skills_dir = FIXTURES / "skills"
+
+    return _build_agent([
+        SkillsExtension(skills=skills_dir),
+        FilesystemExtension(root=tmpdir),
+    ])
 
 
 def _build_tasks_agent():
-    from langchain_agentkit import TasksMiddleware
+    from langchain_agentkit import TasksExtension
 
-    return _build_agent([TasksMiddleware()])
+    return _build_agent([TasksExtension()])
 
 
 # ---------------------------------------------------------------------------
-# Skills + Filesystem Evals
+# Skills Evals
 # ---------------------------------------------------------------------------
 
 
@@ -120,10 +192,15 @@ class TestSkillLoadingEval:
             assert r["score"], _fail_msg(r)
 
 
+# ---------------------------------------------------------------------------
+# Filesystem Tool Evals
+# ---------------------------------------------------------------------------
+
+
 @pytest.mark.skipif(not _HAS_OPENAI, reason=skip_reason)
 class TestReadToolEval:
     def test_read_tool_dataset(self):
-        agent = _build_skills_agent()
+        agent = _build_filesystem_agent()
         results = run_eval(
             agent=agent,
             dataset=READ_TOOL_DATASET,
@@ -136,9 +213,104 @@ class TestReadToolEval:
 
 
 @pytest.mark.skipif(not _HAS_OPENAI, reason=skip_reason)
+class TestWriteToolEval:
+    def test_write_tool_dataset(self):
+        agent = _build_filesystem_agent()
+        results = run_eval(
+            agent=agent,
+            dataset=WRITE_TOOL_DATASET,
+            trajectory_mode="subset",
+            tool_args_mode="ignore",  # LLM may expand virtual paths to absolute OS paths
+        )
+        print_eval_results(results)
+        for r in results:
+            assert r["score"], _fail_msg(r)
+
+
+@pytest.mark.skipif(not _HAS_OPENAI, reason=skip_reason)
+class TestEditToolEval:
+    def test_edit_tool_dataset(self):
+        agent = _build_filesystem_agent()
+        results = run_eval(
+            agent=agent,
+            dataset=EDIT_TOOL_DATASET,
+            trajectory_mode="subset",
+            tool_args_mode="ignore",
+        )
+        print_eval_results(results)
+        for r in results:
+            assert r["score"], _fail_msg(r)
+
+
+@pytest.mark.skipif(not _HAS_OPENAI, reason=skip_reason)
+class TestGlobToolEval:
+    def test_glob_tool_dataset(self):
+        agent = _build_filesystem_agent()
+        results = run_eval(
+            agent=agent,
+            dataset=GLOB_TOOL_DATASET,
+            trajectory_mode="subset",
+            tool_args_mode="ignore",
+        )
+        print_eval_results(results)
+        for r in results:
+            assert r["score"], _fail_msg(r)
+
+
+@pytest.mark.skipif(not _HAS_OPENAI, reason=skip_reason)
+class TestGrepToolEval:
+    def test_grep_tool_dataset(self):
+        agent = _build_filesystem_agent()
+        results = run_eval(
+            agent=agent,
+            dataset=GREP_TOOL_DATASET,
+            trajectory_mode="subset",
+            tool_args_mode="ignore",
+        )
+        print_eval_results(results)
+        for r in results:
+            assert r["score"], _fail_msg(r)
+
+
+@pytest.mark.skipif(not _HAS_OPENAI, reason=skip_reason)
+class TestLSToolEval:
+    def test_ls_tool_dataset(self):
+        agent = _build_filesystem_agent()
+        results = run_eval(
+            agent=agent,
+            dataset=LS_TOOL_DATASET,
+            trajectory_mode="subset",
+            tool_args_mode="ignore",
+        )
+        print_eval_results(results)
+        for r in results:
+            assert r["score"], _fail_msg(r)
+
+
+@pytest.mark.skipif(not _HAS_OPENAI, reason=skip_reason)
+class TestMultiEditToolEval:
+    def test_multi_edit_tool_dataset(self):
+        agent = _build_filesystem_agent()
+        results = run_eval(
+            agent=agent,
+            dataset=MULTI_EDIT_TOOL_DATASET,
+            trajectory_mode="subset",
+            tool_args_mode="ignore",
+        )
+        print_eval_results(results)
+        for r in results:
+            assert r["score"], _fail_msg(r)
+
+
+# ---------------------------------------------------------------------------
+# Multi-Step Evals
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.skipif(not _HAS_OPENAI, reason=skip_reason)
 class TestMultiStepEval:
     def test_multi_step_dataset(self):
-        agent = _build_skills_agent()
+        agent = _build_skills_and_filesystem_agent()
         results = run_eval(
             agent=agent,
             dataset=MULTI_STEP_DATASET,
@@ -148,6 +320,23 @@ class TestMultiStepEval:
         print_eval_results(results)
         passed = sum(1 for r in results if r["score"])
         assert passed >= len(results) * 0.5, f"Only {passed}/{len(results)} multi-step evals passed"
+
+
+@pytest.mark.skipif(not _HAS_OPENAI, reason=skip_reason)
+class TestFilesystemMultiStepEval:
+    def test_filesystem_multi_step_dataset(self):
+        agent = _build_filesystem_agent()
+        results = run_eval(
+            agent=agent,
+            dataset=FILESYSTEM_MULTI_STEP_DATASET,
+            trajectory_mode="subset",
+            tool_args_mode="ignore",
+        )
+        print_eval_results(results)
+        passed = sum(1 for r in results if r["score"])
+        assert passed >= len(results) * 0.5, (
+            f"Only {passed}/{len(results)} filesystem multi-step evals passed"
+        )
 
 
 # ---------------------------------------------------------------------------

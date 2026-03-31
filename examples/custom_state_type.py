@@ -2,7 +2,7 @@
 
 Annotate the handler's first parameter to use a custom TypedDict as the
 graph's state type. Custom fields survive graph execution. Without an
-annotation, the state schema is composed from middleware automatically.
+annotation, the state schema is composed from extensions automatically.
 """
 
 # ruff: noqa: N801, N805
@@ -38,7 +38,7 @@ def save_component(name: str, content: str) -> str:
 
 
 class drafter(agent):
-    llm = ChatOpenAI(model="gpt-4o")
+    model = ChatOpenAI(model="gpt-4o")
     tools = [save_component]
 
     async def handler(state: WorkflowState, *, llm):

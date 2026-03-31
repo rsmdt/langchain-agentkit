@@ -1,4 +1,4 @@
-"""Tests for Middleware protocol and AgentKit composition engine."""
+"""Tests for Extension protocol and AgentKit composition engine."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from langchain_core.tools import StructuredTool
 from langchain_agentkit.agent_kit import AgentKit
 
 if TYPE_CHECKING:
-    from langchain_agentkit.middleware import Middleware
+    from langchain_agentkit.extensions import Extension
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
@@ -22,7 +22,7 @@ def _make_tool(name: str, description: str = "stub") -> StructuredTool:
     return StructuredTool.from_function(func=_fn, name=name, description=description)
 
 
-class StubMiddleware:
+class StubExtension:
     def __init__(self, tools=None, prompt_text=None):
         self._tools = tools or []
         self._prompt_text = prompt_text
@@ -35,11 +35,11 @@ class StubMiddleware:
         return self._prompt_text
 
 
-class TestMiddlewareProtocol:
+class TestExtensionProtocol:
     def test_stub_satisfies_protocol(self):
-        mw: Middleware = StubMiddleware()
+        mw: Extension = StubExtension()
 
-        assert isinstance(mw, StubMiddleware)
+        assert isinstance(mw, StubExtension)
         assert hasattr(mw, "tools")
         assert callable(mw.prompt)
 
@@ -52,18 +52,18 @@ class TestMiddlewareProtocol:
             def prompt(self, state, config):
                 return None
 
-        mw: Middleware = Custom()
+        mw: Extension = Custom()
 
         assert hasattr(mw, "tools")
         assert callable(mw.prompt)
 
 
 class TestAgentKitTools:
-    def test_collects_tools_from_all_middleware(self):
+    def test_collects_tools_from_all_extensions(self):
         tool_a = _make_tool("tool_a")
         tool_b = _make_tool("tool_b")
-        mw1 = StubMiddleware(tools=[tool_a])
-        mw2 = StubMiddleware(tools=[tool_b])
+        mw1 = StubExtension(tools=[tool_a])
+        mw2 = StubExtension(tools=[tool_b])
 
         kit = AgentKit([mw1, mw2])
 
@@ -74,8 +74,8 @@ class TestAgentKitTools:
     def test_deduplicates_by_name_first_wins(self):
         tool_first = _make_tool("shared", description="first")
         tool_second = _make_tool("shared", description="second")
-        mw1 = StubMiddleware(tools=[tool_first])
-        mw2 = StubMiddleware(tools=[tool_second])
+        mw1 = StubExtension(tools=[tool_first])
+        mw2 = StubExtension(tools=[tool_second])
 
         kit = AgentKit([mw1, mw2])
 
@@ -83,32 +83,32 @@ class TestAgentKitTools:
         assert kit.tools[0].description == "first"
 
     def test_tools_cached_same_identity(self):
-        kit = AgentKit([StubMiddleware(tools=[_make_tool("t")])])
+        kit = AgentKit([StubExtension(tools=[_make_tool("t")])])
 
         first = kit.tools
         second = kit.tools
 
         assert first is second
 
-    def test_empty_middleware_list_returns_empty_tools(self):
+    def test_empty_extensions_list_returns_empty_tools(self):
         kit = AgentKit([])
 
         assert kit.tools == []
 
-    def test_middleware_with_no_tools_returns_empty(self):
-        kit = AgentKit([StubMiddleware()])
+    def test_extensions_with_no_tools_returns_empty(self):
+        kit = AgentKit([StubExtension()])
 
         assert kit.tools == []
 
     def test_deduplicates_preserves_order_first_wins(self):
-        """First middleware's tool wins on name collision, order preserved."""
+        """First extensions's tool wins on name collision, order preserved."""
         tool_a = _make_tool("a")
         tool_b_first = _make_tool("b", description="first_b")
         tool_c = _make_tool("c")
         tool_b_second = _make_tool("b", description="second_b")
 
-        mw1 = StubMiddleware(tools=[tool_a, tool_b_first])
-        mw2 = StubMiddleware(tools=[tool_b_second, tool_c])
+        mw1 = StubExtension(tools=[tool_a, tool_b_first])
+        mw2 = StubExtension(tools=[tool_b_second, tool_c])
 
         kit = AgentKit([mw1, mw2])
 
@@ -120,36 +120,36 @@ class TestAgentKitTools:
 
 class TestAgentKitPrompt:
     def test_composes_sections_with_double_newline(self):
-        mw1 = StubMiddleware(prompt_text="Section A")
-        mw2 = StubMiddleware(prompt_text="Section B")
+        mw1 = StubExtension(prompt_text="Section A")
+        mw2 = StubExtension(prompt_text="Section B")
 
         kit = AgentKit([mw1, mw2])
         result = kit.prompt({}, {})
 
         assert result == "Section A\n\nSection B"
 
-    def test_skips_middleware_returning_none(self):
-        mw1 = StubMiddleware(prompt_text="Only section")
-        mw2 = StubMiddleware(prompt_text=None)
+    def test_skips_extensions_returning_none(self):
+        mw1 = StubExtension(prompt_text="Only section")
+        mw2 = StubExtension(prompt_text=None)
 
         kit = AgentKit([mw1, mw2])
         result = kit.prompt({}, {})
 
         assert result == "Only section"
 
-    def test_empty_middleware_returns_empty_string(self):
+    def test_empty_extensions_returns_empty_string(self):
         kit = AgentKit([])
         result = kit.prompt({}, {})
 
         assert result == ""
 
-    def test_template_prepended_before_middleware_sections(self):
-        mw = StubMiddleware(prompt_text="middleware section")
+    def test_template_prepended_before_extensions_sections(self):
+        mw = StubExtension(prompt_text="extensions section")
 
         kit = AgentKit([mw], prompt="System template")
         result = kit.prompt({}, {})
 
-        assert result == "System template\n\nmiddleware section"
+        assert result == "System template\n\nextensions section"
 
     def test_template_from_inline_string(self):
         kit = AgentKit([], prompt="Inline prompt")
@@ -191,11 +191,11 @@ class TestAgentKitPrompt:
 
 
 class TestAgentKitIntegration:
-    def test_multiple_middleware_composes_tools_and_prompt(self):
+    def test_multiple_extensions_composes_tools_and_prompt(self):
         tool_a = _make_tool("tool_a")
         tool_b = _make_tool("tool_b")
-        mw1 = StubMiddleware(tools=[tool_a], prompt_text="Use tool_a for X")
-        mw2 = StubMiddleware(tools=[tool_b], prompt_text="Use tool_b for Y")
+        mw1 = StubExtension(tools=[tool_a], prompt_text="Use tool_a for X")
+        mw2 = StubExtension(tools=[tool_b], prompt_text="Use tool_b for Y")
 
         kit = AgentKit([mw1, mw2], prompt="You are an agent.")
 

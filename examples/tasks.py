@@ -1,11 +1,11 @@
 # ruff: noqa: N801, N805
 """Task management — break complex objectives into tracked steps.
 
-TasksMiddleware provides TaskCreate, TaskUpdate, TaskList, TaskGet, and
+TasksExtension provides TaskCreate, TaskUpdate, TaskList, TaskGet, and
 TaskStop tools. The agent decomposes work into tasks, tracks progress,
 and manages dependencies via blocked_by.
 
-The state schema is composed automatically — TasksMiddleware adds a
+The state schema is composed automatically — TasksExtension adds a
 `tasks` key with a merge-by-ID reducer that handles parallel tool calls.
 """
 
@@ -14,12 +14,12 @@ import asyncio
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from langchain_agentkit import TasksMiddleware, agent
+from langchain_agentkit import TasksExtension, agent
 
 
 class planner(agent):
-    llm = ChatOpenAI(model="gpt-4o")
-    middleware = [TasksMiddleware()]
+    model = ChatOpenAI(model="gpt-4o")
+    extensions = [TasksExtension()]
     prompt = """\
 You are a project planner. When given a complex objective:
 1. Break it into 3-7 tasks using TaskCreate

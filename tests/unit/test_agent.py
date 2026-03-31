@@ -10,11 +10,17 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import StructuredTool, tool
 from langgraph.graph.message import add_messages
 
-from langchain_agentkit.agent import (
-    _validate_handler_signature,
-    agent,
-)
-from langchain_agentkit.state import AgentState
+from langchain_agentkit.agent import _validate_handler_signature as validate_handler_signature
+from langchain_agentkit.agent import agent
+from langchain_agentkit.state import AgentKitState as AgentState
+
+# Valid injectable parameter names — mirrors agent.py's _INJECTABLE_PARAMS
+_INJECTABLE_PARAMS = frozenset({"llm", "tools", "prompt", "runtime"})
+
+
+def _validate_handler_signature(handler, class_name):
+    """Test helper wrapping validate_handler_signature with agent defaults."""
+    return validate_handler_signature(handler, class_name, _INJECTABLE_PARAMS, "agent")
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
@@ -24,18 +30,17 @@ class TestValidateHandlerSignature:
         def handler(state):
             pass
 
-        injectable, state_type = _validate_handler_signature(handler, "test")
+        state_type = _validate_handler_signature(handler, "test")
 
-        assert injectable == set()
         assert state_type is AgentState
 
     def test_accepts_all_injectables(self):
         def handler(state, *, llm, tools, prompt, runtime):
             pass
 
-        injectable, state_type = _validate_handler_signature(handler, "test")
+        state_type = _validate_handler_signature(handler, "test")
 
-        assert injectable == {"llm", "tools", "prompt", "runtime"}
+        assert state_type is AgentState
 
     def test_rejects_unknown_keyword_param(self):
         def handler(state, *, unknown):
@@ -59,16 +64,15 @@ class TestValidateHandlerSignature:
         def handler(state: CustomState, *, llm):
             pass
 
-        injectable, state_type = _validate_handler_signature(handler, "test")
+        state_type = _validate_handler_signature(handler, "test")
 
-        assert injectable == {"llm"}
         assert state_type is CustomState
 
     def test_defaults_to_agent_state(self):
         def handler(state, *, llm):
             pass
 
-        _, state_type = _validate_handler_signature(handler, "test")
+        state_type = _validate_handler_signature(handler, "test")
 
         assert state_type is AgentState
 
@@ -90,7 +94,7 @@ class TestAgentMetaclass:
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
 
         class test_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             tools = []
 
             async def handler(state, *, llm):
@@ -107,10 +111,10 @@ class TestAgentMetaclass:
         with pytest.raises(ValueError, match="must define.*handler"):
 
             class bad_agent(agent):
-                llm = MagicMock()
+                model = MagicMock()
 
-    def test_requires_llm(self):
-        with pytest.raises(ValueError, match="must define.*llm"):
+    def test_requires_model(self):
+        with pytest.raises(ValueError, match="must define.*model"):
 
             class bad_agent(agent):
                 async def handler(state):
@@ -120,40 +124,43 @@ class TestAgentMetaclass:
         with pytest.raises(ValueError, match="callable"):
 
             class bad_agent(agent):
-                llm = MagicMock()
+                model = MagicMock()
                 handler = "not a function"
 
     def test_tools_must_be_list(self):
         with pytest.raises(ValueError, match="tools must be a list"):
 
             class bad_agent(agent):
-                llm = MagicMock()
+                model = MagicMock()
                 tools = "not a list"
 
                 async def handler(state, *, llm):
                     return {"messages": [], "sender": "bad"}
 
-    def test_middleware_must_be_list(self):
-        with pytest.raises(ValueError, match="middleware must be a list"):
+    def test_extensions_must_be_list(self):
+        with pytest.raises(ValueError, match="must be a list"):
 
             class bad_agent(agent):
-                llm = MagicMock()
-                middleware = "not a list"
+                model = MagicMock()
+                extensions = "not a list"
 
                 async def handler(state, *, llm):
                     return {"messages": [], "sender": "bad"}
 
-    def test_agent_with_middleware_produces_state_graph(self):
+    def test_agent_with_extensions_produces_state_graph(self):
         from langgraph.graph import StateGraph
 
-        from langchain_agentkit.middleware.skills import SkillsMiddleware
+        from langchain_agentkit.extensions.skills import SkillsExtension
+        from langchain_agentkit.extensions.skills.types import SkillConfig
 
         mock_llm = MagicMock()
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
 
         class skilled_agent(agent):
-            llm = mock_llm
-            middleware = [SkillsMiddleware(str(FIXTURES / "skills"))]
+            model = mock_llm
+            extensions = [SkillsExtension(skills=[
+                SkillConfig(name="test", description="test", prompt="test"),
+            ])]
 
             async def handler(state, *, llm):
                 return {
@@ -169,7 +176,7 @@ class TestAgentMetaclass:
         mock_llm = MagicMock()
 
         class prompted_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             prompt = "You are a helpful assistant."
 
             async def handler(state, *, llm):
@@ -187,7 +194,7 @@ class TestAgentInvocation:
         mock_llm = MagicMock()
 
         class simple(agent):
-            llm = mock_llm
+            model = mock_llm
 
             async def handler(state, *, llm):
                 return {
@@ -210,7 +217,7 @@ class TestAgentInvocation:
         captured = {}
 
         class prompt_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             prompt = "You are helpful."
 
             async def handler(state, *, llm, prompt):
@@ -223,8 +230,8 @@ class TestAgentInvocation:
         assert captured["prompt"] == "You are helpful."
 
     @pytest.mark.asyncio
-    async def test_agent_with_middleware_injects_composed_prompt(self):
-        """Verify middleware prompt sections are composed and injected into handler."""
+    async def test_agent_with_extensions_injects_composed_prompt(self):
+        """Verify extensions prompt sections are composed and injected into handler."""
         mock_llm = MagicMock()
         captured = {}
 
@@ -234,11 +241,11 @@ class TestAgentInvocation:
                 return []
 
             def prompt(self, state, config):
-                return "Middleware section"
+                return "Extension section"
 
         class mw_agent(agent):
-            llm = mock_llm
-            middleware = [StubMW()]
+            model = mock_llm
+            extensions = [StubMW()]
             prompt = "Base template"
 
             async def handler(state, *, prompt):
@@ -249,17 +256,17 @@ class TestAgentInvocation:
         await compiled.ainvoke({"messages": [HumanMessage(content="hi")]})
 
         assert "Base template" in captured["prompt"]
-        assert "Middleware section" in captured["prompt"]
+        assert "Extension section" in captured["prompt"]
 
     @pytest.mark.asyncio
-    async def test_agent_with_middleware_tools_injected(self):
-        """Verify middleware tools are merged with user tools and injected."""
+    async def test_agent_with_extensions_tools_injected(self):
+        """Verify extensions tools are merged with user tools and injected."""
         mock_llm = MagicMock()
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
         captured = {}
 
         mw_tool = StructuredTool.from_function(
-            func=lambda x: x, name="mw_tool", description="from middleware"
+            func=lambda x: x, name="mw_tool", description="from extensions"
         )
 
         class ToolMW:
@@ -275,9 +282,9 @@ class TestAgentInvocation:
         )
 
         class tools_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             tools = [user_tool]
-            middleware = [ToolMW()]
+            extensions = [ToolMW()]
 
             async def handler(state, *, tools):
                 captured["tools"] = tools
@@ -303,7 +310,7 @@ class TestAgentInvocation:
         mock_llm = MagicMock()
 
         class react_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             tools = [greet]
 
             async def handler(state, *, llm):
@@ -339,7 +346,7 @@ class TestAgentInvocation:
         mock_llm = MagicMock()
 
         class sync_agent(agent):
-            llm = mock_llm
+            model = mock_llm
 
             def handler(state, *, llm):  # noqa: N805
                 return {
@@ -352,9 +359,9 @@ class TestAgentInvocation:
 
         assert result["messages"][-1].content == "sync done"
 
-    def test_hitl_middleware_wrap_tool_call_passed_to_tool_node(self):
-        """Verify agent detects wrap_tool_call from HITLMiddleware."""
-        from langchain_agentkit.middleware.hitl import HITLMiddleware
+    def test_hitl_extensions_wrap_tool_call_passed_to_tool_node(self):
+        """Verify agent detects wrap_tool_call from HITLExtension."""
+        from langchain_agentkit.extensions.hitl import HITLExtension
 
         mock_llm = MagicMock()
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
@@ -364,12 +371,12 @@ class TestAgentInvocation:
             """Send an email."""
             return f"Sent to {to}"
 
-        hitl = HITLMiddleware(interrupt_on={"send_email": True})
+        hitl = HITLExtension(interrupt_on={"send_email": True})
 
         class hitl_agent(agent):
-            llm = mock_llm
+            model = mock_llm
             tools = [send_email]
-            middleware = [hitl]
+            extensions = [hitl]
 
             async def handler(state, *, llm):
                 return {
@@ -383,8 +390,8 @@ class TestAgentInvocation:
         assert isinstance(hitl_agent, StateGraph)
 
     def test_multiple_wrap_tool_call_raises(self):
-        """Only one middleware can provide wrap_tool_call."""
-        from langchain_agentkit.middleware.hitl import HITLMiddleware
+        """Only one extensions can provide wrap_tool_call."""
+        from langchain_agentkit.extensions.hitl import HITLExtension
 
         mock_llm = MagicMock()
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
@@ -394,14 +401,14 @@ class TestAgentInvocation:
             """Do something."""
             return x
 
-        with pytest.raises(ValueError, match="multiple middleware provide wrap_tool_call"):
+        with pytest.raises(ValueError, match="multiple extensions provide wrap_tool_call"):
 
             class bad_agent(agent):
-                llm = mock_llm
+                model = mock_llm
                 tools = [action]
-                middleware = [
-                    HITLMiddleware(interrupt_on={"action": True}),
-                    HITLMiddleware(interrupt_on={"action": True}),
+                extensions = [
+                    HITLExtension(interrupt_on={"action": True}),
+                    HITLExtension(interrupt_on={"action": True}),
                 ]
 
                 async def handler(state, *, llm):

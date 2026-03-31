@@ -4,7 +4,7 @@ from pathlib import Path
 
 import pytest
 
-from langchain_agentkit.frontmatter import parse_frontmatter
+from langchain_agentkit.frontmatter import parse_frontmatter, parse_frontmatter_string
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
@@ -64,3 +64,36 @@ class TestParseFrontmatter:
         assert result.metadata["name"] == "market-sizing"
         assert result.metadata["description"] == "Calculate TAM, SAM, and SOM for market analysis"
         assert "# Market Sizing Methodology" in result.content
+
+
+class TestParseFrontmatterString:
+    def test_parses_metadata_from_string(self):
+        text = "---\nname: test\ndescription: a test\n---\n# Body"
+
+        result = parse_frontmatter_string(text)
+
+        assert result.metadata["name"] == "test"
+        assert result.metadata["description"] == "a test"
+        assert result.content == "# Body"
+
+    def test_no_frontmatter_returns_body_only(self):
+        text = "Just plain text."
+
+        result = parse_frontmatter_string(text)
+
+        assert result.metadata == {}
+        assert result.content == "Just plain text."
+
+    def test_empty_string_returns_empty(self):
+        result = parse_frontmatter_string("")
+
+        assert result.metadata == {}
+        assert result.content == ""
+
+    def test_incomplete_frontmatter_returns_raw(self):
+        text = "---\nname: test\nno closing delimiter"
+
+        result = parse_frontmatter_string(text)
+
+        assert result.metadata == {}
+        assert "name: test" in result.content

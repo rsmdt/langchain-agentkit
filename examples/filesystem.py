@@ -1,60 +1,55 @@
 # ruff: noqa: N801, N805
-"""Virtual filesystem — give agents file tools with pre-loaded data.
+"""Filesystem — give agents file tools on the real OS filesystem.
 
-FilesystemMiddleware provides Read, Write, Edit, Glob, and Grep tools
-operating on an in-memory VirtualFilesystem. Pre-populate the VFS with
-data from any source before the agent runs.
+FilesystemExtension provides Read, Write, Edit, Glob, Grep, LS, and
+MultiEdit tools operating on the OS filesystem via OSBackend.
 
-The VFS is ephemeral — files exist only during the agent's execution.
-Use it to give agents structured data to work with without touching
-the real filesystem.
+By default it uses the current working directory. Pass ``root=`` to
+scope the agent to a specific directory (with path traversal prevention).
 """
 
 import asyncio
 import json
+import tempfile
 from pathlib import Path
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from langchain_agentkit import FilesystemMiddleware, VirtualFilesystem, agent
+from langchain_agentkit import FilesystemExtension, agent
 
-# --- Load files into the VFS from various sources ---
+# --- Create a workspace with pre-populated data ---
 
-vfs = VirtualFilesystem()
+workspace = Path(tempfile.mkdtemp(prefix="agentkit_"))
 
-# 1. Write content directly
-vfs.write("/data/config.json", json.dumps({
+# 1. Write config directly
+(workspace / "data").mkdir()
+(workspace / "data" / "config.json").write_text(json.dumps({
     "app_name": "MyApp",
     "version": "2.1.0",
     "features": {"dark_mode": True, "notifications": False},
 }, indent=2))
 
-# 2. Load from real filesystem
+# 2. Copy from real filesystem
 readme_path = Path(__file__).parent.parent / "README.md"
 if readme_path.exists():
-    vfs.write("/docs/README.md", readme_path.read_text())
+    (workspace / "docs").mkdir()
+    (workspace / "docs" / "README.md").write_text(readme_path.read_text())
 
-# 3. Load multiple files from a directory
-data_dir = Path(__file__).parent.parent / "src" / "langchain_agentkit" / "prompts"
-if data_dir.exists():
-    for file in data_dir.glob("*.md"):
-        vfs.write(f"/prompts/{file.name}", file.read_text())
-
-# 4. Generate structured data programmatically
-for i in range(3):
-    quarter = i + 1
+# 3. Generate structured data programmatically
+(workspace / "reports").mkdir()
+for quarter in range(1, 4):
     csv = f"metric,value\nrevenue,{quarter * 1000}\ngrowth,{quarter * 5}%"
-    vfs.write(f"/reports/q{quarter}_2024.csv", csv)
+    (workspace / "reports" / f"q{quarter}_2024.csv").write_text(csv)
 
 
 # --- Create an agent with filesystem access ---
 
 class analyst(agent):
-    llm = ChatOpenAI(model="gpt-4o")
-    middleware = [FilesystemMiddleware(filesystem=vfs)]
+    model = ChatOpenAI(model="gpt-4o")
+    extensions = [FilesystemExtension(root=workspace)]
     prompt = """\
-You are a data analyst. You have access to a virtual filesystem with
+You are a data analyst. You have access to a filesystem with
 project files. Use Glob to discover files, Read to examine them,
 and Write to save your analysis results."""
 

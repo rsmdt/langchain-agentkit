@@ -1,6 +1,6 @@
 # langchain-agentkit
 
-Composable middleware framework for LangGraph agents.
+Composable extension framework for LangGraph agents.
 
 [![PyPI](https://img.shields.io/pypi/v/langchain-agentkit)](https://pypi.org/project/langchain-agentkit/)
 [![Python 3.11+](https://img.shields.io/pypi/pyversions/langchain-agentkit)](https://pypi.org/project/langchain-agentkit/)
@@ -18,18 +18,18 @@ Requires Python 3.11+.
 
 ### The `agent` metaclass
 
-Declare a class, get a complete ReAct agent with middleware-composed tools and prompts:
+Declare a class, get a complete ReAct agent with extension-composed tools and prompts:
 
 ```python
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from langchain_agentkit import agent, SkillsMiddleware, TasksMiddleware
+from langchain_agentkit import agent, SkillsExtension, TasksExtension
 
 class researcher(agent):
-    llm = ChatOpenAI(model="gpt-4o")
-    middleware = [
-        SkillsMiddleware(skills="skills/"),
-        TasksMiddleware(),
+    model = ChatOpenAI(model="gpt-4o")
+    extensions = [
+        SkillsExtension(skills="skills/"),
+        TasksExtension(),
     ]
     prompt = "You are a research assistant."
 
@@ -41,7 +41,20 @@ graph = researcher.compile()
 result = graph.invoke({"messages": [HumanMessage("Size the B2B SaaS market")]})
 ```
 
-The state schema is composed automatically from middleware — `TasksMiddleware` adds a `tasks` key, `SkillsMiddleware` adds nothing. No need to define state manually.
+The `model` attribute accepts a `BaseChatModel` instance (used as-is) or a string resolved via `AgentKit.model_resolver`:
+
+```python
+kit = AgentKit(
+    extensions=[...],
+    model_resolver=lambda name: ChatOpenAI(model=name),
+)
+
+class fast_agent(agent):
+    model = "gpt-4o-mini"  # resolved via model_resolver
+    ...
+```
+
+The state schema is composed automatically from extensions — `TasksExtension` adds a `tasks` key, `SkillsExtension` adds nothing. No need to define state manually.
 
 ### `AgentKit` for manual graph wiring
 
@@ -53,11 +66,11 @@ from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 
-from langchain_agentkit import AgentKit, SkillsMiddleware, TasksMiddleware
+from langchain_agentkit import AgentKit, SkillsExtension, TasksExtension
 
 kit = AgentKit([
-    SkillsMiddleware(skills="skills/"),
-    TasksMiddleware(),
+    SkillsExtension(skills="skills/"),
+    TasksExtension(),
 ])
 
 llm = ChatOpenAI(model="gpt-4o")
@@ -75,7 +88,7 @@ def should_continue(state):
         return "tools"
     return END
 
-# State schema composed automatically from middleware
+# State schema composed automatically from extensions
 graph = StateGraph(kit.state_schema)
 graph.add_node("agent", agent_node)
 graph.add_node("tools", ToolNode(all_tools))
@@ -87,60 +100,138 @@ app = graph.compile()
 result = app.invoke({"messages": [HumanMessage("Size the B2B SaaS market")]})
 ```
 
-## Middleware
+## Extensions
 
-Each middleware provides tools, a prompt section, and optional state requirements. Compose them in any combination:
+Each extension provides tools, a prompt section, and optional state requirements. Compose them in any combination:
 
 ```python
-middleware = [
-    SkillsMiddleware(skills="skills/"),
-    TasksMiddleware(),
-    FilesystemMiddleware(),
-    WebSearchMiddleware(),
-    HITLMiddleware(interrupt_on={"send_email": True}),
+extensions = [
+    SkillsExtension(skills="skills/"),
+    TasksExtension(),
+    FilesystemExtension(),
+    WebSearchExtension(),
+    HITLExtension(interrupt_on={"send_email": True}, tools=True),
+    AgentExtension([researcher, coder]),
+    TeamExtension([researcher, coder]),
 ]
 ```
 
-### SkillsMiddleware
+### SkillsExtension
 
-Loads skills from directories containing `SKILL.md` files. Provides progressive disclosure — the agent sees skill names and descriptions, then loads full instructions on demand.
+Loads skills and provides progressive disclosure — the agent sees skill names and descriptions, then loads full content on demand via the `Skill` tool.
+
+Two input modes:
 
 ```python
-# Convenience: includes filesystem tools for reading skill reference files
-mw = SkillsMiddleware(skills="skills/")
-mw.tools  # [Skill, Read, Write, Edit, Glob, Grep]
+from langchain_agentkit import SkillsExtension, SkillConfig
 
-# Explicit: provide a shared VFS, manage filesystem tools separately
-from langchain_agentkit import VirtualFilesystem, FilesystemMiddleware
+# Programmatic — pass SkillConfig objects directly
+mw = SkillsExtension(skills=[
+    SkillConfig(name="market-sizing", description="Calculate TAM/SAM/SOM", prompt="..."),
+])
 
-vfs = VirtualFilesystem()
-skills_mw = SkillsMiddleware(skills="skills/", filesystem=vfs)
-fs_mw = FilesystemMiddleware(filesystem=vfs)
-skills_mw.tools  # [Skill]
-fs_mw.tools      # [Read, Write, Edit, Glob, Grep]
+# Directory discovery — scan a directory for SKILL.md files
+mw = SkillsExtension(skills="skills/")
+
+# With a custom backend (e.g. Daytona sandbox)
+mw = SkillsExtension(skills="/skills", backend=my_backend)
 ```
+
+Always provides exactly one tool: `Skill`. Filesystem tools (Read, Write, etc.) come from `FilesystemExtension`.
 
 **Tools:**
 
 | Tool | Description |
 |------|-------------|
-| `Skill(skill_name)` | Load a skill's instructions |
+| `Skill(skill_name)` | Load a skill's prompt content |
 
 Skill directories follow the [AgentSkills.io](https://agentskills.io/specification) format:
 
 ```
 skills/
 └── market-sizing/
-    ├── SKILL.md          # YAML frontmatter (name, description) + instructions
+    ├── SKILL.md          # YAML frontmatter (name, description) + prompt body
     └── calculator.py     # Reference files accessible via Read tool
 ```
 
-### TasksMiddleware
+### AgentExtension
+
+Delegate tasks to specialist subagents at runtime. Accepts compiled StateGraphs, `AgentConfig` definitions, or discovers agents from a directory of markdown files.
+
+```python
+from langchain_agentkit import agent, AgentExtension, AgentConfig
+
+class researcher(agent):
+    model = ChatOpenAI(model="gpt-4o-mini")
+    description = "Research specialist for information gathering"
+    tools = [web_search]
+    prompt = "You are a research specialist."
+    async def handler(state, *, llm, tools, prompt): ...
+
+# Programmatic — mix compiled graphs and AgentConfig definitions
+ext = AgentExtension(agents=[
+    researcher,                                          # compiled StateGraph
+    AgentConfig(name="coder", description="Code expert", prompt="You code."),
+])
+
+# Directory discovery — scan for .md files with frontmatter
+ext = AgentExtension(agents="agents/")
+
+# With a custom backend
+ext = AgentExtension(agents="/agents", backend=my_backend)
+```
+
+**AgentConfig** supports the same frontmatter fields as file-based agents:
+
+```python
+AgentConfig(
+    name="researcher",
+    description="Research specialist",
+    prompt="You are a research assistant.",
+    model="gpt-4o-mini",            # resolved via model_resolver
+    tools=["WebSearch", "Read"],     # filtered from parent's tools
+    skills=["api-conventions"],      # preloaded into prompt at delegation time
+    max_turns=10,                    # recursion limit
+)
+```
+
+**File-based agent** (`agents/researcher.md`):
+
+```yaml
+---
+name: researcher
+description: Research specialist
+model: gpt-4o-mini
+tools: WebSearch, Read
+skills: api-conventions, error-handling
+maxTurns: 10
+---
+You are a research assistant.
+```
+
+**The `Agent` tool uses shape-based discrimination** — the LLM provides either `{id: "<name>"}` for a pre-defined agent or `{prompt: "..."}` for a dynamic one:
+
+```json
+{"agent": {"id": "researcher"}, "message": "Find info on X"}
+{"agent": {"prompt": "You are a legal expert..."}, "message": "Analyze this contract"}
+```
+
+**Key features:**
+- `description` — used in the prompt roster so the LLM knows what each specialist does
+- `tools="inherit"` — subagent receives the parent's tools at delegation time
+- `ephemeral=True` — enables dynamic (on-the-fly) reasoning agents
+- `skills` preloading — full skill content injected into agent's prompt at startup
+- `model` override — per-agent model selection via `model_resolver`
+- `delegation_timeout` — max seconds per delegation (default 300s)
+
+See [`examples/delegation.py`](examples/delegation.py) for a complete example.
+
+### TasksExtension
 
 Task management for complex multi-step objectives. The agent creates, tracks, and completes tasks with dependency ordering.
 
 ```python
-mw = TasksMiddleware()
+mw = TasksExtension()
 mw.tools  # [TaskCreate, TaskUpdate, TaskList, TaskGet, TaskStop]
 ```
 
@@ -156,18 +247,18 @@ mw.tools  # [TaskCreate, TaskUpdate, TaskList, TaskGet, TaskStop]
 
 Tasks support `blocked_by` dependencies, `owner` assignment, and arbitrary `metadata`. Parallel `TaskCreate` calls are handled by a merge-by-ID reducer.
 
-### FilesystemMiddleware
+### FilesystemExtension
 
-Claude Code-aligned file tools operating on an in-memory virtual filesystem:
+File tools operating on the OS filesystem via `OSBackend`:
 
 ```python
-from langchain_agentkit import FilesystemMiddleware, VirtualFilesystem
+from langchain_agentkit import FilesystemExtension
 
-vfs = VirtualFilesystem()
-vfs.write("/data/config.json", '{"key": "value"}')
+# Current working directory
+ext = FilesystemExtension()
 
-mw = FilesystemMiddleware(filesystem=vfs)
-mw.tools  # [Read, Write, Edit, Glob, Grep]
+# Scoped to a specific directory (with path traversal prevention)
+ext = FilesystemExtension(root="./workspace")
 ```
 
 **Tools:**
@@ -177,45 +268,99 @@ mw.tools  # [Read, Write, Edit, Glob, Grep]
 | `Read(file_path)` | Read file with line numbers, offset/limit pagination |
 | `Write(file_path, content)` | Create or overwrite a file |
 | `Edit(file_path, old_string, new_string)` | Exact string replacement |
+| `MultiEdit(file_path, edits)` | Batch find-and-replace operations |
 | `Glob(pattern)` | Find files by pattern (supports `*`, `**`, `?`) |
 | `Grep(pattern)` | Search file contents by regex |
+| `LS(path)` | List directory contents |
 
-### WebSearchMiddleware
+### WebSearchExtension
 
 Multi-provider web search. Fans out queries to all providers in parallel. Works out of the box with built-in Qwant search (no API key needed):
 
 ```python
 # Zero config
-mw = WebSearchMiddleware()
+mw = WebSearchExtension()
 
 # Custom providers
 from langchain_tavily import TavilySearch
 
-mw = WebSearchMiddleware(providers=[TavilySearch(max_results=5)])
+mw = WebSearchExtension(providers=[TavilySearch(max_results=5)])
 ```
 
-### HITLMiddleware
+### HITLExtension
 
-Human-in-the-loop approval for sensitive tool calls via LangGraph `interrupt()`:
+Human-in-the-loop via a unified Question protocol. Two capabilities:
+
+**Tool approval** — gate sensitive tools with human review:
 
 ```python
-mw = HITLMiddleware(interrupt_on={
-    "send_email": True,           # requires approval
-    "search": False,              # auto-approved
-    "delete_file": {"allowed_decisions": ["approve", "reject"]},
+hitl = HITLExtension(interrupt_on={
+    "send_email": True,           # approve / edit / reject
+    "delete_file": {"options": ["approve", "reject"]},
 })
+# Tools not listed in interrupt_on execute normally without interruption.
 ```
 
-Requires a checkpointer. Resume with `Command(resume={"type": "approve"})`.
+**ask_user tool** — let the LLM ask structured questions:
 
-## Custom Middleware
+```python
+hitl = HITLExtension(tools=True)
+
+# Or combine both:
+hitl = HITLExtension(
+    interrupt_on={"send_email": True},
+    tools=True,
+)
+```
+
+Both use the same interrupt payload (`Question` objects) and resume format.
+Requires a checkpointer. Resume with `Command(resume={"answers": {"<question>": "<answer>"}})`.
+
+### TeamExtension
+
+Coordinate a team of concurrent agents for complex, multi-step work that requires back-and-forth communication. The lead spawns teammates, assigns tasks, reacts to their results, and can forward information between team members.
+
+```python
+from langchain_agentkit import agent, TeamExtension, TasksExtension
+
+class lead(agent):
+    model = ChatOpenAI(model="gpt-4o")
+    extensions = [TasksExtension(), TeamExtension([researcher, coder])]
+    prompt = "You are a project lead. Coordinate your team."
+    async def handler(state, *, llm, tools, prompt): ...
+```
+
+**How it works:** Teammates run as `asyncio.Task`s with their own checkpointers (conversation history persists across messages). A **Router Node** in the graph checks for teammate messages after each tool execution — when a teammate sends a result, the lead is automatically re-invoked with the message.
+
+**Tools:**
+
+| Tool | Description |
+|------|-------------|
+| `AgentTeam(team_name, members)` | Create a team with named members |
+| `AssignTask(member_name, task)` | Assign work — creates a tracked task and sends it |
+| `MessageTeammate(member_name, message)` | Send guidance or follow-ups |
+| `CheckTeammates()` | See statuses and collect pending messages |
+| `DissolveTeam()` | Graceful shutdown |
+
+**When to use Teams vs Agent:**
+
+| | Agent | Team |
+|---|---|---|
+| Interaction | Single request → result | Multi-turn conversation |
+| Lead during execution | Blocked waiting | Active (coordinating) |
+| Communication | One-way | Bidirectional (messages) |
+| Use case | "Do this and report back" | "Let's work on this together" |
+
+See [`examples/team.py`](examples/team.py) for a complete example.
+
+## Custom Extensions
 
 Any class with `tools`, `prompt()`, and `state_schema` satisfies the protocol:
 
 ```python
-from langchain_agentkit import Middleware
+from langchain_agentkit import Extension
 
-class MyMiddleware:
+class MyExtension(Extension):
     @property
     def tools(self):
         return [my_tool]
@@ -225,26 +370,8 @@ class MyMiddleware:
 
     @property
     def state_schema(self):
-        return None  # or a TypedDict mixin if you need state keys
+        return None  # or a TypedDict mixin
 ```
-
-If your middleware needs a custom state key, return a TypedDict mixin from `state_schema`:
-
-```python
-from typing import TypedDict
-
-class MyState(TypedDict, total=False):
-    my_data: list[str]
-
-class MyMiddleware:
-    @property
-    def state_schema(self):
-        return MyState
-
-    # ... tools and prompt
-```
-
-The state key will be automatically included when the middleware is composed via `AgentKit`.
 
 ## Contributing
 

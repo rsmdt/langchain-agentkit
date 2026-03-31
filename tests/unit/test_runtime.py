@@ -44,7 +44,8 @@ class TestToolRuntime:
 
         assert runtime.store is None
 
-    def test_re_exported_from_agentkit(self):
-        from langchain_agentkit import ToolRuntime as ExportedToolRuntime
+    def test_available_from_langgraph(self):
+        """ToolRuntime is a langgraph type — import directly from langgraph.prebuilt."""
+        from langgraph.prebuilt import ToolRuntime as LangGraphToolRuntime
 
-        assert ExportedToolRuntime is ToolRuntime
+        assert LangGraphToolRuntime is ToolRuntime

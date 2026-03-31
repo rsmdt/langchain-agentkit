@@ -18,7 +18,7 @@ from langchain_agentkit import AgentKitState, agent
 
 
 class researcher(agent):
-    llm = ChatOpenAI(model="gpt-4o")
+    model = ChatOpenAI(model="gpt-4o")
 
     async def handler(state, *, llm):
         response = await llm.ainvoke(state["messages"])

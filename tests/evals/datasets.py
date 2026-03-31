@@ -62,20 +62,20 @@ SKILL_LOADING_DATASET = [
 
 READ_TOOL_DATASET = [
     {
-        "description": "Agent reads a skill reference file via Read tool",
-        "inputs": "Read the calculator.py reference file from the market-sizing skill",
-        "reference_trajectory": [
-            _assistant_with_tools(
-                _tool_call("Read", file_path="/skills/market-sizing/calculator.py"),
-            ),
-        ],
-    },
-    {
         "description": "Agent reads a specific file at a given path",
         "inputs": "Read the file at /workspace/notes.txt",
         "reference_trajectory": [
             _assistant_with_tools(
                 _tool_call("Read", file_path="/workspace/notes.txt"),
+            ),
+        ],
+    },
+    {
+        "description": "Agent reads config file when asked about configuration",
+        "inputs": "Show me the contents of /workspace/config.json",
+        "reference_trajectory": [
+            _assistant_with_tools(
+                _tool_call("Read", file_path="/workspace/config.json"),
             ),
         ],
     },
@@ -121,11 +121,11 @@ EDIT_TOOL_DATASET = [
 
 GLOB_TOOL_DATASET = [
     {
-        "description": "Agent uses Glob to find all markdown files",
-        "inputs": "Find all markdown files under /skills/",
+        "description": "Agent uses Glob to find all text files",
+        "inputs": "Find all .txt files in the workspace",
         "reference_trajectory": [
             _assistant_with_tools(
-                _tool_call("Glob", pattern="/skills/**/*.md"),
+                _tool_call("Glob", pattern="**/*.txt"),
             ),
         ],
     },
@@ -137,10 +137,10 @@ GLOB_TOOL_DATASET = [
 GREP_TOOL_DATASET = [
     {
         "description": "Agent uses Grep to search for a pattern",
-        "inputs": "Search for 'TODO' in all Python files",
+        "inputs": "Search for 'TODO' in all files",
         "reference_trajectory": [
             _assistant_with_tools(
-                _tool_call("Grep", pattern="TODO", glob="/skills/**/*.py"),
+                _tool_call("Grep", pattern="TODO"),
             ),
         ],
     },
@@ -151,26 +151,23 @@ GREP_TOOL_DATASET = [
 
 MULTI_STEP_DATASET = [
     {
-        "description": "Agent loads skill, then reads reference file",
-        "inputs": "I need to do market sizing. Load the skill and show me the calculator.",
+        "description": "Agent loads skill when asked about market sizing",
+        "inputs": "I need to do market sizing. Load the relevant skill.",
         "reference_trajectory": [
             _assistant_with_tools(
                 _tool_call("Skill", skill_name="market-sizing"),
-            ),
-            _assistant_with_tools(
-                _tool_call("Read", file_path="/skills/market-sizing/calculator.py"),
             ),
         ],
     },
     {
         "description": "Agent discovers files with Glob, then reads one",
-        "inputs": "What skill files are available? Then read the first one.",
+        "inputs": "What files are in /workspace? Then read the notes file.",
         "reference_trajectory": [
             _assistant_with_tools(
-                _tool_call("Glob", pattern="/skills/**/*"),
+                _tool_call("Glob"),
             ),
             _assistant_with_tools(
-                _tool_call("Read", file_path="/skills/market-sizing/SKILL.md"),
+                _tool_call("Read"),
             ),
         ],
     },
@@ -277,6 +274,119 @@ TASK_STOP_DATASET = [
 ]
 
 
+# --- LS Tool Scenarios ---
+
+LS_TOOL_DATASET = [
+    {
+        "description": "Agent lists directory contents when asked",
+        "inputs": "What files are in the /data directory?",
+        # LS tool removed — agent uses Glob or Bash to list files
+        "reference_trajectory": [
+            _assistant_with_tools(
+                _tool_call("Glob"),
+            ),
+        ],
+    },
+]
+
+
+# --- MultiEdit Tool Scenarios ---
+
+MULTI_EDIT_TOOL_DATASET = [
+    {
+        "description": "Agent applies multiple edits to one file",
+        "inputs": (
+            "In /workspace/config.json, make these changes: "
+            "replace 'debug' with 'verbose' and replace 'true' with 'false'"
+        ),
+        # Accept either MultiEdit once or Edit twice — both are correct
+        # strategies. Subset mode: at least one Edit-family call on the file.
+        "reference_trajectory": [
+            _assistant_with_tools(
+                _tool_call("Edit", file_path="/workspace/config.json"),
+            ),
+        ],
+    },
+]
+
+
+# --- Filesystem Multi-Step Scenarios ---
+
+FILESYSTEM_MULTI_STEP_DATASET = [
+    {
+        "description": "Agent discovers files, reads one, then writes analysis",
+        "inputs": (
+            "Find all .txt files in the workspace, read each one, "
+            "and write a summary to /workspace/summary.md"
+        ),
+        "reference_trajectory": [
+            _assistant_with_tools(
+                _tool_call("Glob", pattern="**/*.txt"),
+            ),
+            _assistant_with_tools(
+                _tool_call("Read"),
+            ),
+            _assistant_with_tools(
+                _tool_call("Write", file_path="/workspace/summary.md"),
+            ),
+        ],
+    },
+    {
+        "description": "Agent searches for pattern then reads matching file",
+        "inputs": "Search for 'TODO' in the workspace files and show me the matches",
+        "reference_trajectory": [
+            _assistant_with_tools(
+                _tool_call("Grep", pattern="TODO"),
+            ),
+        ],
+    },
+]
+
+
+# --- HITL Ask-User Scenarios ---
+
+HITL_ASK_USER_DATASET = [
+    {
+        "description": "Agent uses ask_user when choosing between databases",
+        "inputs": (
+            "We need to add a database to this project. "
+            "What type of database should I set up?"
+        ),
+        "reference_trajectory": [
+            _assistant_with_tools(_tool_call("ask_user")),
+        ],
+    },
+    {
+        "description": "Agent uses ask_user when configuring logging",
+        "inputs": (
+            "Configure the logging system for this application. "
+            "There are several approaches we could take."
+        ),
+        "reference_trajectory": [
+            _assistant_with_tools(_tool_call("ask_user")),
+        ],
+    },
+]
+
+
+HITL_DIRECT_ACTION_DATASET = [
+    {
+        "description": "Agent reads file directly without asking",
+        "inputs": "Read the contents of /workspace/config.json",
+        "reference_trajectory": [
+            _assistant_with_tools(_tool_call("Read")),
+        ],
+    },
+    {
+        "description": "Agent searches files directly without asking",
+        "inputs": "Find all Python files in the workspace",
+        "reference_trajectory": [
+            _assistant_with_tools(_tool_call("Glob")),
+        ],
+    },
+]
+
+
 # --- Combined dataset for full eval run ---
 
 ALL_DATASETS = {
@@ -286,10 +396,15 @@ ALL_DATASETS = {
     "edit_tool": EDIT_TOOL_DATASET,
     "glob_tool": GLOB_TOOL_DATASET,
     "grep_tool": GREP_TOOL_DATASET,
+    "ls_tool": LS_TOOL_DATASET,
+    "multi_edit_tool": MULTI_EDIT_TOOL_DATASET,
     "multi_step": MULTI_STEP_DATASET,
+    "filesystem_multi_step": FILESYSTEM_MULTI_STEP_DATASET,
     "task_create": TASK_CREATE_DATASET,
     "task_lifecycle": TASK_LIFECYCLE_DATASET,
     "task_dependencies": TASK_DEPENDENCIES_DATASET,
     "task_list": TASK_LIST_DATASET,
     "task_stop": TASK_STOP_DATASET,
+    "hitl_ask_user": HITL_ASK_USER_DATASET,
+    "hitl_direct_action": HITL_DIRECT_ACTION_DATASET,
 }

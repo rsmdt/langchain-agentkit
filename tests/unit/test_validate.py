@@ -1,18 +1,12 @@
 """Tests for skill config validation (AgentSkills.io compliance)."""
 
-from pathlib import Path
-
-from langchain_agentkit.types import SkillConfig
-from langchain_agentkit.validate import validate_skill_config
+from langchain_agentkit.extensions.skills.types import SkillConfig
+from langchain_agentkit.extensions.skills.discovery import validate_skill_config
 
 
 class TestValidateSkillConfig:
     def test_valid_config_returns_no_errors(self):
-        config = SkillConfig(
-            name="market-sizing",
-            description="Size markets",
-            directory=Path("market-sizing"),
-        )
+        config = SkillConfig(name="market-sizing", description="Size markets")
 
         errors = validate_skill_config(config)
 
@@ -23,7 +17,7 @@ class TestValidateSkillConfig:
 
         errors = validate_skill_config(config)
 
-        assert any("name" in e for e in errors)
+        assert any("name" in e.lower() for e in errors)
 
     def test_missing_description_returns_error(self):
         config = SkillConfig(name="test-skill", description="")
@@ -89,34 +83,3 @@ class TestNameFormat:
         errors = validate_skill_config(config)
 
         assert not any("invalid" in e.lower() for e in errors)
-
-
-class TestDirectoryNameMatch:
-    def test_name_must_match_directory(self):
-        config = SkillConfig(
-            name="market-sizing",
-            description="desc",
-            directory=Path("wrong-name"),
-        )
-
-        errors = validate_skill_config(config)
-
-        assert any("does not match directory" in e for e in errors)
-
-    def test_matching_directory_passes(self):
-        config = SkillConfig(
-            name="market-sizing",
-            description="desc",
-            directory=Path("market-sizing"),
-        )
-
-        errors = validate_skill_config(config)
-
-        assert not any("does not match directory" in e for e in errors)
-
-    def test_skips_directory_check_for_default(self):
-        config = SkillConfig(name="market-sizing", description="desc")
-
-        errors = validate_skill_config(config)
-
-        assert not any("does not match directory" in e for e in errors)

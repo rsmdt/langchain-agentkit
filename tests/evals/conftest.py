@@ -4,14 +4,11 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pytest
 
-from langchain_agentkit.middleware.skills import SkillsMiddleware
-
-if TYPE_CHECKING:
-    from langchain_agentkit.vfs import VirtualFilesystem
+from langchain_agentkit.extensions.skills import SkillsExtension
+from langchain_agentkit.extensions.skills.types import SkillConfig
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
@@ -25,16 +22,21 @@ if _ENV_FILE.exists():
             os.environ.setdefault(key.strip(), value.strip())
 
 
-@pytest.fixture()
-def skills_middleware() -> SkillsMiddleware:
-    """SkillsMiddleware wired to test fixtures."""
-    return SkillsMiddleware(str(FIXTURES / "skills"))
+def _load_skills_from_fixtures() -> list[SkillConfig]:
+    """Load SkillConfig objects from test fixture directories."""
+    from langchain_agentkit.frontmatter import parse_frontmatter
+
+    configs: list[SkillConfig] = []
+    skills_dir = FIXTURES / "skills"
+    if skills_dir.exists():
+        for d in skills_dir.iterdir():
+            if d.is_dir() and (d / "SKILL.md").exists():
+                result = parse_frontmatter(d / "SKILL.md")
+                configs.append(SkillConfig.from_frontmatter(result.metadata, result.content))
+    return configs
 
 
 @pytest.fixture()
-def vfs_with_workspace(skills_middleware: SkillsMiddleware) -> VirtualFilesystem:
-    """VFS with skills loaded + workspace files for edit/write tests."""
-    vfs = skills_middleware.filesystem
-    vfs.write("/workspace/config.json", '{"debug": true, "verbose": false}')
-    vfs.write("/workspace/notes.txt", "Some notes here")
-    return vfs
+def skills_extension() -> SkillsExtension:
+    """SkillsExtension wired to test fixtures."""
+    return SkillsExtension(skills=_load_skills_from_fixtures())

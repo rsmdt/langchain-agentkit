@@ -1,67 +1,51 @@
 """Tests for SkillConfig."""
 
-from pathlib import Path
-
 import pytest
 
-from langchain_agentkit.types import SkillConfig
-
-FIXTURES = Path(__file__).parent.parent / "fixtures"
+from langchain_agentkit.extensions.skills.types import SkillConfig
 
 
 class TestSkillConfig:
-    def test_from_directory_parses_name(self):
-        config = SkillConfig.from_directory(FIXTURES / "skills/market-sizing")
+    def test_construction_with_required_fields(self):
+        config = SkillConfig(name="test", description="desc")
 
-        assert config.name == "market-sizing"
+        assert config.name == "test"
+        assert config.description == "desc"
+        assert config.prompt == ""
 
-    def test_from_directory_parses_description(self):
-        config = SkillConfig.from_directory(FIXTURES / "skills/market-sizing")
+    def test_construction_with_instructions(self):
+        config = SkillConfig(name="test", description="desc", prompt="# Guide")
 
-        assert config.description == "Calculate TAM, SAM, and SOM for market analysis"
-
-    def test_from_directory_parses_instructions(self):
-        config = SkillConfig.from_directory(FIXTURES / "skills/market-sizing")
-
-        assert "# Market Sizing Methodology" in config.instructions
-
-    def test_from_directory_excludes_frontmatter_from_instructions(self):
-        config = SkillConfig.from_directory(FIXTURES / "skills/market-sizing")
-
-        assert "---" not in config.instructions
-        assert "name:" not in config.instructions
-
-    def test_from_directory_discovers_reference_files(self):
-        config = SkillConfig.from_directory(FIXTURES / "skills/market-sizing")
-
-        assert "calculator.py" in config.reference_files
-
-    def test_from_directory_excludes_skill_md_from_references(self):
-        config = SkillConfig.from_directory(FIXTURES / "skills/market-sizing")
-
-        assert "SKILL.md" not in config.reference_files
-
-    def test_from_directory_sets_directory(self):
-        skill_dir = FIXTURES / "skills/market-sizing"
-        config = SkillConfig.from_directory(skill_dir)
-
-        assert config.directory == skill_dir
-
-    def test_from_directory_raises_on_missing_skill_md(self, tmp_path):
-        with pytest.raises(FileNotFoundError):
-            SkillConfig.from_directory(tmp_path)
-
-    def test_from_directory_falls_back_to_dir_name_when_no_name(self, tmp_path):
-        skill_dir = tmp_path / "my-skill"
-        skill_dir.mkdir()
-        (skill_dir / "SKILL.md").write_text("---\ndescription: test\n---\nBody")
-
-        config = SkillConfig.from_directory(skill_dir)
-
-        assert config.name == "my-skill"
+        assert config.prompt == "# Guide"
 
     def test_frozen_dataclass(self):
         config = SkillConfig(name="test", description="desc")
 
         with pytest.raises(AttributeError):
             config.name = "changed"
+
+
+class TestFromFrontmatter:
+    def test_parses_name_and_description(self):
+        metadata = {"name": "market-sizing", "description": "Calculate TAM"}
+        content = "# Methodology"
+
+        config = SkillConfig.from_frontmatter(metadata, content)
+
+        assert config.name == "market-sizing"
+        assert config.description == "Calculate TAM"
+        assert config.prompt == "# Methodology"
+
+    def test_empty_metadata_returns_empty_fields(self):
+        config = SkillConfig.from_frontmatter({}, "body")
+
+        assert config.name == ""
+        assert config.description == ""
+        assert config.prompt == "body"
+
+    def test_missing_keys_default_to_empty(self):
+        config = SkillConfig.from_frontmatter({"name": "x"}, "")
+
+        assert config.name == "x"
+        assert config.description == ""
+        assert config.prompt == ""
