@@ -13,7 +13,7 @@ from langchain_agentkit.extensions.teams import (
     TeamExtension,
     TeamMessageBus,
 )
-from langchain_agentkit.tools.team import (
+from langchain_agentkit.extensions.teams.tools import (
     _agent_team,
     _assign_task,
     _check_teammates,

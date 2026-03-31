@@ -346,7 +346,7 @@ class TestBashTool:
     """Test the Bash tool built by FilesystemExtension."""
 
     def test_bash_tool_runs_command(self):
-        from langchain_agentkit.extensions.filesystem import _build_bash_tool
+        from langchain_agentkit.extensions.filesystem.extension import _build_bash_tool
 
         with tempfile.TemporaryDirectory() as tmpdir:
             backend = OSBackend(tmpdir)
@@ -357,7 +357,7 @@ class TestBashTool:
             assert "hello" in result
 
     def test_bash_tool_returns_exit_code_on_failure(self):
-        from langchain_agentkit.extensions.filesystem import _build_bash_tool
+        from langchain_agentkit.extensions.filesystem.extension import _build_bash_tool
 
         with tempfile.TemporaryDirectory() as tmpdir:
             backend = OSBackend(tmpdir)
@@ -373,30 +373,30 @@ class TestBashTool:
 
 class TestStripLineNumbers:
     def test_strips_basic_line_numbers(self):
-        from langchain_agentkit.extensions.skills import _strip_line_numbers
+        from langchain_agentkit.extensions.skills.discovery import _strip_line_numbers
 
         formatted = "1\thello\n2\tworld\n"
         assert _strip_line_numbers(formatted) == "hello\nworld\n"
 
     def test_empty_input(self):
-        from langchain_agentkit.extensions.skills import _strip_line_numbers
+        from langchain_agentkit.extensions.skills.discovery import _strip_line_numbers
 
         assert _strip_line_numbers("") == ""
 
     def test_preserves_tabs_in_content(self):
-        from langchain_agentkit.extensions.skills import _strip_line_numbers
+        from langchain_agentkit.extensions.skills.discovery import _strip_line_numbers
 
         formatted = "1\tdata\twith\ttabs\n"
         assert _strip_line_numbers(formatted) == "data\twith\ttabs\n"
 
     def test_multi_digit_line_numbers(self):
-        from langchain_agentkit.extensions.skills import _strip_line_numbers
+        from langchain_agentkit.extensions.skills.discovery import _strip_line_numbers
 
         formatted = "100\tline hundred\n101\tline hundred one\n"
         assert _strip_line_numbers(formatted) == "line hundred\nline hundred one\n"
 
     def test_no_tab_in_line(self):
-        from langchain_agentkit.extensions.skills import _strip_line_numbers
+        from langchain_agentkit.extensions.skills.discovery import _strip_line_numbers
 
         # When no tab exists, partition returns ("no tab here\n", "", "")
         # Content becomes empty string — expected since valid
@@ -406,7 +406,7 @@ class TestStripLineNumbers:
         assert result == ""
 
     def test_preserves_frontmatter(self):
-        from langchain_agentkit.extensions.skills import _strip_line_numbers
+        from langchain_agentkit.extensions.skills.discovery import _strip_line_numbers
 
         formatted = "1\t---\n2\tname: test\n3\tdescription: a test\n4\t---\n5\t# Body\n"
         result = _strip_line_numbers(formatted)

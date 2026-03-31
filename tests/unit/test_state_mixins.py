@@ -2,7 +2,7 @@
 
 from typing import get_type_hints
 
-from langchain_agentkit.state import (
+from langchain_agentkit.extensions.teams.state import (
     TeamState,
     _append_messages,
     _merge_team_members,

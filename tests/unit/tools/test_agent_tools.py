@@ -7,7 +7,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import ToolException
 from langgraph.types import Command
 
-from langchain_agentkit.tools.agent import (
+from langchain_agentkit.extensions.agents.tools import (
     Dynamic,
     Predefined,
     _agent_tool,

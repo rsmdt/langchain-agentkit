@@ -51,7 +51,7 @@ class TestValidateAgentList:
     """validate_agent_list should accept both raw graphs and AgentLike objects."""
 
     def test_accepts_raw_graphs(self):
-        from langchain_agentkit.extensions import validate_agent_list
+        from langchain_agentkit.extensions.agents.extension import _validate_agent_list as validate_agent_list
 
         agents = [_make_mock_agent("a"), _make_mock_agent("b")]
         result = validate_agent_list(agents)
@@ -60,7 +60,7 @@ class TestValidateAgentList:
         assert "b" in result
 
     def test_accepts_agent_like_objects(self):
-        from langchain_agentkit.extensions import validate_agent_list
+        from langchain_agentkit.extensions.agents.extension import _validate_agent_list as validate_agent_list
 
         agents = [_make_agent_like("agent_a", "desc a"), _make_agent_like("agent_b", "desc b")]
         result = validate_agent_list(agents)
@@ -69,7 +69,7 @@ class TestValidateAgentList:
         assert "agent_b" in result
 
     def test_accepts_mixed_raw_and_agent_like(self):
-        from langchain_agentkit.extensions import validate_agent_list
+        from langchain_agentkit.extensions.agents.extension import _validate_agent_list as validate_agent_list
 
         agents = [_make_mock_agent("raw_agent"), _make_agent_like("like_agent")]
         result = validate_agent_list(agents)
@@ -78,7 +78,7 @@ class TestValidateAgentList:
         assert "like_agent" in result
 
     def test_rejects_duplicate_names(self):
-        from langchain_agentkit.extensions import validate_agent_list
+        from langchain_agentkit.extensions.agents.extension import _validate_agent_list as validate_agent_list
 
         agents = [_make_agent_like("same_name"), _make_agent_like("same_name")]
 
@@ -86,7 +86,7 @@ class TestValidateAgentList:
             validate_agent_list(agents)
 
     def test_rejects_empty_list(self):
-        from langchain_agentkit.extensions import validate_agent_list
+        from langchain_agentkit.extensions.agents.extension import _validate_agent_list as validate_agent_list
 
         with pytest.raises(ValueError, match="cannot be empty"):
             validate_agent_list([])

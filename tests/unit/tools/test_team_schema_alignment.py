@@ -16,7 +16,7 @@ import pytest
 from langchain_core.tools import ToolException
 from langgraph.types import Command
 
-from langchain_agentkit.tools.team import _agent_team
+from langchain_agentkit.extensions.teams.tools import _agent_team
 
 # --- Helpers ---
 

@@ -48,7 +48,7 @@ class TestCompileOrResolve:
     """_compile_or_resolve should handle both raw graphs and AgentLike."""
 
     def test_returns_agent_like_directly(self):
-        from langchain_agentkit.tools.agent import _compile_or_resolve
+        from langchain_agentkit.extensions.agents.tools import _compile_or_resolve
 
         agent = _make_agent_like("researcher")
         result = _compile_or_resolve(agent, {}, None)
@@ -56,7 +56,7 @@ class TestCompileOrResolve:
         assert result is agent
 
     def test_compiles_raw_graph(self):
-        from langchain_agentkit.tools.agent import _compile_or_resolve
+        from langchain_agentkit.extensions.agents.tools import _compile_or_resolve
 
         graph = MagicMock()
         graph.name = "researcher"
@@ -70,7 +70,7 @@ class TestCompileOrResolve:
         assert result is compiled
 
     def test_caches_compiled_graph(self):
-        from langchain_agentkit.tools.agent import _compile_or_resolve
+        from langchain_agentkit.extensions.agents.tools import _compile_or_resolve
 
         graph = MagicMock()
         graph.name = "researcher"
@@ -86,7 +86,7 @@ class TestCompileOrResolve:
         graph.compile.assert_called_once()  # Only compiled once
 
     def test_agent_like_not_cached(self):
-        from langchain_agentkit.tools.agent import _compile_or_resolve
+        from langchain_agentkit.extensions.agents.tools import _compile_or_resolve
 
         agent = _make_agent_like("researcher")
         cache = {}
@@ -104,7 +104,7 @@ class TestTeamAgentDelegation:
     """A TeamAgent should be delegatable via _compile_or_resolve."""
 
     def test_team_agent_returned_directly(self):
-        from langchain_agentkit.tools.agent import _compile_or_resolve
+        from langchain_agentkit.extensions.agents.tools import _compile_or_resolve
 
         lead = _make_agent_like("lead", "team result")
         team = TeamAgent(lead=lead, teammates=[_make_agent_like("worker")])
