@@ -293,14 +293,16 @@ LS_TOOL_DATASET = [
 
 MULTI_EDIT_TOOL_DATASET = [
     {
-        "description": "Agent uses MultiEdit for multiple replacements in one file",
+        "description": "Agent applies multiple edits to one file",
         "inputs": (
             "In /workspace/config.json, make these changes: "
             "replace 'debug' with 'verbose' and replace 'true' with 'false'"
         ),
+        # Accept either MultiEdit once or Edit twice — both are correct
+        # strategies. Subset mode: at least one Edit-family call on the file.
         "reference_trajectory": [
             _assistant_with_tools(
-                _tool_call("MultiEdit", file_path="/workspace/config.json"),
+                _tool_call("Edit", file_path="/workspace/config.json"),
             ),
         ],
     },

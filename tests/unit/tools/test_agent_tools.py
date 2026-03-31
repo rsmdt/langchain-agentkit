@@ -186,8 +186,8 @@ class TestDelegatePredefined:
                 tool_call_id=FAKE_TOOL_CALL_ID,
             )
         except ToolException as exc:
-            assert "alpha" in str(exc)
-            assert "beta" in str(exc)
+            assert "not found" in str(exc)
+            assert "nonexistent" in str(exc)
 
     @pytest.mark.asyncio
     async def test_caches_compiled_graph(self):
@@ -224,8 +224,9 @@ class TestDelegatePredefined:
         )
 
         assert isinstance(result, Command)
-        assert "Delegation failed" in result.update["messages"][0].content
-        assert "boom" in result.update["messages"][0].content
+        content = result.update["messages"][0].content
+        assert "failed" in content
+        assert "internal error" in content
 
 
 # ---------------------------------------------------------------------------
