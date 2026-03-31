@@ -1,7 +1,7 @@
 """Tests for skill config validation (AgentSkills.io compliance)."""
 
-from langchain_agentkit.extensions.skills.types import SkillConfig
 from langchain_agentkit.extensions.skills.discovery import validate_skill_config
+from langchain_agentkit.extensions.skills.types import SkillConfig
 
 
 class TestValidateSkillConfig:

@@ -64,7 +64,7 @@ class OSBackend:
         os.makedirs(os.path.dirname(real_path), exist_ok=True)
         mode = "wb" if isinstance(content, bytes) else "w"
         kwargs = {} if isinstance(content, bytes) else {"encoding": "utf-8"}
-        with open(real_path, mode, **kwargs) as f:
+        with open(real_path, mode, **kwargs) as f:  # type: ignore[call-overload]
             f.write(content)
         return WriteResult(path=path, bytes_written=len(content))
 
@@ -176,11 +176,13 @@ class OSBackend:
             for name in sorted(os.listdir(real_path)):
                 full = os.path.join(real_path, name)
                 rel = os.path.join(path.rstrip("/"), name)
-                entries.append({
-                    "path": rel,
-                    "size": os.path.getsize(full) if os.path.isfile(full) else 0,
-                    "is_dir": os.path.isdir(full),
-                })
+                entries.append(
+                    {
+                        "path": rel,
+                        "size": os.path.getsize(full) if os.path.isfile(full) else 0,
+                        "is_dir": os.path.isdir(full),
+                    }
+                )
         return entries
 
     def exists(self, path: str) -> bool:
@@ -195,4 +197,5 @@ class OSBackend:
             os.remove(real_path)
         elif os.path.isdir(real_path):
             import shutil
+
             shutil.rmtree(real_path)

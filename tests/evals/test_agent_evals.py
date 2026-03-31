@@ -98,8 +98,8 @@ def _build_agent(extensions_list):
 
 def _build_skills_agent():
     from langchain_agentkit import SkillsExtension
-    from langchain_agentkit.frontmatter import parse_frontmatter
     from langchain_agentkit.extensions.skills.types import SkillConfig
+    from langchain_agentkit.frontmatter import parse_frontmatter
 
     configs = []
     skills_dir = FIXTURES / "skills"
@@ -121,22 +121,12 @@ def _build_filesystem_agent():
 
     # Pre-populate workspace
     (workspace / "workspace").mkdir()
-    (workspace / "workspace" / "config.json").write_text(
-        '{"debug": true, "verbose": false}'
-    )
-    (workspace / "workspace" / "notes.txt").write_text(
-        "Some notes here\nTODO: finish review\n"
-    )
-    (workspace / "workspace" / "readme.md").write_text(
-        "# Project\nA sample project for testing.\n"
-    )
+    (workspace / "workspace" / "config.json").write_text('{"debug": true, "verbose": false}')
+    (workspace / "workspace" / "notes.txt").write_text("Some notes here\nTODO: finish review\n")
+    (workspace / "workspace" / "readme.md").write_text("# Project\nA sample project for testing.\n")
     (workspace / "data").mkdir()
-    (workspace / "data" / "report.csv").write_text(
-        "metric,value\nrevenue,1000\ngrowth,5%\n"
-    )
-    (workspace / "data" / "users.txt").write_text(
-        "alice\nbob\ncharlie\n"
-    )
+    (workspace / "data" / "report.csv").write_text("metric,value\nrevenue,1000\ngrowth,5%\n")
+    (workspace / "data" / "users.txt").write_text("alice\nbob\ncharlie\n")
 
     return _build_agent([FilesystemExtension(root=tmpdir)])
 
@@ -150,20 +140,18 @@ def _build_skills_and_filesystem_agent():
 
     # Pre-populate workspace
     (workspace / "workspace").mkdir()
-    (workspace / "workspace" / "config.json").write_text(
-        '{"debug": true, "verbose": false}'
-    )
-    (workspace / "workspace" / "notes.txt").write_text(
-        "Some notes here\nTODO: review this\n"
-    )
+    (workspace / "workspace" / "config.json").write_text('{"debug": true, "verbose": false}')
+    (workspace / "workspace" / "notes.txt").write_text("Some notes here\nTODO: review this\n")
 
     # Load skills from fixtures
     skills_dir = FIXTURES / "skills"
 
-    return _build_agent([
-        SkillsExtension(skills=skills_dir),
-        FilesystemExtension(root=tmpdir),
-    ])
+    return _build_agent(
+        [
+            SkillsExtension(skills=skills_dir),
+            FilesystemExtension(root=tmpdir),
+        ]
+    )
 
 
 def _build_tasks_agent():

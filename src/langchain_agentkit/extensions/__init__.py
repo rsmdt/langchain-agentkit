@@ -21,7 +21,11 @@ from langchain_agentkit.extensions.tasks import TasksExtension as TasksExtension
 from langchain_agentkit.extensions.teams import TeamExtension as TeamExtension
 from langchain_agentkit.extensions.web_search import (
     DuckDuckGoSearchProvider as DuckDuckGoSearchProvider,
+)
+from langchain_agentkit.extensions.web_search import (
     QwantSearchProvider as QwantSearchProvider,
+)
+from langchain_agentkit.extensions.web_search import (
     WebSearchExtension as WebSearchExtension,
 )
 

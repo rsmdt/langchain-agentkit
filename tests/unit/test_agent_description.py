@@ -1,4 +1,4 @@
-# ruff: noqa: N801
+# ruff: noqa: N801, N805
 """Tests for agent metaclass description, tools='inherit', and name."""
 
 from unittest.mock import MagicMock

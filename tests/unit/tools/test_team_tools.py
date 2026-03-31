@@ -1,6 +1,7 @@
 """Tests for team coordination tools."""
 
 import asyncio
+import contextlib
 import json
 from unittest.mock import AsyncMock, MagicMock
 
@@ -135,10 +136,8 @@ class TestAgentTeam:
         # Clean up asyncio tasks
         for task in mw._active_team.members.values():
             task.cancel()
-            try:
+            with contextlib.suppress(asyncio.CancelledError, Exception):
                 await task
-            except (asyncio.CancelledError, Exception):
-                pass
 
     @pytest.mark.asyncio
     async def test_agent_team_with_duplicate_names_raises(self):

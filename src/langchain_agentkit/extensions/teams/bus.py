@@ -107,11 +107,7 @@ async def _teammate_loop(
                 },
                 config=config,
             )
-            final = (
-                result["messages"][-1].content
-                if result.get("messages")
-                else "No response"
-            )
+            final = result["messages"][-1].content if result.get("messages") else "No response"
         except Exception as exc:
             final = f"Error during execution: {exc}"
 

@@ -15,14 +15,19 @@ Also handles:
 from __future__ import annotations
 
 from collections import defaultdict
-from collections.abc import Callable
-from typing import Any
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 # Sentinel for jump_to routing
 JUMP_TO_END = "end"
 JUMP_TO_MODEL = "model"
 JUMP_TO_TOOLS = "tools"
 _VALID_JUMP_TARGETS = frozenset({JUMP_TO_END, JUMP_TO_MODEL, JUMP_TO_TOOLS})
+
+# Type alias to keep signatures under 100 chars
+_HookEntry = tuple[Any, "Callable[..., Any]", list[str] | None]
 
 
 class HookRunner:
@@ -38,13 +43,13 @@ class HookRunner:
         self._history_processors = self._collect_history_processors()
         self._error_hooks = self._collect_error_hooks()
 
-    def _collect_hooks(self) -> dict[tuple[str, str], list[tuple[Any, Callable, list[str] | None]]]:
+    def _collect_hooks(self) -> dict[tuple[str, str], list[_HookEntry]]:
         """Collect all hooks from all extensions.
 
         Returns a dict mapping (phase, point) to a list of
         (extension_instance, bound_method, tool_filter) tuples.
         """
-        hooks: dict[tuple[str, str], list[tuple[Any, Callable, list[str] | None]]] = defaultdict(list)
+        hooks: dict[tuple[str, str], list[_HookEntry]] = defaultdict(list)
 
         for ext in self._extensions:
             get_hooks = getattr(ext, "get_all_hooks", None)
@@ -63,7 +68,7 @@ class HookRunner:
 
         return dict(hooks)
 
-    def _collect_history_processors(self) -> list[Callable]:
+    def _collect_history_processors(self) -> list[Callable[..., Any]]:
         """Collect process_history methods from extensions, in order."""
         processors = []
         for ext in self._extensions:
@@ -72,7 +77,7 @@ class HookRunner:
                 processors.append(method)
         return processors
 
-    def _collect_error_hooks(self) -> list[Callable]:
+    def _collect_error_hooks(self) -> list[Callable[..., Any]]:
         """Collect on_error hooks from extensions."""
         hooks = []
         for ext in self._extensions:
@@ -167,7 +172,7 @@ class HookRunner:
         point: str,
         *,
         request: Any,
-        handler: Callable,
+        handler: Callable[..., Any],
         tool_name: str | None = None,
     ) -> Any:
         """Run wrap hooks as onion layers around the handler.
@@ -192,16 +197,20 @@ class HookRunner:
         for method in reversed(applicable):
             outer_handler = current_handler
 
-            async def make_layer(m: Callable, h: Callable) -> Callable:
+            async def make_layer(
+                m: Callable[..., Any],
+                h: Callable[..., Any],
+            ) -> Callable[..., Any]:
                 async def layer(req: Any) -> Any:
                     return await m(req, h)
+
                 return layer
 
             current_handler = await make_layer(method, outer_handler)
 
         return await current_handler(request)
 
-    def run_process_history(self, messages: list) -> list:
+    def run_process_history(self, messages: list[Any]) -> list[Any]:
         """Run process_history pipeline in declaration order.
 
         Output of one processor feeds into the next.

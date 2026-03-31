@@ -22,6 +22,7 @@ def _validate_handler_signature(handler, class_name):
     """Test helper wrapping validate_handler_signature with agent defaults."""
     return validate_handler_signature(handler, class_name, _INJECTABLE_PARAMS, "agent")
 
+
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
 
@@ -158,9 +159,13 @@ class TestAgentMetaclass:
 
         class skilled_agent(agent):
             model = mock_llm
-            extensions = [SkillsExtension(skills=[
-                SkillConfig(name="test", description="test", prompt="test"),
-            ])]
+            extensions = [
+                SkillsExtension(
+                    skills=[
+                        SkillConfig(name="test", description="test", prompt="test"),
+                    ]
+                )
+            ]
 
             async def handler(state, *, llm):
                 return {

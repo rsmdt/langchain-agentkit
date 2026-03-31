@@ -175,11 +175,15 @@ def _compile_agent(
                 agent_node_name = name
                 graph.add_conditional_edges(
                     agent_node_name,
-                    lambda state: "tools" if (
-                        state["messages"][-1].tool_calls
-                        if hasattr(state["messages"][-1], "tool_calls")
-                        else False
-                    ) else END,
+                    lambda state: (
+                        "tools"
+                        if (
+                            state["messages"][-1].tool_calls
+                            if hasattr(state["messages"][-1], "tool_calls")
+                            else False
+                        )
+                        else END
+                    ),
                     {"tools": "tools", END: END},
                 )
                 graph.add_edge("tools", agent_node_name)
@@ -205,35 +209,42 @@ async def _run_delegation(
     try:
         result = await asyncio.wait_for(compiled.ainvoke(scoped_state), timeout=timeout)
     except TimeoutError:
-        return Command(update={
-            "messages": [
-                ToolMessage(
-                    content=f"Delegation to '{agent}' timed out after {timeout}s",
-                    tool_call_id=tool_call_id,
-                ),
-            ],
-        })
+        return Command(
+            update={
+                "messages": [
+                    ToolMessage(
+                        content=f"Delegation to '{agent}' timed out after {timeout}s",
+                        tool_call_id=tool_call_id,
+                    ),
+                ],
+            }
+        )
     except Exception:
         import logging
 
         logging.getLogger(__name__).exception(
-            "Delegation to '%s' failed", agent,
+            "Delegation to '%s' failed",
+            agent,
         )
-        return Command(update={
-            "messages": [
-                ToolMessage(
-                    content=f"Delegation to '{agent}' failed due to an internal error.",
-                    tool_call_id=tool_call_id,
-                ),
-            ],
-        })
+        return Command(
+            update={
+                "messages": [
+                    ToolMessage(
+                        content=f"Delegation to '{agent}' failed due to an internal error.",
+                        tool_call_id=tool_call_id,
+                    ),
+                ],
+            }
+        )
 
     response = _extract_final_response(result)
-    return Command(update={
-        "messages": [
-            ToolMessage(content=response, tool_call_id=tool_call_id),
-        ],
-    })
+    return Command(
+        update={
+            "messages": [
+                ToolMessage(content=response, tool_call_id=tool_call_id),
+            ],
+        }
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -372,9 +383,7 @@ def _compile_ephemeral_graph(
     ) -> dict[str, Any]:
         from langchain_core.messages import SystemMessage
 
-        msgs = [SystemMessage(content=prompt)] + list(
-            state_inner.get("messages", [])
-        )
+        msgs = [SystemMessage(content=prompt)] + list(state_inner.get("messages", []))
         response = await llm.ainvoke(msgs)
         return {"messages": [response], "sender": name}
 
@@ -411,8 +420,7 @@ async def _delegate_agent_config(
         llm = parent_llm_getter()
     else:
         raise ToolException(
-            "Agent definition requires a model but no parent LLM "
-            "or model_resolver is available."
+            "Agent definition requires a model but no parent LLM or model_resolver is available."
         )
 
     # Resolve tools — filter from parent's tools by name
@@ -440,9 +448,7 @@ async def _delegate_agent_config(
             max_turns=agent_config.max_turns,
         )
     except Exception as exc:
-        raise ToolException(
-            f"Failed to create agent '{agent_name}': {exc}"
-        ) from exc
+        raise ToolException(f"Failed to create agent '{agent_name}': {exc}") from exc
 
     scoped_state = _build_scoped_state(message)
 
@@ -479,9 +485,7 @@ async def _delegate_dynamic(
             prompt=prompt,
         )
     except Exception as exc:
-        raise ToolException(
-            f"Failed to create dynamic agent: {exc}"
-        ) from exc
+        raise ToolException(f"Failed to create dynamic agent: {exc}") from exc
 
     scoped_state = _build_scoped_state(message)
 

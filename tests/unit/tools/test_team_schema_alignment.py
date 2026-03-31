@@ -10,6 +10,7 @@ Parameters renamed: team_name→name, members→agents, agent_type→agent.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -156,6 +157,3 @@ class TestAgentTeamNewSchema:
                 tool_call_id=FAKE_TOOL_CALL_ID,
                 ext=ext,
             )
-
-
-import contextlib

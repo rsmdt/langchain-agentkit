@@ -84,7 +84,7 @@ class TasksExtension(Extension):
 
     @property
     def tools(self) -> list[BaseTool]:
-        return self._tools
+        return self._tools  # type: ignore[return-value]
 
     def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
         sections = [BASE_AGENT_PROMPT]

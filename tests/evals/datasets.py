@@ -349,8 +349,7 @@ HITL_ASK_USER_DATASET = [
     {
         "description": "Agent uses ask_user when choosing between databases",
         "inputs": (
-            "We need to add a database to this project. "
-            "What type of database should I set up?"
+            "We need to add a database to this project. What type of database should I set up?"
         ),
         "reference_trajectory": [
             _assistant_with_tools(_tool_call("ask_user")),

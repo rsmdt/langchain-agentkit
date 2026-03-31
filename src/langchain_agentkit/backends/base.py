@@ -27,7 +27,6 @@ from __future__ import annotations
 import base64
 import json
 from abc import ABC, abstractmethod
-from typing import Any
 
 from langchain_agentkit.backends.protocol import (
     EditResult,
@@ -108,7 +107,7 @@ class BaseSandbox(ABC):
         if result["exit_code"] != 0:
             return ""
         # Reformat: cat -n produces "     1\tline", normalize to "{offset+i}\tline"
-        lines = []
+        lines: list[str] = []
         for raw_line in result["output"].splitlines(keepends=True):
             stripped = raw_line.lstrip()
             _, _, content = stripped.partition("\t")
@@ -148,12 +147,14 @@ class BaseSandbox(ABC):
         For files under 50KB, uses an inline Python script via execute().
         """
         real_path = self._resolve(path)
-        payload = json.dumps({
-            "path": real_path,
-            "old": old_string,
-            "new": new_string,
-            "replace_all": replace_all,
-        })
+        payload = json.dumps(
+            {
+                "path": real_path,
+                "old": old_string,
+                "new": new_string,
+                "replace_all": replace_all,
+            }
+        )
         encoded = base64.b64encode(payload.encode()).decode("ascii")
         # Inline Python script for atomic edit with ambiguity check
         script = (
@@ -187,7 +188,10 @@ class BaseSandbox(ABC):
     def glob(self, pattern: str, path: str = "/") -> list[str]:
         """Find files matching a glob pattern using ``find``."""
         real_path = self._resolve(path)
-        cmd = f"find {_shell_quote(real_path)} -name {_shell_quote(pattern)} -type f 2>/dev/null | sort"
+        cmd = (
+            f"find {_shell_quote(real_path)} -name {_shell_quote(pattern)}"
+            f" -type f 2>/dev/null | sort"
+        )
         result = self.execute(cmd)
         if result["exit_code"] != 0 or not result["output"].strip():
             return []

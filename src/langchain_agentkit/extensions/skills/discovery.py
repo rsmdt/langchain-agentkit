@@ -2,12 +2,13 @@
 
 from __future__ import annotations
 
-from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from langchain_agentkit.extensions.skills.types import SkillConfig
 
 if TYPE_CHECKING:
+    from pathlib import Path
+
     from langchain_agentkit.backends.protocol import BackendProtocol
 
 
@@ -46,7 +47,7 @@ def _strip_line_numbers(formatted: str) -> str:
     return "".join(lines)
 
 
-def _parse_frontmatter(path: Path) -> tuple[dict, str]:
+def _parse_frontmatter(path: Path) -> tuple[dict[str, Any], str]:
     """Parse a markdown file with YAML frontmatter. Returns (metadata, content)."""
     from langchain_agentkit.frontmatter import parse_frontmatter
 
@@ -54,7 +55,7 @@ def _parse_frontmatter(path: Path) -> tuple[dict, str]:
     return result.metadata, result.content
 
 
-def _parse_frontmatter_string(text: str) -> tuple[dict, str]:
+def _parse_frontmatter_string(text: str) -> tuple[dict[str, Any], str]:
     """Parse a string with YAML frontmatter. Returns (metadata, content)."""
     from langchain_agentkit.frontmatter import parse_frontmatter_string
 

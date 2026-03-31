@@ -44,6 +44,7 @@ class TestAgentLikeProtocol:
             @property
             def name(self) -> str:
                 return "test"
+
             # Missing description, ainvoke, astream
 
         assert not isinstance(PartialAgent(), AgentLike)
