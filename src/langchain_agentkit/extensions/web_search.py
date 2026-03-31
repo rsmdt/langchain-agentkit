@@ -64,7 +64,7 @@ class DuckDuckGoSearchProvider(BaseTool):
     name: str = "DuckDuckGoSearch"
     description: str = "Search the web using DuckDuckGo."
     max_results: int = 5
-    headers: dict[str, str] = None  # type: ignore[assignment]
+    headers: dict[str, str] | None = None
 
     def __init__(self, **kwargs: Any) -> None:
         if "headers" not in kwargs or kwargs["headers"] is None:
@@ -130,7 +130,7 @@ class QwantSearchProvider(BaseTool):
     max_results: int = 5
     locale: str = "en_US"
     safesearch: int = 1
-    headers: dict[str, str] = None  # type: ignore[assignment]
+    headers: dict[str, str] | None = None
 
     def __init__(self, **kwargs: Any) -> None:
         if "headers" not in kwargs or kwargs["headers"] is None:

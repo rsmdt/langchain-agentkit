@@ -85,6 +85,17 @@ class HookRunner:
         return hooks
 
     @staticmethod
+    def _validate_jump_to(result: dict[str, Any]) -> None:
+        """Validate jump_to target if present in a hook result."""
+        if "jump_to" in result:
+            target = result["jump_to"]
+            if target not in _VALID_JUMP_TARGETS:
+                raise ValueError(
+                    f"Invalid jump_to target '{target}'. "
+                    f"Valid targets: {', '.join(sorted(_VALID_JUMP_TARGETS))}"
+                )
+
+    @staticmethod
     def _matches_tool_filter(
         tool_filter: list[str] | None,
         tool_name: str | None,
@@ -119,14 +130,7 @@ class HookRunner:
                 continue
             result = await method(state, runtime)
             if result is not None:
-                # Validate jump_to if present
-                if "jump_to" in result:
-                    target = result["jump_to"]
-                    if target not in _VALID_JUMP_TARGETS:
-                        raise ValueError(
-                            f"Invalid jump_to target '{target}'. "
-                            f"Valid targets: {', '.join(sorted(_VALID_JUMP_TARGETS))}"
-                        )
+                self._validate_jump_to(result)
                 updates.append(result)
         return updates
 
@@ -154,13 +158,7 @@ class HookRunner:
                 continue
             result = await method(state, runtime)
             if result is not None:
-                if "jump_to" in result:
-                    target = result["jump_to"]
-                    if target not in _VALID_JUMP_TARGETS:
-                        raise ValueError(
-                            f"Invalid jump_to target '{target}'. "
-                            f"Valid targets: {', '.join(sorted(_VALID_JUMP_TARGETS))}"
-                        )
+                self._validate_jump_to(result)
                 updates.append(result)
         return updates
 

@@ -9,7 +9,7 @@ Re-exports::
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 
 def _get_agent_name(agent: Any) -> str | None:
@@ -42,15 +42,20 @@ def validate_agent_list(agents: list[Any]) -> dict[str, Any]:
 def resolve_agent(agent_name: str, agents_by_name: dict[str, Any]) -> Any:
     """Look up an agent by name, raising a descriptive error if not found.
 
-    Returns the agent graph on success. Raises ``ToolException`` with
-    available agent names on failure.
+    Returns the agent graph on success. Raises ``ToolException`` on failure.
     """
+    import logging
+
     from langchain_core.tools import ToolException
 
     if agent_name not in agents_by_name:
-        available = ", ".join(sorted(agents_by_name.keys()))
+        available = sorted(agents_by_name.keys())
+        logging.getLogger(__name__).warning(
+            "Agent '%s' not found. Registered agents: %s", agent_name, available,
+        )
         raise ToolException(
-            f"Agent '{agent_name}' not found. Available agents: {available}"
+            f"Agent '{agent_name}' not found. Check the agent roster for "
+            f"available names."
         )
     return agents_by_name[agent_name]
 
