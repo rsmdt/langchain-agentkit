@@ -343,6 +343,50 @@ FILESYSTEM_MULTI_STEP_DATASET = [
 ]
 
 
+# --- HITL Ask-User Scenarios ---
+
+HITL_ASK_USER_DATASET = [
+    {
+        "description": "Agent uses ask_user when choosing between databases",
+        "inputs": (
+            "We need to add a database to this project. "
+            "What type of database should I set up?"
+        ),
+        "reference_trajectory": [
+            _assistant_with_tools(_tool_call("ask_user")),
+        ],
+    },
+    {
+        "description": "Agent uses ask_user when configuring logging",
+        "inputs": (
+            "Configure the logging system for this application. "
+            "There are several approaches we could take."
+        ),
+        "reference_trajectory": [
+            _assistant_with_tools(_tool_call("ask_user")),
+        ],
+    },
+]
+
+
+HITL_DIRECT_ACTION_DATASET = [
+    {
+        "description": "Agent reads file directly without asking",
+        "inputs": "Read the contents of /workspace/config.json",
+        "reference_trajectory": [
+            _assistant_with_tools(_tool_call("Read")),
+        ],
+    },
+    {
+        "description": "Agent searches files directly without asking",
+        "inputs": "Find all Python files in the workspace",
+        "reference_trajectory": [
+            _assistant_with_tools(_tool_call("Glob")),
+        ],
+    },
+]
+
+
 # --- Combined dataset for full eval run ---
 
 ALL_DATASETS = {
@@ -361,4 +405,6 @@ ALL_DATASETS = {
     "task_dependencies": TASK_DEPENDENCIES_DATASET,
     "task_list": TASK_LIST_DATASET,
     "task_stop": TASK_STOP_DATASET,
+    "hitl_ask_user": HITL_ASK_USER_DATASET,
+    "hitl_direct_action": HITL_DIRECT_ACTION_DATASET,
 }

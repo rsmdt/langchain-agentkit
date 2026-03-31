@@ -110,7 +110,7 @@ extensions = [
     TasksExtension(),
     FilesystemExtension(),
     WebSearchExtension(),
-    HITLExtension(interrupt_on={"send_email": True}),
+    HITLExtension(interrupt_on={"send_email": True}, tools=True),
     AgentExtension([researcher, coder]),
     TeamExtension([researcher, coder]),
 ]
@@ -289,17 +289,32 @@ mw = WebSearchExtension(providers=[TavilySearch(max_results=5)])
 
 ### HITLExtension
 
-Human-in-the-loop approval for sensitive tool calls via LangGraph `interrupt()`:
+Human-in-the-loop via a unified Question protocol. Two capabilities:
+
+**Tool approval** — gate sensitive tools with human review:
 
 ```python
-mw = HITLExtension(interrupt_on={
-    "send_email": True,           # requires approval
-    "search": False,              # auto-approved
-    "delete_file": {"allowed_decisions": ["approve", "reject"]},
+hitl = HITLExtension(interrupt_on={
+    "send_email": True,           # approve / edit / reject
+    "delete_file": {"options": ["approve", "reject"]},
 })
+# Tools not listed in interrupt_on execute normally without interruption.
 ```
 
-Requires a checkpointer. Resume with `Command(resume={"type": "approve"})`.
+**ask_user tool** — let the LLM ask structured questions:
+
+```python
+hitl = HITLExtension(tools=True)
+
+# Or combine both:
+hitl = HITLExtension(
+    interrupt_on={"send_email": True},
+    tools=True,
+)
+```
+
+Both use the same interrupt payload (`Question` objects) and resume format.
+Requires a checkpointer. Resume with `Command(resume={"answers": {"<question>": "<answer>"}})`.
 
 ### TeamExtension
 

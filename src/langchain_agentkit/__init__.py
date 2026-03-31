@@ -60,6 +60,7 @@ from langchain_agentkit.extensions import (
 
 # Types
 from langchain_agentkit.extensions.agents import AgentConfig
+from langchain_agentkit.extensions.hitl import Option, Question
 from langchain_agentkit.extensions.skills import SkillConfig, build_skill_tool
 from langchain_agentkit.extensions.tasks import Task, TaskStatus, TasksState, create_task_tools
 from langchain_agentkit.extensions.teams import TeamState
@@ -106,6 +107,9 @@ __all__ = [
     # Types
     "AgentConfig",
     "SkillConfig",
+    # HITL types
+    "Option",
+    "Question",
     # Tools
     "Task",
     "TaskStatus",

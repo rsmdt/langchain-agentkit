@@ -1,33 +1,60 @@
-"""HITLExtension — human-in-the-loop tool call approval via LangGraph interrupt().
+"""HITLExtension — human-in-the-loop via unified Question protocol.
 
-Wraps individual tool calls for human review before execution. Uses
-LangGraph's ``interrupt()`` to pause the graph and ``Command(resume=...)``
-to continue with the human's decision.
+Provides two capabilities:
+
+1. **Tool approval**: Intercepts whitelisted tool calls and presents
+   structured questions (Approve/Edit/Reject) before execution.
+2. **ask_user tool**: Gives the LLM an explicit tool to ask the user
+   structured questions during execution.
+
+Both use the same Question-based interrupt protocol. Consumers receive
+a unified payload format regardless of the interrupt source.
 
 Usage::
 
     from langchain_agentkit import HITLExtension
 
-    mw = HITLExtension(interrupt_on={
-        "send_email": True,                          # all decisions
-        "delete_file": {"allowed_decisions": ["approve", "reject"]},
-        "search": False,                             # auto-approved (excluded)
+    # Tool approval only
+    hitl = HITLExtension(interrupt_on={"send_email": True})
+
+    # ask_user tool only
+    hitl = HITLExtension(tools=True)
+
+    # Both
+    hitl = HITLExtension(
+        interrupt_on={"send_email": True, "delete_file": True},
+        tools=True,
+    )
+
+    # Custom approval config
+    hitl = HITLExtension(interrupt_on={
+        "send_email": {"options": ["approve", "reject"], "question": "Send email?"},
     })
 
-    class my_agent(agent):
-        llm = ChatOpenAI(model="gpt-4o")
-        tools = [send_email, delete_file, search]
-        extensions = [mw]
+Interrupt payload (unified for both tool approval and ask_user)::
 
-        async def handler(state, *, llm, tools, prompt, runtime):
-            ...
+    {
+        "type": "question",
+        "questions": [
+            {
+                "question": "Send email?",
+                "header": "send_email",
+                "options": [
+                    {"label": "Approve", "description": "Execute as-is"},
+                    {"label": "Reject", "description": "Deny this call"}
+                ],
+                "multi_select": false,
+                "context": {"tool": "send_email", "args": {...}}
+            }
+        ]
+    }
 
-    # Compile with checkpointer (required for interrupt)
-    graph = my_agent.compile(checkpointer=InMemorySaver())
+Resume payload::
 
-    # Invoke — pauses at interrupt, resume with Command(resume=...)
-    result = graph.invoke(input, config)
-    graph.invoke(Command(resume={"type": "approve"}), config)
+    Command(resume={
+        "answers": {"Send email?": "Approve"},
+        "edited_args": {...}  # optional, only for Edit decisions
+    })
 """
 
 from __future__ import annotations
@@ -39,85 +66,111 @@ from langchain_core.messages.tool import ToolCall
 from langgraph.types import interrupt
 
 from langchain_agentkit.extension import Extension
+from langchain_agentkit.extensions.hitl.tools import create_ask_user_tool
+from langchain_agentkit.extensions.hitl.types import Option, Question
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from langchain_core.tools import BaseTool
-    from langgraph.prebuilt import ToolRuntime
     from langgraph.prebuilt.tool_node import ToolCallRequest
     from langgraph.types import Command
 
 DecisionType = Literal["approve", "edit", "reject"]
 
+_DECISION_OPTIONS: dict[DecisionType, Option] = {
+    "approve": Option(label="Approve", description="Execute the tool call as-is"),
+    "edit": Option(label="Edit", description="Modify the arguments before executing"),
+    "reject": Option(label="Reject", description="Deny this tool call"),
+}
+
 
 class InterruptConfig:
-    """Configuration for a tool requiring human approval.
+    """Configuration for a tool approval question.
+
+    Defines which options to present and the question text shown to the
+    human reviewer. Vocabulary aligns with the Question model.
 
     Args:
-        allowed_decisions: Which decisions the human can make.
-        description: Static string or callable that generates a description
-            for the interrupt request. Callable receives ``(tool_call, state)``.
+        options: Which approval options to present (approve, edit, reject).
+        question: Static string or callable that generates the question
+            text. Callable receives ``(tool_call,)``. Defaults to a
+            summary of the tool name and arguments.
     """
 
-    __slots__ = ("allowed_decisions", "description")
+    __slots__ = ("options", "question")
 
     def __init__(
         self,
-        allowed_decisions: list[DecisionType],
-        description: str | Callable[..., str] | None = None,
+        options: list[DecisionType],
+        question: str | Callable[..., str] | None = None,
     ) -> None:
-        self.allowed_decisions = allowed_decisions
-        self.description = description
+        self.options = options
+        self.question = question
 
 
 class HITLExtension(Extension):
-    """Extension providing human-in-the-loop tool call approval.
+    """Human-in-the-loop extension with unified Question protocol.
 
-    Uses LangGraph's ``interrupt()`` inside a ``wrap_tool_call`` callback
-    to pause execution before configured tools run. The human reviews the
-    tool call and responds with approve, edit, or reject.
-
-    This extension satisfies the ``Extension`` protocol (``tools`` +
-    ``prompt``) and additionally provides ``wrap_tool_call`` which the
-    ``agent`` metaclass passes to ``ToolNode``.
+    Provides tool approval via ``wrap_tool_call`` and an optional
+    ``ask_user`` tool for LLM-initiated questions. Both use the same
+    Question-based interrupt payload.
 
     Args:
-        interrupt_on: Mapping of tool name to approval config.
+        interrupt_on: Whitelist of tool names to gate with human approval.
+            Only tools listed here will be interrupted — unlisted tools
+            execute normally.
 
-            - ``True``: all decisions allowed (approve, edit, reject)
-            - ``False``: auto-approved (excluded from HITL)
-            - ``dict``: explicit config with ``allowed_decisions`` key
+            - ``True``: all options (approve, edit, reject)
+            - ``dict``: config with ``options`` and optional ``question``
             - ``InterruptConfig``: full config object
+
+        tools: Whether to provide the ``ask_user`` tool to the LLM.
 
     Example::
 
-        mw = HITLExtension(interrupt_on={
-            "send_email": True,
-            "search": False,
-            "delete_file": {"allowed_decisions": ["approve", "reject"]},
-        })
+        hitl = HITLExtension(
+            interrupt_on={
+                "send_email": True,
+                "delete_file": {"options": ["approve", "reject"]},
+            },
+            tools=True,
+        )
+
+        class my_agent(agent):
+            model = ChatOpenAI(model="gpt-4o")
+            tools = [send_email]
+            extensions = [hitl]
+
+            async def handler(state, *, llm, tools, prompt, runtime):
+                ...
+
+        graph = my_agent.compile(checkpointer=InMemorySaver())
     """
 
     def __init__(
         self,
-        interrupt_on: dict[str, bool | dict[str, Any] | InterruptConfig],
+        interrupt_on: dict[str, bool | dict[str, Any] | InterruptConfig] | None = None,
+        tools: bool = False,
     ) -> None:
         resolved: dict[str, InterruptConfig] = {}
-        for tool_name, config in interrupt_on.items():
-            if isinstance(config, bool):
-                if config:
-                    resolved[tool_name] = InterruptConfig(
-                        allowed_decisions=["approve", "edit", "reject"]
-                    )
+        for tool_name, config in (interrupt_on or {}).items():
+            if config is True:
+                resolved[tool_name] = InterruptConfig(
+                    options=["approve", "edit", "reject"],
+                )
             elif isinstance(config, InterruptConfig):
                 resolved[tool_name] = config
-            elif isinstance(config, dict) and config.get("allowed_decisions"):
+            elif isinstance(config, dict) and config.get("options"):
                 resolved[tool_name] = InterruptConfig(
-                    allowed_decisions=config["allowed_decisions"],
-                    description=config.get("description"),
+                    options=config["options"],
+                    question=config.get("question"),
                 )
+            # False or unrecognized values are silently ignored — only
+            # whitelisted tools get interrupted.
         self.interrupt_on = resolved
+        self._provide_tools = tools
+        self._tools_cache: list[BaseTool] | None = None
 
     @property
     def state_schema(self) -> None:
@@ -126,10 +179,14 @@ class HITLExtension(Extension):
 
     @property
     def tools(self) -> list[BaseTool]:
-        """No tools — HITL is a tool execution wrapper, not a tool provider."""
-        return []
+        """Returns ask_user tool when enabled, empty list otherwise."""
+        if self._tools_cache is None:
+            self._tools_cache = (
+                [create_ask_user_tool()] if self._provide_tools else []
+            )
+        return self._tools_cache
 
-    def prompt(self, state: dict[str, Any], runtime: ToolRuntime) -> str | None:
+    def prompt(self, state: dict[str, Any], runtime: Any | None = None) -> str | None:
         """No prompt injection needed."""
         return None
 
@@ -138,17 +195,16 @@ class HITLExtension(Extension):
         request: ToolCallRequest,
         execute: Callable[[ToolCallRequest], ToolMessage | Command],  # type: ignore[type-arg]
     ) -> ToolMessage | Command:  # type: ignore[type-arg]
-        """Intercept tool calls for human approval before execution.
+        """Intercept tool calls and present structured approval questions.
 
-        Auto-approved tools pass straight through. Configured tools
-        trigger an ``interrupt()`` that pauses the graph until the human
-        responds via ``Command(resume=...)``.
+        Uses the unified Question protocol. The interrupt payload contains
+        a Question with Approve/Edit/Reject options and tool context.
 
         Resume payload::
 
-            {"type": "approve"}
-            {"type": "edit", "args": {"to": "new@example.com"}}
-            {"type": "reject", "message": "Not now"}
+            {"answers": {"<question>": "Approve"}}
+            {"answers": {"<question>": "Edit"}, "edited_args": {...}}
+            {"answers": {"<question>": "Reject"}, "message": "reason"}
 
         Args:
             request: The tool call request from ToolNode.
@@ -160,34 +216,98 @@ class HITLExtension(Extension):
         if config is None:
             return execute(request)
 
-        description = self._build_description(request, config)
+        question_options = [
+            _DECISION_OPTIONS[d]
+            for d in config.options
+            if d in _DECISION_OPTIONS
+        ]
 
-        decision = interrupt(
+        # Single option — auto-execute without interrupting
+        if len(question_options) < 2:
+            return self._auto_execute(config, request, execute)
+
+        question_text = self._build_question_text(request, config)
+        question = Question(
+            question=question_text,
+            header=tool_name[:12],
+            options=question_options,
+            context={"tool": tool_name, "args": request.tool_call["args"]},
+        )
+
+        response = interrupt(
             {
-                "tool": tool_name,
-                "args": request.tool_call["args"],
-                "allowed_decisions": config.allowed_decisions,
-                "description": description,
+                "type": "question",
+                "questions": [question.model_dump()],
             }
         )
 
-        decision_type = decision.get("type", "reject") if isinstance(decision, dict) else "reject"
+        return self._handle_response(response, question, config, request, execute)
 
-        if decision_type == "approve" and "approve" in config.allowed_decisions:
-            return execute(request)
+    # ------------------------------------------------------------------
+    # Private helpers
+    # ------------------------------------------------------------------
 
-        if decision_type == "edit" and "edit" in config.allowed_decisions:
-            edited_args = decision.get("args", request.tool_call["args"])
+    def _auto_execute(
+        self,
+        config: InterruptConfig,
+        request: ToolCallRequest,
+        execute: Callable[..., Any],
+    ) -> ToolMessage | Command:  # type: ignore[type-arg]
+        """Handle single-option configs without interrupting."""
+        decision = config.options[0]
+        if decision == "approve":
+            result: ToolMessage | Command = execute(request)  # type: ignore[type-arg]
+            return result
+        tool_name = request.tool_call["name"]
+        return ToolMessage(
+            content=f"Auto-rejected {tool_name} (only allowed option: {decision})",
+            name=tool_name,
+            tool_call_id=request.tool_call["id"],
+            status="error",
+        )
+
+    def _handle_response(  # noqa: PLR0911
+        self,
+        response: Any,
+        question: Question,
+        config: InterruptConfig,
+        request: ToolCallRequest,
+        execute: Callable[..., Any],
+    ) -> ToolMessage | Command:  # type: ignore[type-arg]
+        """Route the user's answer to the appropriate action."""
+        answers: dict[str, str] = {}
+        if isinstance(response, dict):
+            answers = response.get("answers", {})
+        answer = answers.get(question.question, "")
+        tool_name = request.tool_call["name"]
+
+        if answer == "Approve" and "approve" in config.options:
+            result: ToolMessage | Command = execute(request)  # type: ignore[type-arg]
+            return result
+
+        if answer == "Edit" and "edit" in config.options:
+            edited_args = (
+                response.get("edited_args", request.tool_call["args"])
+                if isinstance(response, dict)
+                else request.tool_call["args"]
+            )
             modified_call = ToolCall(
-                name=request.tool_call["name"],
+                name=tool_name,
                 args=edited_args,
                 id=request.tool_call["id"],
                 type="tool_call",
             )
-            return execute(request.override(tool_call=modified_call))
+            edit_result: ToolMessage | Command = execute(  # type: ignore[type-arg]
+                request.override(tool_call=modified_call)
+            )
+            return edit_result
 
-        if decision_type == "reject" and "reject" in config.allowed_decisions:
-            message = decision.get("message", f"User rejected {tool_name}")
+        if answer == "Reject" and "reject" in config.options:
+            message = (
+                response.get("message", f"User rejected {tool_name}")
+                if isinstance(response, dict)
+                else f"User rejected {tool_name}"
+            )
             return ToolMessage(
                 content=message,
                 name=tool_name,
@@ -196,23 +316,23 @@ class HITLExtension(Extension):
             )
 
         return ToolMessage(
-            content=f"Invalid decision '{decision_type}' for {tool_name}. "
-            f"Allowed: {config.allowed_decisions}",
+            content=f"Invalid answer '{answer}' for {tool_name}. "
+            f"Allowed: {config.options}",
             name=tool_name,
             tool_call_id=request.tool_call["id"],
             status="error",
         )
 
-    def _build_description(
+    def _build_question_text(
         self,
         request: ToolCallRequest,
         config: InterruptConfig,
     ) -> str:
-        """Build a human-readable description for the interrupt request."""
-        if config.description is None:
+        """Build the question text for the interrupt."""
+        if config.question is None:
             tool_name = request.tool_call["name"]
             tool_args = request.tool_call["args"]
             return f"Tool: {tool_name}\nArgs: {tool_args}"
-        if callable(config.description):
-            return config.description(request.tool_call)
-        return config.description
+        if callable(config.question):
+            return config.question(request.tool_call)
+        return config.question
