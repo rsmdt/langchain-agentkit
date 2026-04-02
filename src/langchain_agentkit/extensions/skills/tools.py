@@ -24,32 +24,64 @@ class SkillInput(BaseModel):
     skill_name: str = Field(description="Name of the skill to load (e.g. 'market-sizing')")
 
 
-def _build_available_skills_description(configs: list[SkillConfig]) -> str:
-    """Build ``<available_skills>`` XML block from skill configs."""
+_SKILL_TOOL_DESCRIPTION = """\
+Execute a skill within the main conversation.
+
+When users ask you to perform tasks, check if any of the available skills match. \
+Skills provide specialized capabilities and domain knowledge.
+
+When users reference a "slash command" or "/<something>" (e.g., "/commit", \
+"/review-pr"), they are referring to a skill. Use this tool to invoke it.
+
+How to invoke:
+- Use this tool with the skill name and optional arguments
+
+Important:
+- When a skill matches the user's request, this is a BLOCKING REQUIREMENT: \
+invoke the relevant Skill tool BEFORE generating any other response about the task
+- NEVER mention a skill without actually calling this tool
+- Do not invoke a skill that is already running\
+"""
+
+
+def _build_available_skills_description(
+    configs: list[SkillConfig],
+    *,
+    max_description_chars: int | None = None,
+) -> str:
+    """Build available skills list from skill configs."""
     if not configs:
         return ""
     entries: list[str] = []
     for config in sorted(configs, key=lambda c: c.name):
-        entry = (
-            f"<skill>\n"
-            f"  <name>{config.name}</name>\n"
-            f"  <description>{config.description}</description>\n"
-            f"</skill>"
-        )
-        entries.append(entry)
-    return "\n\n<available_skills>\n" + "\n".join(entries) + "\n</available_skills>"
+        desc = config.description
+        if max_description_chars is not None and len(desc) > max_description_chars:
+            desc = desc[: max_description_chars - 1] + "…"
+        entries.append(f"- {config.name}: {desc}")
+    return "\n\nAvailable skills:\n" + "\n".join(entries)
 
 
-def build_skill_tool(configs: list[SkillConfig]) -> BaseTool:
+def build_skill_tool(
+    configs: list[SkillConfig],
+    *,
+    budget_percent: float | None = None,
+    max_description_chars: int | None = None,
+    context_window: int | None = None,
+) -> BaseTool:
     """Build the Skill tool from a list of SkillConfig objects."""
     index: dict[str, SkillConfig] = {c.name: c for c in configs}
 
-    base_description = (
-        "Load a skill's instructions to gain domain expertise. "
-        "Call this when you need specialized methodology or procedures."
+    available_skills = _build_available_skills_description(
+        configs,
+        max_description_chars=max_description_chars,
     )
-    available_skills_xml = _build_available_skills_description(configs)
-    description = base_description + available_skills_xml
+
+    if budget_percent is not None and context_window is not None:
+        budget_chars = int(context_window * budget_percent)
+        if len(available_skills) > budget_chars:
+            available_skills = available_skills[:budget_chars]
+
+    description = _SKILL_TOOL_DESCRIPTION + available_skills
 
     def skill(skill_name: str) -> str:
         if not NAME_PATTERN.match(skill_name):

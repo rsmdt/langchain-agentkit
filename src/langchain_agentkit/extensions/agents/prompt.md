@@ -32,6 +32,7 @@ Agent(agent={{id: "<agent_name>"}}, message="...")
 
 ### When NOT to Delegate
 
+- If you want to read a specific file, use the Read tool directly — faster than spawning an agent
+- The task is trivial (fewer than 3 tool calls — just do it yourself)
 - The task requires your full conversation context
-- The task is trivial (faster to do yourself)
 - The task requires back-and-forth discussion (use Teams instead)

@@ -43,6 +43,9 @@ def format_task_context(tasks: list[dict[str, Any]]) -> str:
         suffix = ""
         if status == "in_progress" and task.get("active_form"):
             suffix = f' -- "{task["active_form"]}"'
+        owner = task.get("owner")
+        if owner:
+            suffix += f" ({owner})"
         blocked_by = task.get("blocked_by", [])
         if blocked_by and status == "pending":
             dep_str = ", ".join(blocked_by)
@@ -65,15 +68,18 @@ class TasksExtension(Extension):
 
     def __init__(
         self,
+        *,
         task_tools: list[BaseTool] | None = None,
         formatter: Callable[[list[dict[str, Any]]], str] | None = None,
+        team_active: bool = False,
     ) -> None:
+        self._team_active = team_active
         if task_tools is not None:
             self._tools = tuple(task_tools)
         else:
             from langchain_agentkit.extensions.tasks.tools import create_task_tools
 
-            self._tools = tuple(create_task_tools())
+            self._tools = tuple(create_task_tools(team_active=team_active))
         self._formatter = formatter or format_task_context
 
     @property

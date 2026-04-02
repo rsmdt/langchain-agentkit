@@ -95,6 +95,7 @@ class FilesystemExtension(Extension):
 
     def __init__(
         self,
+        *,
         backend: BackendProtocol | None = None,
         root: str | Path = ".",
         permissions: PermissionRuleset | None = None,

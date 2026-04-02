@@ -39,6 +39,46 @@ Agent(agent={prompt: "You are a legal expert..."}, message="...")
 Custom agents are reasoning-only — they cannot use tools."""
 
 
+def _get_tools_description(agent: Any) -> str:
+    """Return a human-readable summary of an agent's tool restrictions.
+
+    Reads ``_agent_config`` (if present) to determine allowed/disallowed
+    tools and formats them for the roster prompt.
+
+    Returns:
+        ``"*"`` (all tools) when no restrictions are configured,
+        ``"All tools except X, Y"`` for denylist-only,
+        ``"X, Y, Z"`` for allowlist-only, or the effective filtered
+        list when both are present.
+    """
+    from langchain_agentkit.extensions.agents.types import AgentConfig
+
+    config: AgentConfig | None = getattr(agent, "_agent_config", None)
+    if config is None:
+        return "*"
+
+    allowlist: list[str] | None = getattr(config, "tools", None)
+    denylist: list[str] | None = getattr(config, "disallowed_tools", None)
+
+    has_allow = allowlist is not None and len(allowlist) > 0
+    has_deny = denylist is not None and len(denylist) > 0
+
+    if not has_allow and not has_deny:
+        return "All tools"
+
+    if has_deny and not has_allow:
+        return f"All tools except {', '.join(sorted(denylist))}"  # type: ignore[arg-type]
+
+    if has_allow and not has_deny:
+        return ", ".join(sorted(allowlist))  # type: ignore[arg-type]
+
+    # Both present — effective set is allowlist minus denylist
+    effective = sorted(set(allowlist) - set(denylist))  # type: ignore[arg-type]
+    if not effective:
+        return "No tools"
+    return ", ".join(effective)
+
+
 def _validate_agent_list(agents: list[Any]) -> dict[str, Any]:
     """Validate agent list and return agents_by_name dict."""
     if not agents:
@@ -87,6 +127,7 @@ class AgentExtension(Extension):
 
     def __init__(
         self,
+        *,
         agents: list[Any] | str | Path,
         backend: BackendProtocol | None = None,
         ephemeral: bool = False,
@@ -168,7 +209,8 @@ class AgentExtension(Extension):
         roster_lines = []
         for agent_name, agent_obj in self._agents_by_name.items():
             desc = getattr(agent_obj, "description", "") or "No description"
-            roster_lines.append(f"- **{agent_name}**: {desc}")
+            tools_desc = _get_tools_description(agent_obj)
+            roster_lines.append(f"- **{agent_name}**: {desc} (Tools: {tools_desc})")
         roster = "\n".join(roster_lines)
         dynamic_section = _DYNAMIC_SECTION if self._ephemeral else ""
         result = _agent_delegation_template.format(

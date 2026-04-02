@@ -406,7 +406,26 @@ long-running task. Only works on tasks with status 'in_progress'.\
 # ---------------------------------------------------------------------------
 
 
-def create_task_tools() -> list[BaseTool]:
+def _task_create_description(team_active: bool = False) -> str:
+    """Return the TaskCreate description, optionally with team tips."""
+    base = _TASK_CREATE_DESCRIPTION
+    if team_active:
+        base = base.replace(
+            "that require careful planning or multiple operations",
+            "that require careful planning or multiple operations "
+            "and potentially assigned to teammates",
+        )
+        base += (
+            "\n\nTeam tips:\n"
+            "- Include enough detail in the description "
+            "for another agent to understand and complete the task\n"
+            "- New tasks are created with status 'pending' and no owner "
+            "- use TaskUpdate with the `owner` parameter to assign them"
+        )
+    return base
+
+
+def create_task_tools(*, team_active: bool = False) -> list[BaseTool]:
     """Create Command-based task management tools.
 
     Returns five tools: TaskCreate, TaskUpdate, TaskList, TaskGet, TaskStop.
@@ -414,6 +433,9 @@ def create_task_tools() -> list[BaseTool]:
     Each tool uses ``InjectedState`` to read tasks from graph state and
     returns ``Command(update={"tasks": ...})`` (or a JSON string for
     read-only operations) to update state via LangGraph's ``ToolNode``.
+
+    Args:
+        team_active: When True, TaskCreate description includes team tips.
 
     Example::
 
@@ -424,7 +446,7 @@ def create_task_tools() -> list[BaseTool]:
     task_create = StructuredTool.from_function(
         func=_task_create,
         name="TaskCreate",
-        description=_TASK_CREATE_DESCRIPTION,
+        description=_task_create_description(team_active),
         args_schema=_TaskCreateInput,
         handle_tool_error=True,
     )

@@ -44,6 +44,23 @@ class _AskUserInput(BaseModel):
     )
 
 
+_ASK_USER_DESCRIPTION = """\
+Ask the user a question during execution.
+
+Use this tool when you need to:
+1. Gather user preferences or requirements
+2. Clarify ambiguous instructions
+3. Get decisions on implementation choices as you work
+4. Offer choices to the user about what direction to take
+
+Usage notes:
+- Users will always be able to select "Other" to provide custom text input
+- Use multi_select: true to allow multiple answers to be selected for a question
+- If you recommend a specific option, make that the first option in the list \
+and add "(Recommended)" at the end of the label\
+"""
+
+
 def create_ask_user_tool() -> BaseTool:
     """Create the ask_user tool for LLM-initiated human interaction.
 
@@ -78,13 +95,7 @@ def create_ask_user_tool() -> BaseTool:
     return StructuredTool.from_function(
         func=_ask_user,
         name="ask_user",
-        description=(
-            "Ask the user one or more structured questions with predefined "
-            "options. Use this to gather preferences, clarify requirements, "
-            "or get decisions on implementation choices. Each question must "
-            "have 2-4 options with short labels and descriptions. The user "
-            "can always provide a custom answer beyond the listed options."
-        ),
+        description=_ASK_USER_DESCRIPTION,
         args_schema=_AskUserInput,
         handle_tool_error=True,
     )

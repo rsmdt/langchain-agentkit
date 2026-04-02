@@ -18,6 +18,10 @@ class Option(BaseModel):
     description: str = Field(
         description="What this option means or what happens if chosen",
     )
+    preview: str | None = Field(
+        default=None,
+        description="Optional preview text shown when hovering or expanding the option",
+    )
 
 
 class Question(BaseModel):

@@ -227,6 +227,7 @@ class WebSearchExtension(Extension):
 
     def __init__(
         self,
+        *,
         providers: list[BaseTool | Callable[[str], str]] | None = None,
         prompt_template: str | Path | None = None,
     ) -> None:

@@ -517,8 +517,52 @@ Do NOT use when:
 - The task is trivial (faster to do yourself)
 - The task requires back-and-forth discussion
 
+## Writing the prompt
+
+Brief the agent like a smart colleague who just walked into the room — it hasn't \
+seen this conversation, doesn't know what you've tried, doesn't understand why \
+this task matters.
+- Explain what you're trying to accomplish and why.
+- Describe what you've already learned or ruled out.
+- Give enough context about the surrounding problem that the agent can make \
+judgment calls rather than just following a narrow instruction.
+- If you need a short response, say so ("report in under 200 words").
+
+**Never delegate understanding.** Don't write "based on your findings, fix the bug" \
+or "based on the research, implement it." Those phrases push synthesis onto the \
+agent instead of doing it yourself. Write prompts that prove you understood: \
+include file paths, line numbers, what specifically to change.
+
 Provide a clear, self-contained message. The agent receives ONLY your message — \
-it has no access to your conversation history.\
+it has no access to your conversation history.
+
+## Examples
+
+<example>
+user: "Research React, Vue, and Svelte for our new frontend"
+assistant: I'll delegate the research to three agents in parallel — one per framework.
+Agent(agent={id: "researcher"}, message="Research React's ecosystem: bundle size, \
+learning curve, community size, enterprise adoption. Report strengths and weaknesses \
+in under 200 words.")
+Agent(agent={id: "researcher"}, message="Research Vue's ecosystem: ...")
+Agent(agent={id: "researcher"}, message="Research Svelte's ecosystem: ...")
+<commentary>
+Three independent research tasks launched in parallel. Each agent gets a focused, \
+self-contained prompt. The lead will synthesize results after all three return.
+</commentary>
+</example>
+
+<example>
+user: "Fix the authentication bug in the login flow"
+assistant: I've investigated and found the issue is in src/auth/login.ts:42 — the \
+token validation skips the expiry check when refresh_token is present.
+[fixes the bug directly using Edit tool]
+<commentary>
+The assistant does NOT delegate this — it already understands the problem and can \
+fix it directly. Delegating with "fix the auth bug" would push understanding onto \
+the agent, violating the "never delegate understanding" principle.
+</commentary>
+</example>\
 """
 
 

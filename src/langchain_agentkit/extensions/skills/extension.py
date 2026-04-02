@@ -50,8 +50,12 @@ class SkillsExtension(Extension):
 
     def __init__(
         self,
+        *,
         skills: list[SkillConfig] | str | Path,
         backend: BackendProtocol | None = None,
+        budget_percent: float | None = None,
+        max_description_chars: int | None = None,
+        context_window: int | None = None,
     ) -> None:
         if isinstance(skills, list):
             self._configs = list(skills)
@@ -63,6 +67,9 @@ class SkillsExtension(Extension):
         else:
             msg = f"skills must be list[SkillConfig], str, or Path, got {type(skills).__name__}"
             raise TypeError(msg)
+        self._budget_percent = budget_percent
+        self._max_description_chars = max_description_chars
+        self._context_window = context_window
         self._tools_cache: list[BaseTool] | None = None
 
     @property
@@ -77,7 +84,14 @@ class SkillsExtension(Extension):
     @property
     def tools(self) -> list[BaseTool]:
         if self._tools_cache is None:
-            self._tools_cache = [build_skill_tool(self._configs)]
+            self._tools_cache = [
+                build_skill_tool(
+                    self._configs,
+                    budget_percent=self._budget_percent,
+                    max_description_chars=self._max_description_chars,
+                    context_window=self._context_window,
+                )
+            ]
         return self._tools_cache
 
     def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
@@ -88,8 +102,21 @@ class SkillsExtension(Extension):
     def _format_skills_list(self) -> str:
         if not self._configs:
             return "(No skills available)"
-        lines = []
+        budget_chars = None
+        if self._budget_percent is not None:
+            ctx = self._context_window or 200_000
+            budget_chars = int(ctx * self._budget_percent * 4)  # chars ≈ tokens * 4
+        lines: list[str] = []
+        total = 0
         for config in sorted(self._configs, key=lambda c: c.name):
-            lines.append(f"- **{config.name}**: {config.description}")
-            lines.append(f'  -> Load via Skill("{config.name}")')
+            desc = config.description
+            if self._max_description_chars is not None:
+                desc = desc[: self._max_description_chars]
+            line = f"- {config.name}: {desc}"
+            if budget_chars is not None and total + len(line) > budget_chars:
+                remaining = len(self._configs) - len(lines)
+                lines.append(f"... and {remaining} more skills")
+                break
+            lines.append(line)
+            total += len(line) + 1  # +1 for newline
         return "\n".join(lines)

@@ -102,6 +102,7 @@ class InterruptConfig:
 
     def __init__(
         self,
+        *,
         options: list[DecisionType],
         question: str | Callable[..., str] | None = None,
     ) -> None:
@@ -150,6 +151,7 @@ class HITLExtension(Extension):
 
     def __init__(
         self,
+        *,
         interrupt_on: dict[str, bool | dict[str, Any] | InterruptConfig] | None = None,
         tools: bool = False,
     ) -> None:
