@@ -16,12 +16,11 @@ from langchain_agentkit.extensions.teams import (
 )
 from langchain_agentkit.extensions.teams.tools import (
     _agent_team,
-    _assign_task,
     _check_teammates,
     _dissolve_team,
-    _message_teammate,
     _require_active_team,
     _require_member,
+    _send_message,
 )
 
 FAKE_TOOL_CALL_ID = "call_team_test"
@@ -40,7 +39,7 @@ def _make_mock_agent(name: str, description: str = "") -> MagicMock:
 def _make_extension_with_agents(*names: str) -> TeamExtension:
     """Create an TeamExtension with mock agents."""
     agents = [_make_mock_agent(n) for n in names]
-    return TeamExtension(agents)
+    return TeamExtension(agents=agents)
 
 
 def _make_extension_with_active_team(
@@ -213,18 +212,18 @@ class TestAgentTeam:
 
 
 # ---------------------------------------------------------------------------
-# AssignTask
+# SendMessage
 # ---------------------------------------------------------------------------
 
 
-class TestAssignTask:
+class TestSendMessage:
     @pytest.mark.asyncio
-    async def test_assign_task_sends_message_to_member(self):
+    async def test_send_message_to_member(self):
         mw = _make_extension_with_active_team(["researcher"])
 
-        result = await _assign_task(
-            member_name="researcher",
-            task_description="Find information about X",
+        result = await _send_message(
+            to="researcher",
+            message="Find information about X",
             state={},
             tool_call_id=FAKE_TOOL_CALL_ID,
             ext=mw,
@@ -233,10 +232,7 @@ class TestAssignTask:
         assert isinstance(result, Command)
         content = json.loads(result.update["messages"][0].content)
         assert content["sent_to"] == "researcher"
-        assert content["task"] == "Find information about X"
-
-        # No tasks in update — AssignTask only sends messages now
-        assert "tasks" not in result.update
+        assert content["message"] == "Find information about X"
 
         # Verify message was sent to bus
         msg = await mw._active_team.bus.receive("researcher", timeout=1.0)
@@ -244,45 +240,12 @@ class TestAssignTask:
         assert msg.content == "Find information about X"
 
     @pytest.mark.asyncio
-    async def test_assign_task_with_no_team_raises(self):
-        mw = _make_extension_with_agents("researcher")
+    async def test_send_message_broadcast(self):
+        mw = _make_extension_with_active_team(["researcher", "coder"])
 
-        with pytest.raises(ToolException, match="No active team"):
-            await _assign_task(
-                member_name="researcher",
-                task_description="task",
-                state={},
-                tool_call_id=FAKE_TOOL_CALL_ID,
-                ext=mw,
-            )
-
-    @pytest.mark.asyncio
-    async def test_assign_task_to_unknown_member_raises(self):
-        mw = _make_extension_with_active_team(["researcher"])
-
-        with pytest.raises(ToolException, match="not in active team"):
-            await _assign_task(
-                member_name="nonexistent",
-                task_description="task",
-                state={},
-                tool_call_id=FAKE_TOOL_CALL_ID,
-                ext=mw,
-            )
-
-
-# ---------------------------------------------------------------------------
-# MessageTeammate
-# ---------------------------------------------------------------------------
-
-
-class TestMessageTeammate:
-    @pytest.mark.asyncio
-    async def test_message_teammate_sends_message(self):
-        mw = _make_extension_with_active_team(["researcher"])
-
-        result = await _message_teammate(
-            member_name="researcher",
-            message="focus on topic Y",
+        result = await _send_message(
+            to="*",
+            message="team update",
             state={},
             tool_call_id=FAKE_TOOL_CALL_ID,
             ext=mw,
@@ -290,37 +253,63 @@ class TestMessageTeammate:
 
         assert isinstance(result, Command)
         content = json.loads(result.update["messages"][0].content)
-        assert content["sent_to"] == "researcher"
+        assert content["broadcast"] is True
+        assert set(content["recipients"]) == {"researcher", "coder"}
 
-        msg = await mw._active_team.bus.receive("researcher", timeout=1.0)
-        assert msg is not None
-        assert msg.content == "focus on topic Y"
-
-    @pytest.mark.asyncio
-    async def test_message_teammate_to_unknown_member_raises(self):
-        mw = _make_extension_with_active_team(["researcher"])
-
-        with pytest.raises(ToolException, match="not in active team"):
-            await _message_teammate(
-                member_name="nonexistent",
-                message="hello",
-                state={},
-                tool_call_id=FAKE_TOOL_CALL_ID,
-                ext=mw,
-            )
+        # Verify messages were sent to all members
+        msg_r = await mw._active_team.bus.receive("researcher", timeout=1.0)
+        msg_c = await mw._active_team.bus.receive("coder", timeout=1.0)
+        assert msg_r is not None
+        assert msg_r.content == "team update"
+        assert msg_c is not None
+        assert msg_c.content == "team update"
 
     @pytest.mark.asyncio
-    async def test_message_teammate_with_no_team_raises(self):
+    async def test_send_message_with_no_team_raises(self):
         mw = _make_extension_with_agents("researcher")
 
         with pytest.raises(ToolException, match="No active team"):
-            await _message_teammate(
-                member_name="researcher",
+            await _send_message(
+                to="researcher",
                 message="hello",
                 state={},
                 tool_call_id=FAKE_TOOL_CALL_ID,
                 ext=mw,
             )
+
+    @pytest.mark.asyncio
+    async def test_send_message_to_unknown_member_raises(self):
+        mw = _make_extension_with_active_team(["researcher"])
+
+        with pytest.raises(ToolException, match="not in active team"):
+            await _send_message(
+                to="nonexistent",
+                message="hello",
+                state={},
+                tool_call_id=FAKE_TOOL_CALL_ID,
+                ext=mw,
+            )
+
+    @pytest.mark.asyncio
+    async def test_send_message_truncates_long_messages_in_response(self):
+        mw = _make_extension_with_active_team(["researcher"])
+        long_message = "x" * 200
+
+        result = await _send_message(
+            to="researcher",
+            message=long_message,
+            state={},
+            tool_call_id=FAKE_TOOL_CALL_ID,
+            ext=mw,
+        )
+
+        content = json.loads(result.update["messages"][0].content)
+        assert len(content["message"]) == 100
+
+        # But full message was sent to the bus
+        msg = await mw._active_team.bus.receive("researcher", timeout=1.0)
+        assert msg is not None
+        assert len(msg.content) == 200
 
 
 # ---------------------------------------------------------------------------

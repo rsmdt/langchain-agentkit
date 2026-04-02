@@ -171,62 +171,61 @@ class TestTeamExtensionConstruction:
         agent_a = _make_mock_agent("researcher", "Research specialist")
         agent_b = _make_mock_agent("coder", "Code specialist")
 
-        mw = TeamExtension([agent_a, agent_b])
+        mw = TeamExtension(agents=[agent_a, agent_b])
 
         assert "researcher" in mw._agents_by_name
         assert "coder" in mw._agents_by_name
 
     def test_construction_with_empty_list_raises_value_error(self):
         with pytest.raises(ValueError, match="agents list cannot be empty"):
-            TeamExtension([])
+            TeamExtension(agents=[])
 
     def test_construction_with_duplicate_names_raises_value_error(self):
         agent_a = _make_mock_agent("researcher")
         agent_b = _make_mock_agent("researcher")
 
         with pytest.raises(ValueError, match="Duplicate agent names"):
-            TeamExtension([agent_a, agent_b])
+            TeamExtension(agents=[agent_a, agent_b])
 
     def test_construction_with_missing_name_raises(self):
         mock = MagicMock(spec=[])
 
         with pytest.raises(ValueError, match="name"):
-            TeamExtension([mock])
+            TeamExtension(agents=[mock])
 
     def test_max_team_size_validation(self):
         agent_a = _make_mock_agent("researcher")
 
         with pytest.raises(ValueError, match="max_team_size"):
-            TeamExtension([agent_a], max_team_size=0)
+            TeamExtension(agents=[agent_a], max_team_size=0)
 
 
 class TestTeamExtensionTools:
-    def test_returns_five_team_tools(self):
+    def test_returns_four_team_tools(self):
         agent_a = _make_mock_agent("researcher")
 
-        mw = TeamExtension([agent_a])
+        mw = TeamExtension(agents=[agent_a])
         tool_names = [t.name for t in mw.tools]
 
-        # 5 team tools only — task tools come from TasksExtension if user adds it
-        assert len(mw.tools) == 5
+        # 4 team tools only — task tools come from TasksExtension if user adds it
+        assert len(mw.tools) == 4
         assert "AgentTeam" in tool_names
         assert "TaskCreate" not in tool_names
 
     def test_tool_names_include_team_tools(self):
         agent_a = _make_mock_agent("researcher")
 
-        mw = TeamExtension([agent_a])
+        mw = TeamExtension(agents=[agent_a])
         tool_names = [t.name for t in mw.tools]
 
         assert "AgentTeam" in tool_names
-        assert "AssignTask" in tool_names
-        assert "MessageTeammate" in tool_names
+        assert "SendMessage" in tool_names
         assert "CheckTeammates" in tool_names
         assert "DissolveTeam" in tool_names
 
     def test_tools_returns_immutable_tuple(self):
         agent_a = _make_mock_agent("researcher")
-        mw = TeamExtension([agent_a])
+        mw = TeamExtension(agents=[agent_a])
 
         first = mw.tools
         second = mw.tools
@@ -240,7 +239,7 @@ class TestTeamExtensionPrompt:
         agent_a = _make_mock_agent("researcher", "Research specialist")
         agent_b = _make_mock_agent("coder", "Code specialist")
 
-        mw = TeamExtension([agent_a, agent_b])
+        mw = TeamExtension(agents=[agent_a, agent_b])
         result = mw.prompt({})
 
         assert "researcher" in result
@@ -251,14 +250,14 @@ class TestTeamExtensionPrompt:
     def test_prompt_includes_team_coordination_guidelines(self):
         agent_a = _make_mock_agent("researcher")
 
-        mw = TeamExtension([agent_a])
+        mw = TeamExtension(agents=[agent_a])
         result = mw.prompt({})
 
         assert "Team Coordination" in result
 
     def test_prompt_shows_active_team_status_when_team_active(self):
         agent_a = _make_mock_agent("researcher")
-        mw = TeamExtension([agent_a])
+        mw = TeamExtension(agents=[agent_a])
 
         # Simulate an active team
         from langchain_agentkit.extensions.teams import ActiveTeam
@@ -285,7 +284,7 @@ class TestTeamExtensionPrompt:
 
     def test_prompt_returns_string(self):
         agent_a = _make_mock_agent("researcher")
-        mw = TeamExtension([agent_a])
+        mw = TeamExtension(agents=[agent_a])
 
         assert isinstance(mw.prompt({}), str)
 
@@ -294,7 +293,7 @@ class TestTeamExtensionStateSchema:
     def test_state_schema_returns_team_state(self):
         agent_a = _make_mock_agent("researcher")
 
-        mw = TeamExtension([agent_a])
+        mw = TeamExtension(agents=[agent_a])
         schema = mw.state_schema
 
         # state_schema returns TeamState only; TasksState comes via
@@ -307,7 +306,7 @@ class TestTeamExtensionDependencies:
         from langchain_agentkit.extensions.tasks import TasksExtension
 
         agent_a = _make_mock_agent("researcher")
-        mw = TeamExtension([agent_a])
+        mw = TeamExtension(agents=[agent_a])
 
         deps = mw.dependencies()
 
@@ -319,7 +318,7 @@ class TestTeamExtensionDependencies:
         from langchain_agentkit.extensions.tasks import TasksExtension
 
         agent_a = _make_mock_agent("researcher")
-        team_mw = TeamExtension([agent_a])
+        team_mw = TeamExtension(agents=[agent_a])
 
         kit = AgentKit([team_mw])
 
@@ -333,7 +332,7 @@ class TestTeamExtensionDependencies:
         from langchain_agentkit.extensions.tasks import TasksExtension
 
         agent_a = _make_mock_agent("researcher")
-        team_mw = TeamExtension([agent_a])
+        team_mw = TeamExtension(agents=[agent_a])
         tasks_mw = TasksExtension()
 
         # User explicitly adds TasksExtension AND TeamExtension
@@ -347,7 +346,7 @@ class TestTeamExtensionDependencies:
         from langchain_agentkit.agent_kit import AgentKit
 
         agent_a = _make_mock_agent("researcher")
-        team_mw = TeamExtension([agent_a])
+        team_mw = TeamExtension(agents=[agent_a])
 
         kit = AgentKit([team_mw])
         schema = kit.state_schema
@@ -361,7 +360,7 @@ class TestTeamExtensionDependencies:
 class TestTeamExtensionProtocol:
     def test_satisfies_extension_protocol(self):
         agent_a = _make_mock_agent("researcher")
-        mw = TeamExtension([agent_a])
+        mw = TeamExtension(agents=[agent_a])
 
         assert hasattr(mw, "tools")
         assert callable(mw.prompt)

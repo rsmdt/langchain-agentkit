@@ -248,6 +248,56 @@ class TestStateSchema:
         assert mw.state_schema is None
 
 
+class TestSkillBudget:
+    def test_default_no_budget_no_truncation(self):
+        configs = [
+            SkillConfig(
+                name="long-skill",
+                description="A very long description that should not be truncated",
+                prompt="body",
+            ),
+        ]
+        mw = SkillsExtension(skills=configs)
+
+        result = mw.prompt({}, _TEST_RUNTIME)
+
+        assert "A very long description that should not be truncated" in result
+
+    def test_max_description_chars_truncates(self):
+        configs = [
+            SkillConfig(
+                name="truncated",
+                description="This is a very long description that exceeds the limit",
+                prompt="body",
+            ),
+        ]
+        mw = SkillsExtension(skills=configs, max_description_chars=20)
+
+        result = mw.prompt({}, _TEST_RUNTIME)
+
+        assert "This is a very long " in result
+        assert "exceeds the limit" not in result
+
+    def test_budget_percent_limits_listing(self):
+        configs = [
+            SkillConfig(name=f"skill-{i}", description=f"Description {i}" * 20, prompt="body")
+            for i in range(50)
+        ]
+        mw = SkillsExtension(skills=configs, budget_percent=0.0001, context_window=1000)
+
+        result = mw.prompt({}, _TEST_RUNTIME)
+
+        assert "... and" in result
+        assert "more skills" in result
+
+    def test_budget_params_default_to_none(self):
+        mw = SkillsExtension(skills=_make_configs())
+
+        assert mw._budget_percent is None
+        assert mw._max_description_chars is None
+        assert mw._context_window is None
+
+
 class TestExtensionProtocol:
     def test_has_tools_property(self):
         assert isinstance(SkillsExtension.tools, property)

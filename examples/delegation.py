@@ -85,7 +85,7 @@ class lead(agent):
     extensions = [
         TasksExtension(),
         AgentExtension(
-            [researcher, analyst],
+            agents=[researcher, analyst],
             ephemeral=True,           # enable dynamic agents
             delegation_timeout=60.0,  # 60s max per delegation
         ),

@@ -15,17 +15,16 @@ Key concepts:
   Multiple messages to the same teammate accumulate context (the teammate
   remembers previous interactions within the team session).
 - **Shared task list**: Teams reuse TasksExtension for coordination.
-  AssignTask creates a tracked task with an owner. The lead sees
-  progress via the standard task tools.
-- **Lifecycle**: SpawnTeam → AssignTask → (react to messages) → DissolveTeam.
+  SendMessage sends work to members. The lead sees progress via the
+  standard task tools.
+- **Lifecycle**: AgentTeam → SendMessage → (react to messages) → DissolveTeam.
 
 Tools provided:
 
 | Tool | Purpose |
 |------|---------|
-| SpawnTeam | Create team with named members |
-| AssignTask | Assign work to a specific member |
-| MessageTeammate | Send guidance or follow-up to a member |
+| AgentTeam | Create team with named members |
+| SendMessage | Send work, guidance, or follow-ups to a member |
 | CheckTeammates | See statuses and collect pending messages |
 | DissolveTeam | Shut down team, collect final results |
 
@@ -94,17 +93,17 @@ class lead(agent):
     extensions = [
         TasksExtension(),
         TeamExtension(
-            [researcher, coder],
+            agents=[researcher, coder],
             max_team_size=5,
             router_timeout=30.0,
         ),
     ]
     prompt = (
         "You are a project lead. Follow these steps:\n"
-        "1. SpawnTeam with the workers you need\n"
-        "2. AssignTask to each worker\n"
+        "1. AgentTeam to create the workers you need\n"
+        "2. SendMessage to assign work to each worker\n"
         "3. React to teammate messages as they arrive\n"
-        "4. Use MessageTeammate to share info between workers\n"
+        "4. Use SendMessage to share info between workers\n"
         "5. DissolveTeam when all work is done\n"
         "6. Synthesize results and report to the user\n\n"
         "IMPORTANT: Always complete all steps. Never skip DissolveTeam."

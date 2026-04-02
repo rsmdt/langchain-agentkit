@@ -205,6 +205,62 @@ class TestFormatTaskContext:
         assert result == TASK_MANAGEMENT_PROMPT
 
 
+class TestTaskOwnerDisplay:
+    def test_owner_shown_in_task_prompt(self):
+        tasks = [{"subject": "Research APIs", "status": "in_progress", "owner": "researcher"}]
+
+        result = format_task_context(tasks)
+
+        assert "(researcher)" in result
+
+    def test_no_owner_no_suffix(self):
+        tasks = [{"subject": "Simple task", "status": "in_progress"}]
+
+        result = format_task_context(tasks)
+
+        # No parenthetical owner suffix for tasks without owner
+        lines = [line for line in result.splitlines() if "Simple task" in line]
+        assert len(lines) == 1
+        assert "(" not in lines[0]
+
+    def test_owner_with_active_form(self):
+        tasks = [
+            {
+                "subject": "Fixing bug",
+                "status": "in_progress",
+                "active_form": "Fixing...",
+                "owner": "researcher",
+            }
+        ]
+
+        result = format_task_context(tasks)
+
+        assert '"Fixing..."' in result
+        assert "(researcher)" in result
+
+
+class TestConditionalTeamTips:
+    def test_default_no_team_tips(self):
+        mw = TasksExtension()
+
+        tool_descriptions = [t.description for t in mw.tools if t.name == "TaskCreate"]
+        assert len(tool_descriptions) == 1
+        assert "Team tips" not in tool_descriptions[0]
+
+    def test_team_active_adds_tips(self):
+        mw = TasksExtension(team_active=True)
+
+        tool_descriptions = [t.description for t in mw.tools if t.name == "TaskCreate"]
+        assert len(tool_descriptions) == 1
+        assert "Team tips" in tool_descriptions[0]
+
+    def test_team_active_adds_teammate_context_inline(self):
+        mw = TasksExtension(team_active=True)
+
+        tool_descriptions = [t.description for t in mw.tools if t.name == "TaskCreate"]
+        assert "assigned to teammates" in tool_descriptions[0]
+
+
 class TestTasksExtensionProtocol:
     def test_satisfies_extension_protocol_structurally(self):
         """TasksExtension has the tools property and prompt method required by Extension."""

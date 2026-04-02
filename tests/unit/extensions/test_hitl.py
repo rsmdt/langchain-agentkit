@@ -514,7 +514,7 @@ class TestAskUserTool:
         tool = ext.tools[0]
 
         assert tool.name == "ask_user"
-        assert "structured questions" in tool.description.lower()
+        assert "ask the user a question" in tool.description.lower()
 
     @patch("langchain_agentkit.extensions.hitl.tools.interrupt")
     def test_sends_question_interrupt_and_returns_answer(self, mock_interrupt):
@@ -664,6 +664,20 @@ class TestAskUserTool:
 # ------------------------------------------------------------------
 # InterruptConfig
 # ------------------------------------------------------------------
+
+
+class TestOptionPreview:
+    def test_option_with_preview(self):
+        opt = Option(
+            label="Deploy", description="Deploy to prod", preview="```bash\ndeploy.sh\n```"
+        )
+
+        assert opt.preview == "```bash\ndeploy.sh\n```"
+
+    def test_option_without_preview_defaults_none(self):
+        opt = Option(label="Deploy", description="Deploy to prod")
+
+        assert opt.preview is None
 
 
 class TestInterruptConfig:

@@ -317,6 +317,83 @@ class TestNoStateSchema:
         assert mw.state_schema is None
 
 
+class TestGetToolsDescription:
+    """Tests for _get_tools_description agent roster helper."""
+
+    def test_no_config_returns_star(self):
+        from langchain_agentkit.extensions.agents.extension import _get_tools_description
+
+        agent = _make_mock_agent("plain")
+        del agent._agent_config
+
+        result = _get_tools_description(agent)
+
+        assert result == "*"
+
+    def test_no_restrictions_returns_all_tools(self):
+        from langchain_agentkit.extensions.agents.extension import _get_tools_description
+        from langchain_agentkit.extensions.agents.types import AgentConfig
+
+        agent = _make_mock_agent("open")
+        agent._agent_config = AgentConfig(name="open", description="", prompt="test")
+
+        result = _get_tools_description(agent)
+
+        assert result == "All tools"
+
+    def test_denylist_only(self):
+        from langchain_agentkit.extensions.agents.extension import _get_tools_description
+
+        agent = _make_mock_agent("restricted")
+        config = MagicMock()
+        config.tools = None
+        config.disallowed_tools = ["Edit"]
+        agent._agent_config = config
+
+        result = _get_tools_description(agent)
+
+        assert result == "All tools except Edit"
+
+    def test_allowlist_only(self):
+        from langchain_agentkit.extensions.agents.extension import _get_tools_description
+        from langchain_agentkit.extensions.agents.types import AgentConfig
+
+        agent = _make_mock_agent("limited")
+        agent._agent_config = AgentConfig(
+            name="limited", description="", prompt="test", tools=["Read", "Grep"]
+        )
+
+        result = _get_tools_description(agent)
+
+        assert result == "Grep, Read"
+
+    def test_both_lists_effective_set(self):
+        from langchain_agentkit.extensions.agents.extension import _get_tools_description
+
+        agent = _make_mock_agent("mixed")
+        config = MagicMock()
+        config.tools = ["Read", "Edit"]
+        config.disallowed_tools = ["Edit"]
+        agent._agent_config = config
+
+        result = _get_tools_description(agent)
+
+        assert result == "Read"
+
+    def test_empty_effective_set(self):
+        from langchain_agentkit.extensions.agents.extension import _get_tools_description
+
+        agent = _make_mock_agent("none")
+        config = MagicMock()
+        config.tools = ["Edit"]
+        config.disallowed_tools = ["Edit"]
+        agent._agent_config = config
+
+        result = _get_tools_description(agent)
+
+        assert result == "No tools"
+
+
 class TestExtensionProtocol:
     def test_satisfies_extension_protocol(self):
         agent_a = _make_mock_agent("researcher")

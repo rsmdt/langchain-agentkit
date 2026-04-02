@@ -205,3 +205,176 @@ class TestAgentKitIntegration:
 
         prompt = kit.prompt({}, {})
         assert prompt == "You are an agent.\n\nUse tool_a for X\n\nUse tool_b for Y"
+
+
+class DictPromptExtension:
+    """Stub extension that returns a dict with prompt/reminder from prompt()."""
+
+    def __init__(self, prompt_text="", reminder=""):
+        self._prompt_text = prompt_text
+        self._reminder = reminder
+
+    @property
+    def tools(self):
+        return []
+
+    def prompt(self, state, config):
+        return {"prompt": self._prompt_text, "reminder": self._reminder}
+
+
+class NoneExtension:
+    """Stub extension that returns None from prompt()."""
+
+    @property
+    def tools(self):
+        return []
+
+    def prompt(self, state, config):
+        return None
+
+
+class TestDictPromptReturn:
+    """Dict return type with prompt/reminder from extensions."""
+
+    def test_str_return_collected_in_prompt(self):
+        mw = StubExtension(prompt_text="Hello")
+        kit = AgentKit([mw])
+
+        result = kit.prompt({}, {})
+
+        assert result == "Hello"
+
+    def test_prompt_contribution_prompt_field_collected(self):
+        mw = DictPromptExtension(prompt_text="Guidance")
+        kit = AgentKit([mw])
+
+        result = kit.prompt({}, {})
+
+        assert "Guidance" in result
+
+    def test_prompt_contribution_empty_prompt_skipped(self):
+        mw = DictPromptExtension(prompt_text="", reminder="something")
+        kit = AgentKit([mw])
+
+        result = kit.prompt({}, {})
+
+        assert result == ""
+
+    def test_prompt_contribution_reminder_not_in_prompt(self):
+        mw = DictPromptExtension(prompt_text="", reminder="Ephemeral")
+        kit = AgentKit([mw])
+
+        result = kit.prompt({}, {})
+
+        assert "Ephemeral" not in result
+
+    def test_system_reminder_collects_reminder_field(self):
+        mw = DictPromptExtension(reminder="Status: 3 pending")
+        kit = AgentKit([mw])
+
+        result = kit.system_reminder({}, {})
+
+        assert "Status: 3 pending" in result
+
+    def test_system_reminder_empty_when_no_reminders(self):
+        mw = StubExtension(prompt_text="Just a prompt")
+        kit = AgentKit([mw])
+
+        result = kit.system_reminder({}, {})
+
+        assert result == ""
+
+    def test_system_reminder_joins_multiple_reminders(self):
+        mw1 = DictPromptExtension(reminder="Reminder A")
+        mw2 = DictPromptExtension(reminder="Reminder B")
+        kit = AgentKit([mw1, mw2])
+
+        result = kit.system_reminder({}, {})
+
+        assert result == "Reminder A\n\nReminder B"
+
+    def test_mixed_str_and_prompt_contribution(self):
+        mw1 = StubExtension(prompt_text="String section")
+        mw2 = DictPromptExtension(prompt_text="Contribution section")
+        kit = AgentKit([mw1, mw2])
+
+        result = kit.prompt({}, {})
+
+        assert "String section" in result
+        assert "Contribution section" in result
+
+    def test_collect_contributions_single_pass(self):
+        mw = DictPromptExtension(prompt_text="P", reminder="R")
+        kit = AgentKit([mw])
+
+        prompt_parts, reminder_parts = kit._collect_contributions({}, {})
+
+        assert "P" in prompt_parts
+        assert "R" in reminder_parts
+
+    def test_none_return_handled(self):
+        mw1 = NoneExtension()
+        mw2 = StubExtension(prompt_text="Valid")
+        kit = AgentKit([mw1, mw2])
+
+        result = kit.prompt({}, {})
+
+        assert result == "Valid"
+
+
+class TestInjectSystemReminder:
+    def test_empty_reminder_returns_unchanged_state(self):
+        from langchain_agentkit._graph_builder import _inject_system_reminder
+
+        state = {"messages": []}
+
+        result = _inject_system_reminder(state, "")
+
+        assert result is state
+
+    def test_non_empty_reminder_appends_human_message(self):
+        from langchain_core.messages import HumanMessage
+
+        from langchain_agentkit._graph_builder import _inject_system_reminder
+
+        state = {"messages": []}
+
+        result = _inject_system_reminder(state, "hello")
+
+        assert len(result["messages"]) == 1
+        assert isinstance(result["messages"][0], HumanMessage)
+
+    def test_reminder_wrapped_in_system_reminder_tags(self):
+        from langchain_agentkit._graph_builder import _inject_system_reminder
+
+        result = _inject_system_reminder({"messages": []}, "hello")
+
+        content = result["messages"][0].content
+        assert content.startswith("<system-reminder>")
+        assert content.endswith("</system-reminder>")
+        assert "hello" in content
+
+    def test_original_state_not_mutated(self):
+        from langchain_agentkit._graph_builder import _inject_system_reminder
+
+        original_messages = [{"role": "user", "content": "hi"}]
+        state = {"messages": original_messages, "other": "data"}
+
+        result = _inject_system_reminder(state, "reminder")
+
+        assert len(original_messages) == 1
+        assert state["messages"] is original_messages
+        assert result is not state
+
+    def test_existing_messages_preserved(self):
+        from langchain_core.messages import HumanMessage
+
+        from langchain_agentkit._graph_builder import _inject_system_reminder
+
+        existing = HumanMessage(content="existing")
+        state = {"messages": [existing]}
+
+        result = _inject_system_reminder(state, "reminder")
+
+        assert len(result["messages"]) == 2
+        assert result["messages"][0] is existing

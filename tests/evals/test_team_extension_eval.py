@@ -2,7 +2,7 @@
 """Real-LLM integration evals for TeamExtension coordination.
 
 Tests exercise the FULL compiled graph flow: lead agent receives a message,
-uses team coordination tools (AgentTeam, AssignTask, CheckTeammates,
+uses team coordination tools (AgentTeam, SendMessage, CheckTeammates,
 DissolveTeam) via LangGraph's ReAct loop, teammates process with real LLM
 calls as asyncio.Tasks, and results propagate back through the lead.
 
@@ -105,7 +105,7 @@ You are a team lead. Follow these steps EXACTLY in order:
 
 1. Use AgentTeam to create a team with the workers you need.
    - Each member needs a unique "name" and an "agent_type" matching a registered agent.
-2. Use AssignTask to give each worker their task.
+2. Use SendMessage to give each worker their task.
 3. Use CheckTeammates to collect results. If no pending messages yet, call \
 CheckTeammates again after a moment.
 4. Once you have all results, use DissolveTeam to shut down the team.
@@ -146,7 +146,7 @@ class TestTeamSingleWorkerLifecycle:
     async def test_team_single_worker_lifecycle(self):
         """Lead creates team, assigns 'Capital of Japan?', reports 'Tokyo'."""
         worker = _build_worker()
-        mw_team = TeamExtension([worker])
+        mw_team = TeamExtension(agents=[worker])
         mw_tasks = TasksExtension()
         lead = _build_team_lead(mw_team, mw_tasks)
 
@@ -190,7 +190,7 @@ class TestTeamMultiAgent:
         """Worker answers factual question, math_worker answers math."""
         worker = _build_worker()
         math_worker = _build_math_worker()
-        mw_team = TeamExtension([worker, math_worker])
+        mw_team = TeamExtension(agents=[worker, math_worker])
         mw_tasks = TasksExtension()
         lead = _build_team_lead(mw_team, mw_tasks)
 
@@ -231,19 +231,18 @@ class TestTeamMultiAgent:
 
 
 class TestTeamToolsExposed:
-    """Verify TeamExtension exposes exactly 5 tools."""
+    """Verify TeamExtension exposes exactly 4 tools."""
 
     def test_team_tools_exposed(self):
         worker = _build_worker()
-        mw = TeamExtension([worker])
+        mw = TeamExtension(agents=[worker])
         tool_names = sorted(t.name for t in mw.tools)
 
         assert tool_names == [
             "AgentTeam",
-            "AssignTask",
             "CheckTeammates",
             "DissolveTeam",
-            "MessageTeammate",
+            "SendMessage",
         ]
 
 
@@ -259,7 +258,7 @@ class TestTeamStateSchema:
         from langchain_agentkit.extensions.teams.state import TeamState
 
         worker = _build_worker()
-        mw = TeamExtension([worker])
+        mw = TeamExtension(agents=[worker])
         assert mw.state_schema is TeamState
 
 
@@ -273,7 +272,7 @@ class TestTeamPromptRoster:
 
     def test_team_prompt_roster(self):
         worker = _build_worker()
-        mw = TeamExtension([worker])
+        mw = TeamExtension(agents=[worker])
         prompt = mw.prompt(state={"messages": []})
 
         assert "worker" in prompt

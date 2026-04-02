@@ -111,8 +111,8 @@ extensions = [
     FilesystemExtension(),
     WebSearchExtension(),
     HITLExtension(interrupt_on={"send_email": True}, tools=True),
-    AgentExtension([researcher, coder]),
-    TeamExtension([researcher, coder]),
+    AgentExtension(agents=[researcher, coder]),
+    TeamExtension(agents=[researcher, coder]),
 ]
 ```
 
@@ -126,15 +126,15 @@ Two input modes:
 from langchain_agentkit import SkillsExtension, SkillConfig
 
 # Programmatic — pass SkillConfig objects directly
-mw = SkillsExtension(skills=[
+ext = SkillsExtension(skills=[
     SkillConfig(name="market-sizing", description="Calculate TAM/SAM/SOM", prompt="..."),
 ])
 
 # Directory discovery — scan a directory for SKILL.md files
-mw = SkillsExtension(skills="skills/")
+ext = SkillsExtension(skills="skills/")
 
 # With a custom backend (e.g. Daytona sandbox)
-mw = SkillsExtension(skills="/skills", backend=my_backend)
+ext = SkillsExtension(skills="/skills", backend=my_backend)
 ```
 
 Always provides exactly one tool: `Skill`. Filesystem tools (Read, Write, etc.) come from `FilesystemExtension`.
@@ -231,8 +231,8 @@ See [`examples/delegation.py`](examples/delegation.py) for a complete example.
 Task management for complex multi-step objectives. The agent creates, tracks, and completes tasks with dependency ordering.
 
 ```python
-mw = TasksExtension()
-mw.tools  # [TaskCreate, TaskUpdate, TaskList, TaskGet, TaskStop]
+ext = TasksExtension()
+ext.tools  # [TaskCreate, TaskUpdate, TaskList, TaskGet, TaskStop]
 ```
 
 **Tools:**
@@ -268,23 +268,27 @@ ext = FilesystemExtension(root="./workspace")
 | `Read(file_path)` | Read file with line numbers, offset/limit pagination |
 | `Write(file_path, content)` | Create or overwrite a file |
 | `Edit(file_path, old_string, new_string)` | Exact string replacement |
-| `MultiEdit(file_path, edits)` | Batch find-and-replace operations |
 | `Glob(pattern)` | Find files by pattern (supports `*`, `**`, `?`) |
 | `Grep(pattern)` | Search file contents by regex |
-| `LS(path)` | List directory contents |
+| `Bash(command)` | Execute shell commands (when backend supports `execute()`) |
 
 ### WebSearchExtension
 
-Multi-provider web search. Fans out queries to all providers in parallel. Works out of the box with built-in Qwant search (no API key needed):
+Multi-provider web search. Fans out queries to all providers in parallel. Ships with two built-in providers (no API key needed):
 
 ```python
-# Zero config
-mw = WebSearchExtension()
+from langchain_agentkit import WebSearchExtension, DuckDuckGoSearchProvider
+
+# Zero config (defaults to Qwant)
+ext = WebSearchExtension()
+
+# DuckDuckGo (recommended — more reliable)
+ext = WebSearchExtension(providers=[DuckDuckGoSearchProvider()])
 
 # Custom providers
 from langchain_tavily import TavilySearch
 
-mw = WebSearchExtension(providers=[TavilySearch(max_results=5)])
+ext = WebSearchExtension(providers=[TavilySearch(max_results=5)])
 ```
 
 ### HITLExtension
@@ -325,7 +329,7 @@ from langchain_agentkit import agent, TeamExtension, TasksExtension
 
 class lead(agent):
     model = ChatOpenAI(model="gpt-4o")
-    extensions = [TasksExtension(), TeamExtension([researcher, coder])]
+    extensions = [TasksExtension(), TeamExtension(agents=[researcher, coder])]
     prompt = "You are a project lead. Coordinate your team."
     async def handler(state, *, llm, tools, prompt): ...
 ```
@@ -337,8 +341,7 @@ class lead(agent):
 | Tool | Description |
 |------|-------------|
 | `AgentTeam(team_name, members)` | Create a team with named members |
-| `AssignTask(member_name, task)` | Assign work — creates a tracked task and sends it |
-| `MessageTeammate(member_name, message)` | Send guidance or follow-ups |
+| `SendMessage(member_name, message)` | Send work, guidance, or follow-ups to a member |
 | `CheckTeammates()` | See statuses and collect pending messages |
 | `DissolveTeam()` | Graceful shutdown |
 

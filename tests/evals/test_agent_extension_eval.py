@@ -134,7 +134,7 @@ class TestDelegationFullFlow:
     async def test_delegate_math_to_calculator(self):
         """Lead receives 'What is 2+2?', delegates to calculator, returns '4'."""
         calculator = _build_calculator()
-        mw = AgentExtension([calculator])
+        mw = AgentExtension(agents=[calculator])
         lead = _build_lead_with_extension(mw)
 
         graph = lead.compile()
@@ -146,7 +146,7 @@ class TestDelegationFullFlow:
     async def test_delegate_multiplication(self):
         """Verify delegation works for a different math problem."""
         calculator = _build_calculator()
-        mw = AgentExtension([calculator])
+        mw = AgentExtension(agents=[calculator])
         lead = _build_lead_with_extension(mw)
 
         graph = lead.compile()
@@ -168,7 +168,7 @@ class TestMultiAgentDelegation:
         """With calculator+greeter, math goes to calculator."""
         calculator = _build_calculator()
         greeter = _build_greeter()
-        mw = AgentExtension([calculator, greeter])
+        mw = AgentExtension(agents=[calculator, greeter])
         lead = _build_lead_with_extension(mw)
 
         graph = lead.compile()
@@ -188,7 +188,7 @@ class TestDynamicDelegation:
     async def test_dynamic_delegation(self):
         """Lead delegates to a dynamic reasoning agent."""
         calculator = _build_calculator()
-        mw = AgentExtension([calculator], ephemeral=True)
+        mw = AgentExtension(agents=[calculator], ephemeral=True)
 
         mw.set_parent_llm_getter(_get_llm)
 
@@ -228,7 +228,7 @@ class TestScopedContext:
     async def test_subagent_answers_only_delegated_question(self):
         """Parent has unrelated history; subagent answers only the math question."""
         calculator = _build_calculator()
-        mw = AgentExtension([calculator])
+        mw = AgentExtension(agents=[calculator])
         lead = _build_lead_with_extension(mw)
 
         graph = lead.compile()
