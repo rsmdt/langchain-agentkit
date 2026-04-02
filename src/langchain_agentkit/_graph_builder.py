@@ -46,6 +46,30 @@ def _find_wrap_tool_call(
     return wrap_tool_call
 
 
+def _inject_system_reminder(
+    handler_state: dict[str, Any],
+    system_reminder: str,
+) -> dict[str, Any]:
+    """Append system-reminder as an ephemeral HumanMessage.
+
+    Returns a new state dict with the reminder appended to messages.
+    The original state is NOT mutated. The reminder is never persisted —
+    it exists only for the current LLM invocation.
+    """
+    if not system_reminder:
+        return handler_state
+    from langchain_core.messages import HumanMessage
+
+    return {
+        **handler_state,
+        "messages": list(handler_state.get("messages", [])) + [
+            HumanMessage(
+                content=f"<system-reminder>\n{system_reminder}\n</system-reminder>",
+            ),
+        ],
+    }
+
+
 def build_graph(  # noqa: C901
     name: str,
     handler: Any,
@@ -99,11 +123,14 @@ def build_graph(  # noqa: C901
         processed_messages = hook_runner.run_process_history(list(state.get("messages", [])))
         handler_state = {**state, "messages": processed_messages}
 
-        # --- compose prompt and bind tools ---
-        # NOTE: kit.prompt() is called per-step intentionally. Extension prompts
-        # are dynamic — they render current state (e.g., task list, team status).
-        # Caching the result would serve stale context. Do NOT hoist this.
-        composed_prompt = kit.prompt(handler_state, runtime)
+        # --- compose prompt and system reminder (single pass) ---
+        # NOTE: called per-step intentionally. Extension prompts are dynamic —
+        # they render current state (task list, team status). Do NOT hoist this.
+        prompt_parts, reminder_parts = kit._collect_contributions(handler_state, runtime)
+        composed_prompt = "\n\n".join(prompt_parts)
+        # Inject ephemeral system-reminder as a HumanMessage (never stored).
+        system_reminder = "\n\n".join(reminder_parts) if reminder_parts else ""
+        handler_state = _inject_system_reminder(handler_state, system_reminder)
         # NOTE: bind_tools is called per-step intentionally (not cached at build
         # time). This enables handlers to mutate the tool list dynamically — e.g.,
         # enabling/disabling tools based on state, or injecting runtime-resolved

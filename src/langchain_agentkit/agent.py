@@ -7,7 +7,7 @@ Usage::
     class researcher(agent):
         model = ChatOpenAI(model="gpt-4o")
         tools = [web_search]
-        extensions = [SkillsExtension("skills/"), TasksExtension()]
+        extensions = [SkillsExtension(skills="skills/"), TasksExtension()]
         prompt = "You are a research assistant."
 
         async def handler(state, *, llm, tools, prompt, runtime):
@@ -225,7 +225,7 @@ class agent(metaclass=_AgentMeta):  # noqa: N801
         class researcher(agent):
             model = ChatOpenAI(model="gpt-4o")
             tools = [web_search]
-            extensions = [SkillsExtension("skills/"), TasksExtension()]
+            extensions = [SkillsExtension(skills="skills/"), TasksExtension()]
             prompt = "You are a research assistant."
 
             async def handler(state, *, llm, tools, prompt, runtime):
@@ -235,7 +235,7 @@ class agent(metaclass=_AgentMeta):  # noqa: N801
         # Model can be a string (resolved via model_resolver):
         class fast_agent(agent):
             model = "gpt-4o-mini"
-            extensions = [SkillsExtension("skills/")]
+            extensions = [SkillsExtension(skills="skills/")]
             ...
 
     Class attributes:

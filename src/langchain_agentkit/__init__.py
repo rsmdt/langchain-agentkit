@@ -4,7 +4,7 @@
 
     from langchain_agentkit import AgentKit, SkillsExtension, TasksExtension
 
-    kit = AgentKit(extensions=[SkillsExtension("skills/"), TasksExtension()])
+    kit = AgentKit(extensions=[SkillsExtension(skills="skills/"), TasksExtension()])
     all_tools = my_tools + kit.tools
 
 **Convenience** — use ``agent`` metaclass for standalone ReAct agents::
@@ -13,7 +13,7 @@
 
     class researcher(agent):
         model = ChatOpenAI(model="gpt-4o")
-        extensions = [SkillsExtension("skills/")]
+        extensions = [SkillsExtension(skills="skills/")]
         prompt = "You are a research assistant."
         async def handler(state, *, llm, prompt):
             ...

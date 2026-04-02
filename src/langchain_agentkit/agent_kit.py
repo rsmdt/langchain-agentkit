@@ -10,7 +10,7 @@ higher-level ``agent`` metaclass is too opinionated.
 Example::
 
     kit = AgentKit(extensions=[
-        SkillsExtension("skills/"),
+        SkillsExtension(skills="skills/"),
         TasksExtension(),
     ])
 
@@ -48,7 +48,7 @@ class AgentKit:
     Example::
 
         kit = AgentKit(extensions=[
-            SkillsExtension("skills/"),
+            SkillsExtension(skills="skills/"),
             TasksExtension(),
         ])
 
@@ -79,15 +79,31 @@ class AgentKit:
         from langchain_agentkit.extensions.filesystem import FilesystemExtension
         from langchain_agentkit.extensions.hitl import HITLExtension
         from langchain_agentkit.extensions.skills import SkillsExtension
+        from langchain_agentkit.extensions.tasks import TasksExtension
+        from langchain_agentkit.extensions.teams import TeamExtension
 
         # Find sibling extensions for cross-wiring
         skills_ext = None
         has_hitl = False
+        has_team = False
         for ext in self._extensions:
             if isinstance(ext, SkillsExtension):
                 skills_ext = ext
             if isinstance(ext, HITLExtension):
                 has_hitl = True
+            if isinstance(ext, TeamExtension):
+                has_team = True
+
+        # Wire team_active flag into TasksExtension when teams are present
+        if has_team:
+            for ext in self._extensions:
+                if isinstance(ext, TasksExtension) and not ext._team_active:
+                    ext._team_active = True
+                    # Rebuild tools with team-aware descriptions
+                    from langchain_agentkit.extensions.tasks.tools import create_task_tools
+
+                    ext._tools = tuple(create_task_tools(team_active=True))
+                    self._tools_cache = None  # invalidate cached tools
 
         for ext in self._extensions:
             if isinstance(ext, AgentExtension):
@@ -199,18 +215,69 @@ class AgentKit:
             return self._model_resolver(model)
         return model
 
+    def _collect_contributions(
+        self,
+        state: dict[str, Any],
+        runtime: ToolRuntime | None = None,
+    ) -> tuple[list[str], list[str]]:
+        """Single-pass collection of prompt sections and reminders.
+
+        Iterates each extension's ``prompt()`` exactly once, splitting
+        the result into system-prompt sections and ephemeral reminders.
+
+        Returns:
+            (prompt_parts, reminder_parts) — both are lists of non-empty strings.
+
+        Extension ``prompt()`` can return:
+        - ``str`` — goes into system prompt
+        - ``dict`` with ``prompt`` and/or ``reminder`` keys — prompt goes
+          to system prompt, reminder goes to ephemeral message
+        - ``None`` — no contribution
+        """
+        prompt_parts: list[str] = [self._prompt] if self._prompt else []
+        reminder_parts: list[str] = []
+        for ext in self._extensions:
+            result = ext.prompt(state, runtime)
+            if result is None:
+                continue
+            if isinstance(result, str):
+                if result:
+                    prompt_parts.append(result)
+            elif isinstance(result, dict):
+                p = result.get("prompt", "")
+                r = result.get("reminder", "")
+                if p:
+                    prompt_parts.append(p)
+                if r:
+                    reminder_parts.append(r)
+        return prompt_parts, reminder_parts
+
     def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
-        """Compose prompt from template + all extension sections.
+        """Compose system prompt from template + extension prompt sections.
 
         Called on every LLM invocation. Each extension contributes
         a section in stack order. Sections joined with double newline.
+
+        Extensions returning a dict with ``prompt``/``reminder`` keys
+        have only their ``prompt`` value collected here. The ``reminder``
+        value is collected separately by :meth:`system_reminder`.
         """
-        sections = [self._prompt] if self._prompt else []
-        for ext in self._extensions:
-            section = ext.prompt(state, runtime)
-            if section:
-                sections.append(section)
-        return "\n\n".join(sections)
+        prompt_parts, _ = self._collect_contributions(state, runtime)
+        return "\n\n".join(prompt_parts)
+
+    def system_reminder(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
+        """Collect ephemeral reminder content from all extensions.
+
+        Returns combined text that will be appended to the messages
+        array as a ``HumanMessage`` wrapped in ``<system-reminder>``
+        tags. This message is added at LLM call time and **never**
+        stored in ``state["messages"]``.
+
+        Only extensions returning a dict with a non-empty
+        ``reminder`` value contribute here.
+        """
+        _, reminder_parts = self._collect_contributions(state, runtime)
+        return "\n\n".join(reminder_parts) if reminder_parts else ""
 
 
 def _load_prompt_source(source: str | Path) -> str:
