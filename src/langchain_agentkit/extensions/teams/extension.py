@@ -36,6 +36,7 @@ class TeamExtension(Extension):
 
     def __init__(
         self,
+        *,
         agents: list[Any],
         ephemeral: bool = False,
         max_team_size: int = 5,
@@ -129,7 +130,7 @@ class TeamExtension(Extension):
             if lead_pending > 0:
                 status_lines.append(
                     f"\n⚠️ You have **{lead_pending} unread message(s)**. "
-                    "Use CheckTeammates to retrieve them."
+                    "Use CheckTeammates to collect them."
                 )
             base_prompt += "\n".join(status_lines)
 

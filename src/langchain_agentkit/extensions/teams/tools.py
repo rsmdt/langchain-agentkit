@@ -8,8 +8,8 @@ Usage::
 
     from langchain_agentkit.extensions.teams import TeamExtension
 
-    mw = TeamExtension([researcher, coder])
-    mw.tools  # [AgentTeam, AssignTask, MessageTeammate, CheckTeammates, DissolveTeam]
+    ext = TeamExtension(agents=[researcher, coder])
+    ext.tools  # [AgentTeam, SendMessage, CheckTeammates, DissolveTeam]
 """
 
 from __future__ import annotations
@@ -32,6 +32,24 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
     from langchain_agentkit.extensions.teams.extension import TeamExtension
+
+
+# ---------------------------------------------------------------------------
+# Teammate system prompt addendum
+# ---------------------------------------------------------------------------
+
+_TEAMMATE_ADDENDUM = """\
+
+# Agent Teammate Communication
+
+IMPORTANT: You are running as an agent in a team. To communicate with anyone \
+on your team:
+- Use the SendMessage tool with `to: "<name>"` to send messages to specific teammates
+- Use the SendMessage tool with `to: "*"` sparingly for team-wide broadcasts
+
+Just writing a response in text is not visible to others on your team — \
+you MUST use the SendMessage tool.
+"""
 
 
 # ---------------------------------------------------------------------------
@@ -64,16 +82,15 @@ class _AgentTeamInput(BaseModel):
     tool_call_id: Annotated[str, InjectedToolCallId]
 
 
-class _AssignTaskInput(BaseModel):
-    member_name: str = Field(description="Team member to assign work to.")
-    task_description: str = Field(description="Clear, specific task to assign.")
-    state: Annotated[dict[str, Any], InjectedState]
-    tool_call_id: Annotated[str, InjectedToolCallId]
-
-
-class _MessageTeammateInput(BaseModel):
-    member_name: str = Field(description="Team member to message.")
+class _SendMessageInput(BaseModel):
+    to: str = Field(
+        description='Recipient: teammate name, or "*" for broadcast to all teammates.',
+    )
     message: str = Field(description="Message content.")
+    summary: str = Field(
+        default="",
+        description="5-10 word summary shown as preview (optional).",
+    )
     state: Annotated[dict[str, Any], InjectedState]
     tool_call_id: Annotated[str, InjectedToolCallId]
 
@@ -202,7 +219,7 @@ async def _agent_team_inner(  # noqa: C901
         bus.register(member_name)
 
         if agent_prompt is not None:
-            # Ephemeral agent — build on-the-fly graph
+            # Ephemeral agent — build on-the-fly graph with teammate addendum
             from langchain_agentkit._graph_builder import build_graph
             from langchain_agentkit.agent_kit import AgentKit
 
@@ -211,6 +228,8 @@ async def _agent_team_inner(  # noqa: C901
                 ephemeral_llm = parent_llm_getter()
             else:
                 raise ToolException("No parent LLM available for ephemeral agent.")
+
+            full_prompt = _TEAMMATE_ADDENDUM + agent_prompt
 
             async def _ephemeral_handler(
                 handler_state: dict[str, Any],
@@ -231,7 +250,7 @@ async def _agent_team_inner(  # noqa: C901
                 handler=_ephemeral_handler,
                 llm=ephemeral_llm,
                 user_tools=[],
-                kit=AgentKit(extensions=[], prompt=agent_prompt),
+                kit=AgentKit(extensions=[], prompt=full_prompt),
             )
             from langgraph.checkpoint.memory import InMemorySaver
 
@@ -292,44 +311,28 @@ async def _agent_team_inner(  # noqa: C901
     )
 
 
-async def _assign_task(
-    member_name: str,
-    task_description: str,
-    state: dict[str, Any],
-    tool_call_id: str,
-    *,
-    ext: TeamExtension,
-) -> Command:  # type: ignore[type-arg]
-    """Send a task to a team member via message bus."""
-    _require_member(ext, member_name)
-    team = ext.active_team
-
-    # Send task to member via bus
-    await team.bus.send("lead", member_name, task_description)  # type: ignore[union-attr]
-
-    result = {"sent_to": member_name, "task": task_description[:80]}
-    return Command(
-        update={
-            "messages": [ToolMessage(content=json.dumps(result), tool_call_id=tool_call_id)],
-        }
-    )
-
-
-async def _message_teammate(
-    member_name: str,
+async def _send_message(
+    to: str,
     message: str,
     state: dict[str, Any],
     tool_call_id: str,
+    summary: str = "",
     *,
     ext: TeamExtension,
 ) -> Command:  # type: ignore[type-arg]
-    """Send a message to a team member via the message bus."""
-    _require_member(ext, member_name)
-    team = ext.active_team
+    """Send a message to a teammate or broadcast to all teammates."""
+    team = _require_active_team(ext)
 
-    await team.bus.send("lead", member_name, message)  # type: ignore[union-attr]
+    if to == "*":
+        # Broadcast to all active team members (skip sender / lead)
+        await team.bus.broadcast("lead", message)
+        recipients = [n for n in team.members if n != "lead"]
+        result = {"broadcast": True, "recipients": recipients, "message": message[:100]}
+    else:
+        _require_member(ext, to)
+        await team.bus.send("lead", to, message)
+        result = {"sent_to": to, "message": message[:100]}
 
-    result = {"sent_to": member_name, "message": message[:100]}
     return Command(
         update={
             "messages": [ToolMessage(content=json.dumps(result), tool_call_id=tool_call_id)],
@@ -434,12 +437,11 @@ async def _shutdown_team_tasks(
     team: Any,
     timeout: float,
 ) -> None:
-    """Send shutdown signals and wait for tasks to finish."""
+    """Send structured shutdown requests and wait for tasks to finish."""
+    shutdown_msg = json.dumps({"type": "shutdown_request"})
     for member_name in team.members:
         with contextlib.suppress(Exception):
-            from langchain_agentkit.extensions.teams.bus import SHUTDOWN_SIGNAL
-
-            await team.bus.send("lead", member_name, SHUTDOWN_SIGNAL)
+            await team.bus.send("lead", member_name, shutdown_msg)
 
     pending_tasks = [t for t in team.members.values() if not t.done()]
     if pending_tasks:
@@ -514,8 +516,8 @@ Use when:
 - You need to steer work in progress based on intermediate results
 - The project is too complex for a single delegation
 
-Each member runs as an independent agent. You coordinate by assigning tasks \
-and sending messages. Members report results back automatically.
+Each member runs as an independent agent. You coordinate by sending messages \
+and checking status. Members report results back automatically.
 
 Important:
 - agent names must be unique within the team
@@ -523,29 +525,17 @@ Important:
 - Only one team can be active at a time\
 """
 
-_ASSIGN_TASK_DESCRIPTION = """\
-Send a task to a specific team member via the message bus.
+_SEND_MESSAGE_DESCRIPTION = """\
+Send a message to a teammate.
 
-The member receives the message and begins working. To track this task,
-create it first with TaskCreate (set owner to the member name), then
-use AssignTask to send the work description.
+Your plain text output is NOT visible to other agents — to communicate, \
+you MUST call this tool. Messages from teammates are delivered automatically.
 
-Tips:
-- Write clear, specific descriptions with all needed context
-- Use TaskCreate before AssignTask if you want task tracking
-- Use CheckTeammates to monitor progress after assigning\
-"""
+Use `to: "*"` to broadcast to all teammates — expensive, use only when \
+everyone genuinely needs it. Refer to teammates by name.
 
-_MESSAGE_TEAMMATE_DESCRIPTION = """\
-Send a message to a team member.
-
-Use to:
-- Provide guidance or clarification to a working member
-- Forward information from one member to another
-- Unblock a member who is waiting for input
-- Send follow-up instructions after reviewing their work
-
-The member receives the message and can respond through the bus.\
+Do NOT send structured JSON status messages. Just communicate in plain text \
+when you need to message teammates. Use TaskUpdate to mark tasks completed.\
 """
 
 _CHECK_TEAMMATES_DESCRIPTION = """\
@@ -588,8 +578,7 @@ def create_team_tools(ext: TeamExtension) -> list[BaseTool]:
     Tools are bound to the extension instance via closures so they can
     access the active team and message bus.
 
-    Returns five tools: AgentTeam, AssignTask, MessageTeammate,
-    CheckTeammates, DissolveTeam.
+    Returns four tools: AgentTeam, SendMessage, CheckTeammates, DissolveTeam.
     """
 
     return [
@@ -601,17 +590,10 @@ def create_team_tools(ext: TeamExtension) -> list[BaseTool]:
             handle_tool_error=True,
         ),
         StructuredTool.from_function(
-            coroutine=partial(_assign_task, ext=ext),
-            name="AssignTask",
-            description=_ASSIGN_TASK_DESCRIPTION,
-            args_schema=_AssignTaskInput,
-            handle_tool_error=True,
-        ),
-        StructuredTool.from_function(
-            coroutine=partial(_message_teammate, ext=ext),
-            name="MessageTeammate",
-            description=_MESSAGE_TEAMMATE_DESCRIPTION,
-            args_schema=_MessageTeammateInput,
+            coroutine=partial(_send_message, ext=ext),
+            name="SendMessage",
+            description=_SEND_MESSAGE_DESCRIPTION,
+            args_schema=_SendMessageInput,
             handle_tool_error=True,
         ),
         StructuredTool.from_function(

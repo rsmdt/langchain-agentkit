@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 import time
 import uuid
 from dataclasses import dataclass
@@ -83,6 +84,21 @@ class ActiveTeam:
     member_types: dict[str, str]
 
 
+def _is_shutdown_request(content: str) -> bool:
+    """Check if a message content is a shutdown request.
+
+    Supports both the legacy SHUTDOWN_SIGNAL string and the new
+    structured ``{"type": "shutdown_request"}`` format.
+    """
+    if content == SHUTDOWN_SIGNAL:
+        return True
+    try:
+        parsed = json.loads(content)
+        return isinstance(parsed, dict) and parsed.get("type") == "shutdown_request"
+    except (json.JSONDecodeError, TypeError):
+        return False
+
+
 async def _teammate_loop(
     member_name: str,
     compiled_graph: Any,
@@ -96,7 +112,10 @@ async def _teammate_loop(
         msg = await message_bus.receive(member_name, timeout=30.0)
         if msg is None:
             continue
-        if msg.content == SHUTDOWN_SIGNAL:
+        if _is_shutdown_request(msg.content) and msg.sender == "lead":
+            # Acknowledge shutdown — only accept from lead
+            response = json.dumps({"type": "shutdown_response", "approve": True})
+            await message_bus.send(member_name, msg.sender, response)
             return "shutdown"
 
         try:
