@@ -2,8 +2,8 @@
 """Real-LLM integration evals for TeamExtension coordination.
 
 Tests exercise the FULL compiled graph flow: lead agent receives a message,
-uses team coordination tools (AgentTeam, SendMessage, CheckTeammates,
-DissolveTeam) via LangGraph's ReAct loop, teammates process with real LLM
+uses team coordination tools (TeamCreate, TeamMessage, TeamStatus,
+TeamDissolve) via LangGraph's ReAct loop, teammates process with real LLM
 calls as asyncio.Tasks, and results propagate back through the lead.
 
 Requires:
@@ -103,15 +103,15 @@ def _build_math_worker():
 _TEAM_LEAD_PROMPT = """\
 You are a team lead. Follow these steps EXACTLY in order:
 
-1. Use AgentTeam to create a team with the workers you need.
+1. Use TeamCreate to create a team with the workers you need.
    - Each member needs a unique "name" and an "agent_type" matching a registered agent.
-2. Use SendMessage to give each worker their task.
-3. Use CheckTeammates to collect results. If no pending messages yet, call \
-CheckTeammates again after a moment.
-4. Once you have all results, use DissolveTeam to shut down the team.
+2. Use TeamMessage to give each worker their task.
+3. Use TeamStatus to collect results. If no pending messages yet, call \
+TeamStatus again after a moment.
+4. Once you have all results, use TeamDissolve to shut down the team.
 5. Report the final results to the user clearly.
 
-IMPORTANT: Always complete ALL steps. Never skip DissolveTeam.
+IMPORTANT: Always complete ALL steps. Never skip TeamDissolve.
 IMPORTANT: You MUST call the tools — never answer questions yourself.\
 """
 
@@ -239,10 +239,10 @@ class TestTeamToolsExposed:
         tool_names = sorted(t.name for t in mw.tools)
 
         assert tool_names == [
-            "AgentTeam",
-            "CheckTeammates",
-            "DissolveTeam",
-            "SendMessage",
+            "TeamCreate",
+            "TeamDissolve",
+            "TeamMessage",
+            "TeamStatus",
         ]
 
 

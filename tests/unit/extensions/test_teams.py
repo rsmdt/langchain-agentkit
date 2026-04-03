@@ -209,7 +209,7 @@ class TestTeamExtensionTools:
 
         # 4 team tools only — task tools come from TasksExtension if user adds it
         assert len(mw.tools) == 4
-        assert "AgentTeam" in tool_names
+        assert "TeamCreate" in tool_names
         assert "TaskCreate" not in tool_names
 
     def test_tool_names_include_team_tools(self):
@@ -218,10 +218,10 @@ class TestTeamExtensionTools:
         mw = TeamExtension(agents=[agent_a])
         tool_names = [t.name for t in mw.tools]
 
-        assert "AgentTeam" in tool_names
-        assert "SendMessage" in tool_names
-        assert "CheckTeammates" in tool_names
-        assert "DissolveTeam" in tool_names
+        assert "TeamCreate" in tool_names
+        assert "TeamMessage" in tool_names
+        assert "TeamStatus" in tool_names
+        assert "TeamDissolve" in tool_names
 
     def test_tools_returns_immutable_tuple(self):
         agent_a = _make_mock_agent("researcher")
@@ -366,3 +366,242 @@ class TestTeamExtensionProtocol:
         assert callable(mw.prompt)
         assert isinstance(mw.tools, (list, tuple))
         assert isinstance(mw.prompt({}), str)
+
+
+# ---------------------------------------------------------------------------
+# Router Node integration tests
+# ---------------------------------------------------------------------------
+
+
+def _extract_router_node(mw: TeamExtension) -> tuple:
+    """Call graph_modifier with a mock workflow and capture the registered node."""
+    registered_nodes = {}
+    registered_edges = {}
+
+    class _MockWorkflow:
+        def add_node(self, name: str, func):
+            registered_nodes[name] = func
+
+        def add_conditional_edges(self, source, condition, mapping):
+            registered_edges[source] = {"condition": condition, "mapping": mapping}
+
+    mock_wf = _MockWorkflow()
+    mw.graph_modifier(mock_wf, "agent")
+    router_node = registered_nodes.get("router")
+    router_cond = registered_edges.get("router", {}).get("condition")
+    return router_node, router_cond
+
+
+class TestRouterNodeTaskOps:
+    """Integration tests for the router node processing task operations."""
+
+    @pytest.mark.asyncio
+    async def test_router_processes_task_create_op(self):
+        """Task create op updates state['tasks'] and sends ack to teammate."""
+        import json
+
+        from langchain_agentkit.extensions.teams import ActiveTeam
+        from langchain_agentkit.extensions.teams.task_proxy import TASK_OP_TYPE
+
+        agent_a = _make_mock_agent("researcher")
+        mw = TeamExtension(agents=[agent_a])
+
+        bus = TeamMessageBus()
+        bus.register("lead")
+        bus.register("alice")
+
+        running_task = MagicMock()
+        running_task.done.return_value = False
+
+        mw._active_team = ActiveTeam(
+            name="test-team",
+            bus=bus,
+            members={"alice": running_task},
+            member_types={"alice": "researcher"},
+        )
+
+        # Put a task create op on the lead queue
+        await bus.send("alice", "lead", json.dumps({
+            "type": TASK_OP_TYPE,
+            "op": "create",
+            "request_id": "req-1",
+            "subject": "Write docs",
+            "description": "Document the API",
+        }))
+
+        router_node, _ = _extract_router_node(mw)
+        result = await router_node({"tasks": []})
+
+        # Tasks should be updated in the returned state
+        assert "tasks" in result
+        assert len(result["tasks"]) == 1
+        assert result["tasks"][0]["subject"] == "Write docs"
+        assert result["tasks"][0]["status"] == "pending"
+
+        # Ack should have been sent back to alice
+        ack = await bus.receive("alice", timeout=1.0)
+        assert ack is not None
+        parsed = json.loads(ack.content)
+        assert parsed["request_id"] == "req-1"
+        assert "task" in parsed
+
+    @pytest.mark.asyncio
+    async def test_router_processes_task_update_op(self):
+        """Task update op modifies existing task in state."""
+        import json
+
+        from langchain_agentkit.extensions.teams import ActiveTeam
+        from langchain_agentkit.extensions.teams.task_proxy import TASK_OP_TYPE
+
+        agent_a = _make_mock_agent("researcher")
+        mw = TeamExtension(agents=[agent_a])
+
+        bus = TeamMessageBus()
+        bus.register("lead")
+        bus.register("bob")
+
+        running = MagicMock()
+        running.done.return_value = False
+
+        mw._active_team = ActiveTeam(
+            name="t", bus=bus, members={"bob": running}, member_types={"bob": "coder"},
+        )
+
+        await bus.send("bob", "lead", json.dumps({
+            "type": TASK_OP_TYPE,
+            "op": "update",
+            "request_id": "req-2",
+            "task_id": "t1",
+            "status": "completed",
+            "owner": "bob",
+        }))
+
+        router_node, _ = _extract_router_node(mw)
+        existing_tasks = [{"id": "t1", "subject": "Fix bug", "status": "in_progress"}]
+        result = await router_node({"tasks": existing_tasks})
+
+        assert result["tasks"][0]["status"] == "completed"
+        assert result["tasks"][0]["owner"] == "bob"
+
+    @pytest.mark.asyncio
+    async def test_router_mixed_task_ops_and_text(self):
+        """Router separates task ops from regular messages correctly."""
+        import json
+
+        from langchain_agentkit.extensions.teams import ActiveTeam
+        from langchain_agentkit.extensions.teams.task_proxy import TASK_OP_TYPE
+
+        agent_a = _make_mock_agent("researcher")
+        mw = TeamExtension(agents=[agent_a])
+
+        bus = TeamMessageBus()
+        bus.register("lead")
+        bus.register("alice")
+
+        running = MagicMock()
+        running.done.return_value = False
+
+        mw._active_team = ActiveTeam(
+            name="t", bus=bus, members={"alice": running}, member_types={"alice": "r"},
+        )
+
+        # Send a task op and a regular message
+        await bus.send("alice", "lead", json.dumps({
+            "type": TASK_OP_TYPE,
+            "op": "list",
+            "request_id": "req-3",
+        }))
+        await bus.send("alice", "lead", "I finished analyzing the data")
+
+        router_node, _ = _extract_router_node(mw)
+        result = await router_node({"tasks": [{"id": "t1", "subject": "A", "status": "pending"}]})
+
+        # Regular message becomes a HumanMessage
+        assert "messages" in result
+        assert len(result["messages"]) == 1
+        assert "I finished analyzing" in result["messages"][0].content
+
+        # Task list ack sent back to alice
+        ack = await bus.receive("alice", timeout=1.0)
+        assert ack is not None
+        parsed = json.loads(ack.content)
+        assert parsed["request_id"] == "req-3"
+
+    @pytest.mark.asyncio
+    async def test_router_returns_empty_when_no_team(self):
+        """Router returns empty dict when no active team."""
+        agent_a = _make_mock_agent("researcher")
+        mw = TeamExtension(agents=[agent_a])
+
+        router_node, _ = _extract_router_node(mw)
+        result = await router_node({"tasks": []})
+
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_router_returns_empty_when_no_messages_and_no_active_members(self):
+        """Router returns empty when bus is empty and all members are done."""
+        from langchain_agentkit.extensions.teams import ActiveTeam
+
+        agent_a = _make_mock_agent("researcher")
+        mw = TeamExtension(agents=[agent_a], router_timeout=0.1)
+
+        bus = TeamMessageBus()
+        bus.register("lead")
+        bus.register("alice")
+
+        done_task = MagicMock()
+        done_task.done.return_value = True
+
+        mw._active_team = ActiveTeam(
+            name="t", bus=bus, members={"alice": done_task}, member_types={"alice": "r"},
+        )
+
+        router_node, _ = _extract_router_node(mw)
+        result = await router_node({"tasks": []})
+
+        assert result == {}
+
+    @pytest.mark.asyncio
+    async def test_router_should_continue_returns_end_when_no_team(self):
+        """Condition function routes to END when no active team."""
+        agent_a = _make_mock_agent("researcher")
+        mw = TeamExtension(agents=[agent_a])
+
+        _, router_cond = _extract_router_node(mw)
+        result = router_cond({"messages": []})
+
+        assert result == "__end__"  # langgraph END sentinel
+
+    @pytest.mark.asyncio
+    async def test_router_should_continue_routes_to_agent_on_teammate_message(self):
+        """Condition function routes to agent node when teammate message present."""
+        from langchain_core.messages import HumanMessage
+
+        from langchain_agentkit.extensions.teams import ActiveTeam
+
+        agent_a = _make_mock_agent("researcher")
+        mw = TeamExtension(agents=[agent_a])
+
+        bus = TeamMessageBus()
+        bus.register("lead")
+
+        running = MagicMock()
+        running.done.return_value = False
+
+        mw._active_team = ActiveTeam(
+            name="t", bus=bus, members={"a": running}, member_types={"a": "r"},
+        )
+
+        _, router_cond = _extract_router_node(mw)
+        state = {
+            "messages": [
+                HumanMessage(
+                    content="result",
+                    additional_kwargs={"type": "teammate_message"},
+                ),
+            ],
+        }
+        result = router_cond(state)
+
+        assert result == "agent"  # routes back to the agent node

@@ -1,6 +1,6 @@
-"""Tests for aligned Agent/AgentTeam tool schemas.
+"""Tests for aligned Agent/TeamCreate tool schemas.
 
-AgentTeam should use the same agent reference types as Agent:
+TeamCreate should use the same agent reference types as Agent:
 - {id: "researcher"} for predefined agents
 - {prompt: "You are..."} for ephemeral agents
 
@@ -43,8 +43,8 @@ def _make_ext_with_agents(*names: str):
 # --- New schema tests ---
 
 
-class TestAgentTeamNewSchema:
-    """AgentTeam uses name=, agents=, agent={id:...}|{prompt:...}."""
+class TestTeamCreateNewSchema:
+    """TeamCreate uses name=, agents=, agent={id:...}|{prompt:...}."""
 
     @pytest.mark.asyncio
     async def test_predefined_agent_via_id(self):

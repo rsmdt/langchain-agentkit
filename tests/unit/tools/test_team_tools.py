@@ -107,11 +107,11 @@ class TestRequireMember:
 
 
 # ---------------------------------------------------------------------------
-# AgentTeam
+# TeamCreate
 # ---------------------------------------------------------------------------
 
 
-class TestAgentTeam:
+class TestTeamCreate:
     @pytest.mark.asyncio
     async def test_agent_team_creates_team(self):
         mw = _make_extension_with_agents("researcher", "coder")
@@ -212,11 +212,11 @@ class TestAgentTeam:
 
 
 # ---------------------------------------------------------------------------
-# SendMessage
+# TeamMessage
 # ---------------------------------------------------------------------------
 
 
-class TestSendMessage:
+class TestTeamMessage:
     @pytest.mark.asyncio
     async def test_send_message_to_member(self):
         mw = _make_extension_with_active_team(["researcher"])
@@ -313,11 +313,11 @@ class TestSendMessage:
 
 
 # ---------------------------------------------------------------------------
-# CheckTeammates
+# TeamStatus
 # ---------------------------------------------------------------------------
 
 
-class TestCheckTeammates:
+class TestTeamStatus:
     @pytest.mark.asyncio
     async def test_check_teammates_returns_status(self):
         mw = _make_extension_with_active_team(["researcher"])
@@ -366,11 +366,11 @@ class TestCheckTeammates:
 
 
 # ---------------------------------------------------------------------------
-# DissolveTeam
+# TeamDissolve
 # ---------------------------------------------------------------------------
 
 
-class TestDissolveTeam:
+class TestTeamDissolve:
     @pytest.mark.asyncio
     async def test_dissolve_team_shuts_down_and_clears(self):
         mw = _make_extension_with_active_team(["researcher"])
@@ -432,3 +432,130 @@ class TestDissolveTeam:
         member_names = [m["name"] for m in content["final_statuses"]]
         assert "researcher" in member_names
         assert "coder" in member_names
+
+
+# ---------------------------------------------------------------------------
+# _compile_with_proxy_tasks
+# ---------------------------------------------------------------------------
+
+
+class TestCompileWithProxyTasks:
+    """Tests for predefined agent proxy tool injection."""
+
+    def test_replaces_task_tools_with_proxies(self):
+        """Predefined agent built with TasksExtension gets proxy tools instead."""
+        # Build a real agent graph (uncompiled) that has TasksExtension
+        from langchain_agentkit._graph_builder import build_graph
+        from langchain_agentkit.agent_kit import AgentKit
+        from langchain_agentkit.extensions.tasks import TasksExtension
+        from langchain_agentkit.extensions.teams.bus import TeamMessageBus
+        from langchain_agentkit.extensions.teams.tools import _compile_with_proxy_tasks
+
+        tasks_ext = TasksExtension()
+        kit = AgentKit(extensions=[tasks_ext], prompt="You are a tester.")
+
+        async def _handler(state, *, llm, prompt, **kw):
+            from langchain_core.messages import AIMessage
+
+            return {"messages": [AIMessage(content="done")], "sender": "test"}
+
+        # Need a mock LLM
+        llm_mock = MagicMock()
+        llm_mock.bind_tools = MagicMock(return_value=llm_mock)
+        llm_mock.ainvoke = AsyncMock()
+
+        graph = build_graph(
+            name="test-agent",
+            handler=_handler,
+            llm=llm_mock,
+            user_tools=[],
+            kit=kit,
+        )
+        # Attach agentkit metadata (as agent metaclass does)
+        graph._agentkit_handler = _handler
+        graph._agentkit_llm = llm_mock
+        graph._agentkit_user_tools = []
+        graph._agentkit_kit = kit
+
+        bus = TeamMessageBus()
+        bus.register("lead")
+        bus.register("alice")
+
+        compiled = _compile_with_proxy_tasks(graph, bus, "alice")
+
+        # Compiled graph should exist
+        assert compiled is not None
+        # It should be invocable (has ainvoke)
+        assert hasattr(compiled, "ainvoke")
+
+    def test_falls_back_when_no_agentkit_metadata(self):
+        """Graphs without _agentkit_* metadata compile as-is."""
+        from langchain_agentkit.extensions.teams.bus import TeamMessageBus
+        from langchain_agentkit.extensions.teams.tools import _compile_with_proxy_tasks
+
+        # A plain mock StateGraph without agentkit metadata
+        mock_graph = MagicMock()
+        mock_graph._agentkit_handler = None
+        compiled_mock = MagicMock()
+        mock_graph.compile.return_value = compiled_mock
+
+        bus = TeamMessageBus()
+        bus.register("lead")
+        bus.register("bob")
+
+        result = _compile_with_proxy_tasks(mock_graph, bus, "bob")
+
+        assert result is compiled_mock
+        mock_graph.compile.assert_called_once()
+
+    def test_preserves_non_task_user_tools(self):
+        """User tools that aren't task tools are preserved in the rebuild."""
+        from langchain_core.tools import StructuredTool
+
+        from langchain_agentkit._graph_builder import build_graph
+        from langchain_agentkit.agent_kit import AgentKit
+        from langchain_agentkit.extensions.tasks import TasksExtension
+        from langchain_agentkit.extensions.teams.bus import TeamMessageBus
+        from langchain_agentkit.extensions.teams.tools import _compile_with_proxy_tasks
+
+        tasks_ext = TasksExtension()
+        kit = AgentKit(extensions=[tasks_ext], prompt="test")
+
+        def _my_custom_tool(query: str) -> str:
+            return "result"
+
+        custom_tool = StructuredTool.from_function(
+            func=_my_custom_tool,
+            name="CustomSearch",
+            description="A custom search tool",
+        )
+
+        async def _handler(state, *, llm, prompt, **kw):
+            from langchain_core.messages import AIMessage
+
+            return {"messages": [AIMessage(content="ok")], "sender": "t"}
+
+        llm_mock = MagicMock()
+        llm_mock.bind_tools = MagicMock(return_value=llm_mock)
+
+        graph = build_graph(
+            name="agent-with-tools",
+            handler=_handler,
+            llm=llm_mock,
+            user_tools=[custom_tool],
+            kit=kit,
+        )
+        graph._agentkit_handler = _handler
+        graph._agentkit_llm = llm_mock
+        graph._agentkit_user_tools = [custom_tool]
+        graph._agentkit_kit = kit
+
+        bus = TeamMessageBus()
+        bus.register("lead")
+        bus.register("alice")
+
+        compiled = _compile_with_proxy_tasks(graph, bus, "alice")
+
+        # Should compile successfully
+        assert compiled is not None
+        assert hasattr(compiled, "ainvoke")

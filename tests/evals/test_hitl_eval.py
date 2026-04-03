@@ -256,13 +256,14 @@ class TestDirectActionEval:
 class TestToolApprovalApproveFlow:
     """Full interrupt → approve → execute cycle with real LLM."""
 
-    def test_approve_allows_tool_execution(self):
+    @pytest.mark.asyncio
+    async def test_approve_allows_tool_execution(self):
         """When user approves, the tool should execute and return a result."""
         graph = _build_tool_approval_agent()
         config = {"configurable": {"thread_id": "approve-test"}}
 
         # Step 1: Invoke — LLM should call write_file, HITL interrupts
-        result = graph.invoke(
+        result = await graph.ainvoke(
             {"messages": [HumanMessage(content="Write 'hello world' to /tmp/test.txt")]},
             config,
         )
@@ -275,7 +276,7 @@ class TestToolApprovalApproveFlow:
         assert tool_name == "write_file", f"Expected write_file, got {tool_name}"
 
         # Step 2: Resume with approve
-        result = graph.invoke(
+        result = await graph.ainvoke(
             Command(resume={"answers": {"Allow writing to the file?": "Approve"}}),
             config,
         )
@@ -292,13 +293,14 @@ class TestToolApprovalApproveFlow:
 class TestToolApprovalRejectFlow:
     """Full interrupt → reject → error message cycle with real LLM."""
 
-    def test_reject_prevents_tool_execution(self):
+    @pytest.mark.asyncio
+    async def test_reject_prevents_tool_execution(self):
         """When user rejects, the tool should NOT execute."""
         graph = _build_tool_approval_agent()
         config = {"configurable": {"thread_id": "reject-test"}}
 
         # Step 1: Invoke — triggers interrupt
-        result = graph.invoke(
+        result = await graph.ainvoke(
             {"messages": [HumanMessage(content="Write 'hello world' to /tmp/test.txt")]},
             config,
         )
@@ -309,7 +311,7 @@ class TestToolApprovalRejectFlow:
         assert ai_messages, "LLM should have made a write_file tool call"
 
         # Step 2: Resume with reject
-        result = graph.invoke(
+        result = await graph.ainvoke(
             Command(
                 resume={
                     "answers": {"Allow writing to the file?": "Reject"},
