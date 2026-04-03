@@ -15,18 +15,18 @@ Key concepts:
   Multiple messages to the same teammate accumulate context (the teammate
   remembers previous interactions within the team session).
 - **Shared task list**: Teams reuse TasksExtension for coordination.
-  SendMessage sends work to members. The lead sees progress via the
+  TeamMessage sends work to members. The lead sees progress via the
   standard task tools.
-- **Lifecycle**: AgentTeam → SendMessage → (react to messages) → DissolveTeam.
+- **Lifecycle**: TeamCreate → TeamMessage → (react to messages) → TeamDissolve.
 
 Tools provided:
 
 | Tool | Purpose |
 |------|---------|
-| AgentTeam | Create team with named members |
-| SendMessage | Send work, guidance, or follow-ups to a member |
-| CheckTeammates | See statuses and collect pending messages |
-| DissolveTeam | Shut down team, collect final results |
+| TeamCreate | Create team with named members |
+| TeamMessage | Send work, guidance, or follow-ups to a member |
+| TeamStatus | See statuses and collect pending messages |
+| TeamDissolve | Shut down team, collect final results |
 
 Run::
 
@@ -100,13 +100,13 @@ class lead(agent):
     ]
     prompt = (
         "You are a project lead. Follow these steps:\n"
-        "1. AgentTeam to create the workers you need\n"
-        "2. SendMessage to assign work to each worker\n"
+        "1. TeamCreate to create the workers you need\n"
+        "2. TeamMessage to assign work to each worker\n"
         "3. React to teammate messages as they arrive\n"
-        "4. Use SendMessage to share info between workers\n"
-        "5. DissolveTeam when all work is done\n"
+        "4. Use TeamMessage to share info between workers\n"
+        "5. TeamDissolve when all work is done\n"
         "6. Synthesize results and report to the user\n\n"
-        "IMPORTANT: Always complete all steps. Never skip DissolveTeam."
+        "IMPORTANT: Always complete all steps. Never skip TeamDissolve."
     )
 
     async def handler(state, *, llm, tools, prompt):

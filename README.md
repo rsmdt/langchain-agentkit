@@ -340,10 +340,10 @@ class lead(agent):
 
 | Tool | Description |
 |------|-------------|
-| `AgentTeam(team_name, members)` | Create a team with named members |
-| `SendMessage(member_name, message)` | Send work, guidance, or follow-ups to a member |
-| `CheckTeammates()` | See statuses and collect pending messages |
-| `DissolveTeam()` | Graceful shutdown |
+| `TeamCreate(name, agents)` | Create a team with named members |
+| `TeamMessage(to, message)` | Send work, guidance, or follow-ups to a member |
+| `TeamStatus()` | See statuses and collect pending messages |
+| `TeamDissolve()` | Graceful shutdown |
 
 **When to use Teams vs Agent:**
 
