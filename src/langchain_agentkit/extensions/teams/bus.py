@@ -73,6 +73,56 @@ class TeamMessageBus:
             return 0
         return queue.qsize()
 
+    async def request_response(
+        self,
+        from_agent: str,
+        to_agent: str,
+        content: str,
+        *,
+        request_id: str | None = None,
+        timeout: float = 10.0,
+    ) -> TeamMessage | None:
+        """Send a message and wait for a response with a matching ``request_id``.
+
+        The caller embeds ``request_id`` in its JSON payload. The responder
+        must include the same ``request_id`` in the reply. Non-matching
+        messages that arrive while waiting are re-queued so they are not lost.
+        """
+        if request_id is None:
+            request_id = str(uuid.uuid4())
+
+        await self.send(from_agent, to_agent, content)
+
+        deadline = asyncio.get_event_loop().time() + timeout
+        stashed: list[TeamMessage] = []
+
+        try:
+            while True:
+                remaining = deadline - asyncio.get_event_loop().time()
+                if remaining <= 0:
+                    return None
+
+                msg = await self.receive(from_agent, timeout=remaining)
+                if msg is None:
+                    return None
+
+                # Check if this is our response
+                try:
+                    parsed = json.loads(msg.content)
+                    if isinstance(parsed, dict) and parsed.get("request_id") == request_id:
+                        return msg
+                except (json.JSONDecodeError, TypeError):
+                    pass
+
+                # Not our response — stash it for later
+                stashed.append(msg)
+        finally:
+            # Re-queue stashed messages so they aren't lost
+            queue = self._queues.get(from_agent)
+            if queue is not None:
+                for m in stashed:
+                    await queue.put(m)
+
 
 @dataclass
 class ActiveTeam:
