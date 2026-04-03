@@ -259,7 +259,12 @@ def build_graph(  # noqa: C901
             # --- wrap_tool hooks (onion) + legacy wrap_tool_call ---
             async def _inner_handler(req: Any) -> Any:
                 if wrap_tool_call is not None:
-                    return wrap_tool_call(req, handler)
+                    result = wrap_tool_call(req, handler)
+                    # wrap_tool_call is sync but may pass through an async
+                    # handler whose return value is a coroutine.
+                    if inspect.isawaitable(result):
+                        result = await result
+                    return result
                 return await handler(req)
 
             result = await hook_runner.run_wrap(

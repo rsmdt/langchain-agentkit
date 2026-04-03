@@ -208,6 +208,12 @@ class _AgentMeta(type):
         graph.skills = skills
         graph.max_turns = max_turns
 
+        # Store rebuild ingredients for team proxy tool injection
+        graph._agentkit_handler = handler
+        graph._agentkit_llm = llm
+        graph._agentkit_user_tools = list(user_tools)
+        graph._agentkit_kit = kit
+
         return graph
 
 

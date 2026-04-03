@@ -9,6 +9,7 @@ from langchain_agentkit.extensions.teams.bus import (
 )
 from langchain_agentkit.extensions.teams.extension import TeamExtension
 from langchain_agentkit.extensions.teams.state import TeamState
+from langchain_agentkit.extensions.teams.task_proxy import create_task_proxy_tools
 from langchain_agentkit.extensions.teams.tools import create_team_tools
 
 __all__ = [
@@ -19,5 +20,6 @@ __all__ = [
     "TeamMessageBus",
     "TeamState",
     "_teammate_loop",
+    "create_task_proxy_tools",
     "create_team_tools",
 ]

@@ -6,7 +6,6 @@ import asyncio
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from langchain_core.messages import HumanMessage
 from langchain_core.prompts import PromptTemplate
 
 from langchain_agentkit.extension import Extension
@@ -130,7 +129,7 @@ class TeamExtension(Extension):
             if lead_pending > 0:
                 status_lines.append(
                     f"\n⚠️ You have **{lead_pending} unread message(s)**. "
-                    "Use CheckTeammates to collect them."
+                    "Use TeamStatus to collect them."
                 )
             base_prompt += "\n".join(status_lines)
 
@@ -153,54 +152,40 @@ class TeamExtension(Extension):
 
         mw = self
 
-        async def _router_node(state: dict[str, Any]) -> dict[str, Any]:
-            team = mw._active_team
-            if team is None:
-                return {}
-
-            # Drain all pending messages for the lead (non-blocking)
-            messages: list[TeamMessage] = []
+        async def _drain_messages(team: Any) -> list[TeamMessage]:
+            """Drain pending messages; fall back to blocking receive."""
+            msgs: list[TeamMessage] = []
             lead_queue = team.bus._queues.get("lead")
             if lead_queue is not None:
                 while not lead_queue.empty():
                     try:
-                        messages.append(lead_queue.get_nowait())
+                        msgs.append(lead_queue.get_nowait())
                     except asyncio.QueueEmpty:
                         break
+            if not msgs:
+                active = sum(1 for t in team.members.values() if not t.done())
+                if active == 0:
+                    return msgs
+                msg = await team.bus.receive("lead", timeout=mw._router_timeout)
+                if msg is not None:
+                    msgs.append(msg)
+            return msgs
 
-            if messages:
-                return {
-                    "messages": [
-                        HumanMessage(
-                            content=f"[Message from teammate '{m.sender}']: {m.content}",
-                            additional_kwargs={
-                                "sender": m.sender,
-                                "type": "teammate_message",
-                            },
-                        )
-                        for m in messages
-                    ]
-                }
+        async def _router_node(state: dict[str, Any]) -> dict[str, Any]:
+            from langchain_agentkit.extensions.teams.task_router import (
+                classify_and_process,
+            )
 
-            active_count = sum(1 for t in team.members.values() if not t.done())
-            if active_count == 0:
+            team = mw._active_team
+            if team is None:
                 return {}
 
-            msg = await team.bus.receive("lead", timeout=mw._router_timeout)
-            if msg is not None:
-                return {
-                    "messages": [
-                        HumanMessage(
-                            content=f"[Message from teammate '{msg.sender}']: {msg.content}",
-                            additional_kwargs={
-                                "sender": msg.sender,
-                                "type": "teammate_message",
-                            },
-                        )
-                    ]
-                }
+            raw_messages = await _drain_messages(team)
+            if not raw_messages:
+                return {}
 
-            return {}
+            tasks = list(state.get("tasks") or [])
+            return await classify_and_process(raw_messages, tasks, team.bus)
 
         def _router_should_continue(state: dict[str, Any]) -> str:
             team = mw._active_team

@@ -9,7 +9,7 @@ Usage::
     from langchain_agentkit.extensions.teams import TeamExtension
 
     ext = TeamExtension(agents=[researcher, coder])
-    ext.tools  # [AgentTeam, SendMessage, CheckTeammates, DissolveTeam]
+    ext.tools  # [TeamCreate, TeamMessage, TeamStatus, TeamDissolve]
 """
 
 from __future__ import annotations
@@ -44,11 +44,19 @@ _TEAMMATE_ADDENDUM = """\
 
 IMPORTANT: You are running as an agent in a team. To communicate with anyone \
 on your team:
-- Use the SendMessage tool with `to: "<name>"` to send messages to specific teammates
-- Use the SendMessage tool with `to: "*"` sparingly for team-wide broadcasts
+- Use the TeamMessage tool with `to: "<name>"` to send messages to specific teammates
+- Use the TeamMessage tool with `to: "*"` sparingly for team-wide broadcasts
 
 Just writing a response in text is not visible to others on your team — \
-you MUST use the SendMessage tool.
+you MUST use the TeamMessage tool.
+
+# Task Management
+
+You share a task list with your team. Use the standard task tools to coordinate:
+- **TaskList** to see available work
+- **TaskCreate** to add new tasks
+- **TaskUpdate** to claim tasks (set owner), update status, or mark completed
+- **TaskGet** to read full task details
 """
 
 
@@ -70,7 +78,7 @@ class _AgentSpec(BaseModel):
     )
 
 
-class _AgentTeamInput(BaseModel):
+class _TeamCreateInput(BaseModel):
     name: str = Field(description="Name for the team.")
     agents: list[_AgentSpec] = Field(
         description=(
@@ -82,7 +90,7 @@ class _AgentTeamInput(BaseModel):
     tool_call_id: Annotated[str, InjectedToolCallId]
 
 
-class _SendMessageInput(BaseModel):
+class _TeamMessageInput(BaseModel):
     to: str = Field(
         description='Recipient: teammate name, or "*" for broadcast to all teammates.',
     )
@@ -95,12 +103,12 @@ class _SendMessageInput(BaseModel):
     tool_call_id: Annotated[str, InjectedToolCallId]
 
 
-class _CheckTeammatesInput(BaseModel):
+class _TeamStatusInput(BaseModel):
     state: Annotated[dict[str, Any], InjectedState]
     tool_call_id: Annotated[str, InjectedToolCallId]
 
 
-class _DissolveTeamInput(BaseModel):
+class _TeamDissolveInput(BaseModel):
     timeout: float = Field(
         default=30.0,
         description="Max seconds to wait for graceful shutdown.",
@@ -118,7 +126,7 @@ def _require_active_team(ext: TeamExtension) -> Any:
     """Return the active team or raise ToolException."""
     team = ext.active_team
     if team is None:
-        raise ToolException("No active team. Call AgentTeam first.")
+        raise ToolException("No active team. Call TeamCreate first.")
     return team
 
 
@@ -127,6 +135,64 @@ def _require_member(ext: TeamExtension, member_name: str) -> None:
     team = _require_active_team(ext)
     if member_name not in team.members:
         raise ToolException(f"Member '{member_name}' not in active team.")
+
+
+# ---------------------------------------------------------------------------
+# Predefined agent proxy compilation
+# ---------------------------------------------------------------------------
+
+_TASK_TOOL_NAMES = frozenset({"TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"})
+
+
+def _compile_with_proxy_tasks(
+    agent_graph: Any,
+    bus: Any,
+    member_name: str,
+) -> Any:
+    """Compile a predefined agent graph, replacing task tools with proxies.
+
+    If the graph was built by the ``agent`` metaclass, it carries
+    ``_agentkit_*`` metadata that allows rebuilding with modified tools.
+    If not, falls back to compiling as-is.
+    """
+    from langgraph.checkpoint.memory import InMemorySaver
+
+    handler = getattr(agent_graph, "_agentkit_handler", None)
+    llm = getattr(agent_graph, "_agentkit_llm", None)
+    kit = getattr(agent_graph, "_agentkit_kit", None)
+    original_tools = getattr(agent_graph, "_agentkit_user_tools", None)
+
+    if handler is None or llm is None or kit is None:
+        # Not an agentkit-built graph — compile as-is
+        return agent_graph.compile(checkpointer=InMemorySaver())
+
+    from langchain_agentkit._graph_builder import build_graph
+    from langchain_agentkit.extensions.teams.task_proxy import create_task_proxy_tools
+
+    # Replace user-level task tools with proxies
+    proxy_tools = create_task_proxy_tools(bus, member_name)
+    filtered_user_tools = [
+        t for t in (original_tools or []) if t.name not in _TASK_TOOL_NAMES
+    ]
+    new_user_tools = filtered_user_tools + proxy_tools
+
+    # Also strip task tools from kit extensions to avoid duplicates
+    from langchain_agentkit.agent_kit import AgentKit
+    from langchain_agentkit.extensions.tasks import TasksExtension
+
+    filtered_extensions = [
+        ext for ext in kit._extensions if not isinstance(ext, TasksExtension)
+    ]
+    new_kit = AgentKit(extensions=filtered_extensions, prompt=kit._prompt)
+
+    rebuilt = build_graph(
+        name=getattr(agent_graph, "name", member_name),
+        handler=handler,
+        llm=llm,
+        user_tools=new_user_tools,
+        kit=new_kit,
+    )
+    return rebuilt.compile(checkpointer=InMemorySaver())
 
 
 # ---------------------------------------------------------------------------
@@ -143,7 +209,7 @@ async def _agent_team(
     ext: TeamExtension,
 ) -> Command:  # type: ignore[type-arg]
     """Create a team with named agents running as asyncio.Tasks."""
-    # Lock guards against concurrent AgentTeam calls from parallel ToolNode execution
+    # Lock guards against concurrent TeamCreate calls from parallel ToolNode execution
     async with ext.team_lock:
         return await _agent_team_inner(name, agents, state, tool_call_id, ext=ext)
 
@@ -222,6 +288,7 @@ async def _agent_team_inner(  # noqa: C901
             # Ephemeral agent — build on-the-fly graph with teammate addendum
             from langchain_agentkit._graph_builder import build_graph
             from langchain_agentkit.agent_kit import AgentKit
+            from langchain_agentkit.extensions.teams.task_proxy import create_task_proxy_tools
 
             parent_llm_getter = ext.parent_llm_getter
             if parent_llm_getter is not None:
@@ -230,6 +297,7 @@ async def _agent_team_inner(  # noqa: C901
                 raise ToolException("No parent LLM available for ephemeral agent.")
 
             full_prompt = _TEAMMATE_ADDENDUM + agent_prompt
+            teammate_tools: list[Any] = create_task_proxy_tools(bus, member_name)
 
             async def _ephemeral_handler(
                 handler_state: dict[str, Any],
@@ -249,7 +317,7 @@ async def _agent_team_inner(  # noqa: C901
                 name=member_name,
                 handler=_ephemeral_handler,
                 llm=ephemeral_llm,
-                user_tools=[],
+                user_tools=teammate_tools,
                 kit=AgentKit(extensions=[], prompt=full_prompt),
             )
             from langgraph.checkpoint.memory import InMemorySaver
@@ -257,16 +325,16 @@ async def _agent_team_inner(  # noqa: C901
             compiled = ephemeral_graph.compile(checkpointer=InMemorySaver())
             agent_type_label = f"ephemeral:{member_name}"
         else:
-            # Predefined agent — resolve and compile
+            # Predefined agent — resolve and compile with proxy task tools
             agent_target = registered_agents[agent_id]  # type: ignore[index]
             from langchain_agentkit.composability import AgentLike
 
             if isinstance(agent_target, AgentLike):
                 compiled = agent_target
             else:
-                from langgraph.checkpoint.memory import InMemorySaver
-
-                compiled = agent_target.compile(checkpointer=InMemorySaver())
+                compiled = _compile_with_proxy_tasks(
+                    agent_target, bus, member_name,
+                )
             agent_type_label = agent_id  # type: ignore[assignment]
 
         thread_id = f"team-{name}-{member_name}"
@@ -578,36 +646,36 @@ def create_team_tools(ext: TeamExtension) -> list[BaseTool]:
     Tools are bound to the extension instance via closures so they can
     access the active team and message bus.
 
-    Returns four tools: AgentTeam, SendMessage, CheckTeammates, DissolveTeam.
+    Returns four tools: TeamCreate, TeamMessage, TeamStatus, TeamDissolve.
     """
 
     return [
         StructuredTool.from_function(
             coroutine=partial(_agent_team, ext=ext),
-            name="AgentTeam",
+            name="TeamCreate",
             description=_SPAWN_TEAM_DESCRIPTION,
-            args_schema=_AgentTeamInput,
+            args_schema=_TeamCreateInput,
             handle_tool_error=True,
         ),
         StructuredTool.from_function(
             coroutine=partial(_send_message, ext=ext),
-            name="SendMessage",
+            name="TeamMessage",
             description=_SEND_MESSAGE_DESCRIPTION,
-            args_schema=_SendMessageInput,
+            args_schema=_TeamMessageInput,
             handle_tool_error=True,
         ),
         StructuredTool.from_function(
             coroutine=partial(_check_teammates, ext=ext),
-            name="CheckTeammates",
+            name="TeamStatus",
             description=_CHECK_TEAMMATES_DESCRIPTION,
-            args_schema=_CheckTeammatesInput,
+            args_schema=_TeamStatusInput,
             handle_tool_error=True,
         ),
         StructuredTool.from_function(
             coroutine=partial(_dissolve_team, ext=ext),
-            name="DissolveTeam",
+            name="TeamDissolve",
             description=_DISSOLVE_TEAM_DESCRIPTION,
-            args_schema=_DissolveTeamInput,
+            args_schema=_TeamDissolveInput,
             handle_tool_error=True,
         ),
     ]
