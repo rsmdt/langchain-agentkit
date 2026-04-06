@@ -206,26 +206,45 @@ class FilesystemExtension(Extension):
 
 class _BashInput(BaseModel):
     command: str = Field(
-        description="The shell command to execute.",
+        description="The command to execute.",
     )
     timeout: int | None = Field(
         default=None,
-        description="Max seconds to wait. None = no limit.",
+        description="Optional timeout in milliseconds (max 600000).",
+    )
+    description: str | None = Field(
+        default=None,
+        description=(
+            "Clear, concise description of what this command does. "
+            "Keep it brief (5-10 words) for simple commands."
+        ),
     )
 
 
 def _build_bash_tool(backend: BackendProtocol) -> BaseTool:
     """Build the Bash tool for shell command execution."""
 
-    def _bash(command: str, timeout: int | None = None) -> str:
+    def _bash(
+        command: str, timeout: int | None = None, description: str | None = None,
+    ) -> tuple[str, dict[str, Any]]:
         result = backend.execute(command, timeout=timeout)
-        output = result.get("output", "")
+        stdout = result.get("output", "")
+        stderr = result.get("stderr", "")
         exit_code = result.get("exit_code", -1)
-        if result.get("truncated"):
-            output += "\n... (output truncated)"
+        truncated = result.get("truncated", False)
+        if truncated:
+            stdout += "\n... (output truncated)"
+
+        artifact: dict[str, Any] = {
+            "stdout": stdout,
+            "stderr": stderr,
+            "exitCode": exit_code,
+            "interrupted": truncated,
+        }
+
         if exit_code != 0:
-            return f"Exit code {exit_code}\n{output}"
-        return output
+            return f"Exit code {exit_code}\n{stdout}", artifact
+        return stdout, artifact
 
     return StructuredTool.from_function(
         func=_bash,
@@ -236,6 +255,7 @@ def _build_bash_tool(backend: BackendProtocol) -> BaseTool:
             "or any operation that requires a shell."
         ),
         args_schema=_BashInput,
+        response_format="content_and_artifact",
         handle_tool_error=True,
     )
 

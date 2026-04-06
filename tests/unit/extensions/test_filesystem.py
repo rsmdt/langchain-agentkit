@@ -94,7 +94,7 @@ class TestTools:
             write_tool = ext.tools[1]
             result = write_tool.invoke({"file_path": "/new.txt", "content": "hello"})
 
-            assert "Wrote" in result
+            assert "created successfully" in result
             assert (Path(tmpdir) / "new.txt").read_text() == "hello"
 
     def test_tools_are_cached(self):
