@@ -59,6 +59,7 @@ class ExecuteResponse(TypedDict):
     output: str
     exit_code: int
     truncated: bool
+    stderr: str
 
 
 # ---------------------------------------------------------------------------

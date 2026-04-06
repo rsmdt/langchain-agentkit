@@ -158,17 +158,18 @@ class OSBackend:
                 timeout=timeout,
                 cwd=cwd,
             )
-            output = result.stdout + result.stderr
             return ExecuteResponse(
-                output=output,
+                output=result.stdout + result.stderr,
                 exit_code=result.returncode,
                 truncated=False,
+                stderr=result.stderr,
             )
         except subprocess.TimeoutExpired as exc:
             return ExecuteResponse(
                 output=str(exc),
                 exit_code=-1,
                 truncated=True,
+                stderr="",
             )
 
     # --- Convenience methods (not part of BackendProtocol) ---

@@ -70,4 +70,5 @@ class DaytonaSandbox(BaseSandbox):
             output=result.result or "",
             exit_code=result.exit_code,
             truncated=False,
+            stderr="",
         )
