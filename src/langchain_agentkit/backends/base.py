@@ -92,6 +92,15 @@ class BaseSandbox(ABC):
 
     # --- File operations via shell ---
 
+    def read_bytes(self, path: str) -> bytes:
+        """Read a file as raw bytes."""
+        real_path = self._resolve(path)
+        cmd = f"base64 {_shell_quote(real_path)}"
+        result = self.execute(cmd)
+        if result["exit_code"] != 0:
+            raise FileNotFoundError(f"File not found: {path}")
+        return base64.b64decode(result["output"].strip())
+
     def read(self, path: str, offset: int = 0, limit: int = 2000) -> str:
         """Read a file with line numbers, offset, and limit.
 

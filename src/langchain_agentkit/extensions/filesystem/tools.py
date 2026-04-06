@@ -14,6 +14,9 @@ Usage::
 
 from __future__ import annotations
 
+import base64
+import json
+import os
 from typing import TYPE_CHECKING, Any, Literal
 
 from langchain_core.tools import StructuredTool, ToolException
@@ -21,6 +24,48 @@ from pydantic import BaseModel, Field
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
+
+
+# ---------------------------------------------------------------------------
+# File type constants (ported from Claude Code constants/files.ts)
+# ---------------------------------------------------------------------------
+
+BINARY_EXTENSIONS: frozenset[str] = frozenset({
+    # Images
+    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".tiff", ".tif",
+    # Video
+    ".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv", ".m4v", ".mpeg", ".mpg",
+    # Audio
+    ".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a", ".wma", ".aiff", ".opus",
+    # Archives
+    ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar", ".xz", ".z", ".tgz", ".iso",
+    # Executables/binaries
+    ".exe", ".dll", ".so", ".dylib", ".bin", ".o", ".a", ".obj", ".lib",
+    ".app", ".msi", ".deb", ".rpm",
+    # Documents
+    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
+    ".odt", ".ods", ".odp",
+    # Fonts
+    ".ttf", ".otf", ".woff", ".woff2", ".eot",
+    # Bytecode / VM artifacts
+    ".pyc", ".pyo", ".class", ".jar", ".war", ".ear", ".node", ".wasm", ".rlib",
+    # Database files
+    ".sqlite", ".sqlite3", ".db", ".mdb", ".idx",
+    # Design / 3D
+    ".psd", ".ai", ".eps", ".sketch", ".fig", ".xd", ".blend", ".3ds", ".max",
+    # Flash
+    ".swf", ".fla",
+    # Lock/profiling data
+    ".lockb", ".dat", ".data",
+})
+
+IMAGE_EXTENSIONS: frozenset[str] = frozenset({
+    ".png", ".jpg", ".jpeg", ".gif", ".webp",
+})
+
+PDF_EXTENSIONS: frozenset[str] = frozenset({".pdf"})
+
+NOTEBOOK_EXTENSIONS: frozenset[str] = frozenset({".ipynb"})
 
 
 # ---------------------------------------------------------------------------
@@ -194,16 +239,98 @@ def _format_grep_with_context(
 # ---------------------------------------------------------------------------
 
 
+def _read_image(backend: Any, file_path: str) -> str:
+    """Read an image file and return base64-encoded content with metadata."""
+    data = backend.read_bytes(file_path)
+    ext = os.path.splitext(file_path)[1].lower()
+    mime_map = {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".webp": "image/webp",
+    }
+    mime_type = mime_map.get(ext, "application/octet-stream")
+    encoded = base64.b64encode(data).decode("ascii")
+    return (
+        f"[Image: {file_path}]\n"
+        f"Type: {mime_type}\n"
+        f"Size: {len(data)} bytes\n"
+        f"Base64: {encoded}"
+    )
+
+
+def _read_pdf(backend: Any, file_path: str) -> str:
+    """Read a PDF file and return base64-encoded content."""
+    data = backend.read_bytes(file_path)
+    encoded = base64.b64encode(data).decode("ascii")
+    return (
+        f"[PDF: {file_path}]\n"
+        f"Size: {len(data)} bytes\n"
+        f"Base64: {encoded}"
+    )
+
+
+def _read_notebook(backend: Any, file_path: str) -> str:
+    """Read a Jupyter notebook and return formatted cell contents."""
+    data = backend.read_bytes(file_path)
+    notebook = json.loads(data.decode("utf-8"))
+    cells = notebook.get("cells", [])
+    parts: list[str] = [f"[Notebook: {file_path}]"]
+    for i, cell in enumerate(cells):
+        cell_type = cell.get("cell_type", "unknown")
+        source_lines = cell.get("source", [])
+        source = "".join(source_lines) if isinstance(source_lines, list) else source_lines
+        parts.append(f"\n--- Cell {i + 1} ({cell_type}) ---")
+        parts.append(source)
+        outputs = cell.get("outputs", [])
+        for output in outputs:
+            output_type = output.get("output_type", "")
+            if output_type == "stream":
+                text = "".join(output.get("text", []))
+                parts.append(f"[Output]\n{text}")
+            elif output_type in ("execute_result", "display_data"):
+                text_data = output.get("data", {}).get("text/plain", [])
+                text = "".join(text_data) if isinstance(text_data, list) else text_data
+                if text:
+                    parts.append(f"[Output]\n{text}")
+            elif output_type == "error":
+                ename = output.get("ename", "Error")
+                evalue = output.get("evalue", "")
+                parts.append(f"[Error: {ename}] {evalue}")
+    return "\n".join(parts)
+
+
 def _build_read(backend: Any) -> BaseTool:
     def read(file_path: str, offset: int = 0, limit: int = 2000) -> str:
-        """Read a file."""
+        """Read a file with type-aware dispatch."""
+        ext = os.path.splitext(file_path)[1].lower()
+
+        # Notebook (check before binary blocklist — .ipynb is not in it but check explicitly)
+        if ext in NOTEBOOK_EXTENSIONS:
+            return _read_notebook(backend, file_path)
+
+        # Binary check with carve-outs for natively supported formats
+        if ext in BINARY_EXTENSIONS:
+            if ext in IMAGE_EXTENSIONS:
+                return _read_image(backend, file_path)
+            if ext in PDF_EXTENSIONS:
+                return _read_pdf(backend, file_path)
+            raise ToolException(
+                f"Cannot read binary {ext} file. "
+                f"Use appropriate tools for binary file analysis."
+            )
+
+        # Default: text with line numbers
         return str(backend.read(file_path, offset=offset, limit=limit))
 
     return StructuredTool.from_function(
         func=read,
         name="Read",
         description=(
-            "Read a file. Results returned with line numbers. Use offset and limit for large files."
+            "Read a file. Results returned with line numbers. "
+            "Use offset and limit for large files. "
+            "Supports text files, images (png/jpg/gif/webp), PDFs, and Jupyter notebooks."
         ),
         args_schema=_ReadInput,
         handle_tool_error=True,

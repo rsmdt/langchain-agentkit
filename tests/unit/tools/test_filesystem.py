@@ -94,6 +94,118 @@ class TestReadTool:
 
         assert "1\tonly line" in result
 
+    # --- Binary file rejection ---
+
+    def test_rejects_binary_extension(self):
+        backend, tmpdir = _make_backend_with_files({})
+        backend.write("/data.exe", b"\x00\x01\x02")
+        tool = create_filesystem_tools(backend)[0]
+
+        result = tool.invoke({"file_path": "/data.exe"})
+
+        assert "binary" in result.lower()
+
+    def test_rejects_zip_file(self):
+        backend, tmpdir = _make_backend_with_files({})
+        backend.write("/archive.zip", b"PK\x03\x04")
+        tool = create_filesystem_tools(backend)[0]
+
+        result = tool.invoke({"file_path": "/archive.zip"})
+
+        assert "binary" in result.lower()
+
+    def test_rejects_xlsx_file(self):
+        backend, tmpdir = _make_backend_with_files({})
+        backend.write("/sheet.xlsx", b"PK\x03\x04")
+        tool = create_filesystem_tools(backend)[0]
+
+        result = tool.invoke({"file_path": "/sheet.xlsx"})
+
+        assert "binary" in result.lower()
+
+    # --- Image carve-out ---
+
+    def test_reads_png_as_base64(self):
+        backend, tmpdir = _make_backend_with_files({})
+        data = b"\x89PNG\r\n\x1a\n"
+        backend.write("/image.png", data)
+        tool = create_filesystem_tools(backend)[0]
+
+        result = tool.invoke({"file_path": "/image.png"})
+
+        import base64
+        assert base64.b64encode(data).decode() in result
+
+    def test_reads_jpg_as_base64(self):
+        backend, tmpdir = _make_backend_with_files({})
+        data = b"\xff\xd8\xff\xe0"
+        backend.write("/photo.jpg", data)
+        tool = create_filesystem_tools(backend)[0]
+
+        result = tool.invoke({"file_path": "/photo.jpg"})
+
+        import base64
+        assert base64.b64encode(data).decode() in result
+
+    def test_reads_jpeg_as_base64(self):
+        backend, tmpdir = _make_backend_with_files({})
+        data = b"\xff\xd8\xff\xe0"
+        backend.write("/photo.jpeg", data)
+        tool = create_filesystem_tools(backend)[0]
+
+        result = tool.invoke({"file_path": "/photo.jpeg"})
+
+        import base64
+        assert base64.b64encode(data).decode() in result
+
+    # --- PDF carve-out ---
+
+    def test_reads_pdf_as_base64(self):
+        backend, tmpdir = _make_backend_with_files({})
+        data = b"%PDF-1.4 fake content"
+        backend.write("/doc.pdf", data)
+        tool = create_filesystem_tools(backend)[0]
+
+        result = tool.invoke({"file_path": "/doc.pdf"})
+
+        import base64
+        assert base64.b64encode(data).decode() in result
+
+    # --- Notebook carve-out ---
+
+    def test_reads_notebook_cells(self):
+        import json
+
+        notebook = {
+            "nbformat": 4,
+            "nbformat_minor": 5,
+            "metadata": {},
+            "cells": [
+                {
+                    "cell_type": "code",
+                    "source": ["print('hello')"],
+                    "outputs": [
+                        {"output_type": "stream", "text": ["hello\n"]},
+                    ],
+                    "metadata": {},
+                },
+                {
+                    "cell_type": "markdown",
+                    "source": ["# Title"],
+                    "metadata": {},
+                },
+            ],
+        }
+        backend, tmpdir = _make_backend_with_files({})
+        backend.write("/nb.ipynb", json.dumps(notebook))
+        tool = create_filesystem_tools(backend)[0]
+
+        result = tool.invoke({"file_path": "/nb.ipynb"})
+
+        assert "print('hello')" in result
+        assert "hello" in result
+        assert "# Title" in result
+
 
 # --- Write Tool ---
 

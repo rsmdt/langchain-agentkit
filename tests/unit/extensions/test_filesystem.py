@@ -48,6 +48,9 @@ class TestConstructor:
             def grep(self, pattern, path=None, glob=None, ignore_case=False):
                 return []
 
+            def read_bytes(self, path):
+                return b""
+
             def execute(self, command, timeout=None, workdir=None):
                 return {"output": "", "exit_code": 0, "truncated": False}
 

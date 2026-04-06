@@ -53,6 +53,11 @@ class OSBackend:
 
     # --- BackendProtocol methods ---
 
+    def read_bytes(self, path: str) -> bytes:
+        real_path = self._resolve(path)
+        with open(real_path, "rb") as f:
+            return f.read()
+
     def read(self, path: str, offset: int = 0, limit: int = 2000) -> str:
         real_path = self._resolve(path)
         with open(real_path, encoding="utf-8") as f:

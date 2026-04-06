@@ -262,6 +262,33 @@ class TestOSBackend:
             result = backend.edit("/f.txt", "missing", "x")
             assert result["replacements"] == 0
 
+    def test_read_bytes_returns_raw_content(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = OSBackend(tmpdir)
+            data = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
+            backend.write("/image.png", data)
+            result = backend.read_bytes("/image.png")
+            assert result == data
+
+    def test_read_bytes_text_file(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = OSBackend(tmpdir)
+            backend.write("/hello.txt", "hello world")
+            result = backend.read_bytes("/hello.txt")
+            assert result == b"hello world"
+
+    def test_read_bytes_nonexistent_raises(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = OSBackend(tmpdir)
+            with pytest.raises(FileNotFoundError):
+                backend.read_bytes("/nope.bin")
+
+    def test_read_bytes_path_traversal_blocked(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = OSBackend(tmpdir)
+            with pytest.raises(PermissionError, match="Path traversal"):
+                backend.read_bytes("/../../etc/passwd")
+
     def test_unicode_content_roundtrip(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             backend = OSBackend(tmpdir)
