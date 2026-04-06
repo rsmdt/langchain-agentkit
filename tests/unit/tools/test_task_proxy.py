@@ -255,6 +255,253 @@ class TestProcessTaskOpGet:
 # ---------------------------------------------------------------------------
 
 
+class TestProcessTaskOpUpdateValidation:
+    """Tests for dependency enforcement and claim validation in the router."""
+
+    def test_rejects_in_progress_with_unresolved_blockers(self):
+        tasks = [
+            {"id": "t1", "subject": "Blocker", "status": "pending"},
+            {"id": "t2", "subject": "Blocked", "status": "pending", "blocked_by": ["t1"]},
+        ]
+        op = {
+            "type": TASK_OP_TYPE,
+            "op": "update",
+            "request_id": "r1",
+            "task_id": "t2",
+            "status": "in_progress",
+        }
+        ack_json, _ = process_task_op(op, tasks)
+        ack = json.loads(ack_json)
+        assert "error" in ack
+        assert "blocked" in ack["error"].lower()
+
+    def test_allows_in_progress_when_blockers_completed(self):
+        tasks = [
+            {"id": "t1", "subject": "Blocker", "status": "completed"},
+            {"id": "t2", "subject": "Unblocked", "status": "pending", "blocked_by": ["t1"]},
+        ]
+        op = {
+            "type": TASK_OP_TYPE,
+            "op": "update",
+            "request_id": "r1",
+            "task_id": "t2",
+            "status": "in_progress",
+        }
+        ack_json, updated = process_task_op(op, tasks)
+        ack = json.loads(ack_json)
+        assert "error" not in ack
+        assert updated[1]["status"] == "in_progress"
+
+    def test_rejects_claim_when_already_owned(self):
+        tasks = [
+            {"id": "t1", "subject": "Claimed", "status": "in_progress", "owner": "alice"},
+        ]
+        op = {
+            "type": TASK_OP_TYPE,
+            "op": "update",
+            "request_id": "r1",
+            "task_id": "t1",
+            "status": "in_progress",
+            "owner": "bob",
+        }
+        ack_json, _ = process_task_op(op, tasks)
+        ack = json.loads(ack_json)
+        assert "error" in ack
+        assert "claimed" in ack["error"].lower()
+
+    def test_allows_same_owner_to_reclaim(self):
+        tasks = [
+            {"id": "t1", "subject": "Mine", "status": "pending", "owner": "alice"},
+        ]
+        op = {
+            "type": TASK_OP_TYPE,
+            "op": "update",
+            "request_id": "r1",
+            "task_id": "t1",
+            "status": "in_progress",
+            "owner": "alice",
+        }
+        ack_json, updated = process_task_op(op, tasks)
+        ack = json.loads(ack_json)
+        assert "error" not in ack
+        assert updated[0]["status"] == "in_progress"
+
+    def test_auto_owner_on_in_progress_via_process_task_op(self):
+        """Auto-owner works when sender is injected by classify_and_process."""
+        tasks = [{"id": "t1", "subject": "Unclaimed", "status": "pending"}]
+        op = {
+            "type": TASK_OP_TYPE,
+            "op": "update",
+            "request_id": "r1",
+            "task_id": "t1",
+            "status": "in_progress",
+            "sender": "alice",  # Injected by classify_and_process from m.sender
+        }
+        _, updated = process_task_op(op, tasks)
+        assert updated[0]["owner"] == "alice"
+
+    @pytest.mark.asyncio
+    async def test_auto_owner_via_classify_and_process(self):
+        """classify_and_process injects sender so auto-owner works end-to-end."""
+        bus = TeamMessageBus()
+        bus.register("lead")
+        bus.register("alice")
+
+        from langchain_agentkit.extensions.teams.bus import TeamMessage
+
+        msg = TeamMessage(
+            id="m1",
+            sender="alice",
+            receiver="lead",
+            content=json.dumps({
+                "type": TASK_OP_TYPE,
+                "op": "update",
+                "request_id": "r1",
+                "task_id": "t1",
+                "status": "in_progress",
+            }),
+            timestamp=1.0,
+        )
+
+        tasks = [{"id": "t1", "subject": "Task", "status": "pending"}]
+        result = await classify_and_process([msg], tasks, bus)
+
+        assert result["tasks"][0]["owner"] == "alice"
+
+    def test_deletion_cascades_references(self):
+        tasks = [
+            {"id": "t1", "subject": "To delete", "status": "pending"},
+            {"id": "t2", "subject": "Was blocked", "status": "pending", "blocked_by": ["t1"]},
+        ]
+        op = {
+            "type": TASK_OP_TYPE,
+            "op": "update",
+            "request_id": "r1",
+            "task_id": "t1",
+            "status": "deleted",
+        }
+        _, updated = process_task_op(op, tasks)
+        t2 = next(t for t in updated if t["id"] == "t2")
+        assert "t1" not in t2.get("blocked_by", [])
+
+
+class TestProcessTaskOpListFiltering:
+    """Tests for resolved blocker filtering and internal task hiding."""
+
+    def test_filters_resolved_blockers(self):
+        tasks = [
+            {"id": "t1", "subject": "Done", "status": "completed"},
+            {"id": "t2", "subject": "Still blocking", "status": "pending"},
+            {"id": "t3", "subject": "Mixed", "status": "pending", "blocked_by": ["t1", "t2"]},
+        ]
+        ack_json, _ = process_task_op(
+            {"type": TASK_OP_TYPE, "op": "list", "request_id": "r1"}, tasks,
+        )
+        ack = json.loads(ack_json)
+        t3 = next(t for t in ack["tasks"] if t["id"] == "t3")
+        assert t3["blocked_by"] == ["t2"]
+
+    def test_filters_internal_tasks(self):
+        tasks = [
+            {"id": "t1", "subject": "Visible", "status": "pending"},
+            {
+                "id": "t2", "subject": "Internal", "status": "pending",
+                "metadata": {"_internal": True},
+            },
+        ]
+        ack_json, _ = process_task_op(
+            {"type": TASK_OP_TYPE, "op": "list", "request_id": "r1"}, tasks,
+        )
+        ack = json.loads(ack_json)
+        assert len(ack["tasks"]) == 1
+        assert ack["tasks"][0]["id"] == "t1"
+
+
+class TestProcessTaskOpCompletionNudge:
+    """Test that completing a task returns a work discovery nudge."""
+
+    def test_completion_includes_nudge(self):
+        tasks = [{"id": "t1", "subject": "Do thing", "status": "in_progress", "owner": "alice"}]
+        op = {
+            "type": TASK_OP_TYPE,
+            "op": "update",
+            "request_id": "r1",
+            "task_id": "t1",
+            "status": "completed",
+            "sender": "alice",
+        }
+        ack_json, _ = process_task_op(op, tasks)
+        ack = json.loads(ack_json)
+        assert "nudge" in ack or "TaskList" in ack.get("message", "")
+
+
+class TestAssignmentNotification:
+    """Test that owner changes trigger notifications via bus."""
+
+    @pytest.mark.asyncio
+    async def test_assignment_sends_notification(self):
+        bus = TeamMessageBus()
+        bus.register("lead")
+        bus.register("alice")
+
+        from langchain_agentkit.extensions.teams.bus import TeamMessage
+
+        task_msg = TeamMessage(
+            id="m1",
+            sender="lead",
+            receiver="lead",
+            content=json.dumps({
+                "type": TASK_OP_TYPE,
+                "op": "update",
+                "request_id": "r1",
+                "task_id": "t1",
+                "owner": "alice",
+            }),
+            timestamp=1.0,
+        )
+
+        tasks = [{"id": "t1", "subject": "Do X", "status": "pending"}]
+        await classify_and_process([task_msg], tasks, bus)
+
+        # Alice should have received a task_assignment notification
+        msg = await bus.receive("alice", timeout=1.0)
+        assert msg is not None
+        parsed = json.loads(msg.content)
+        assert parsed["type"] == "task_assignment"
+        assert parsed["task_id"] == "t1"
+
+
+class TestAssignmentNotificationEdgeCases:
+    @pytest.mark.asyncio
+    async def test_notification_to_unregistered_member_does_not_crash(self):
+        """Assigning to a name not on the bus should not raise."""
+        bus = TeamMessageBus()
+        bus.register("lead")
+        # "ghost" is NOT registered
+
+        from langchain_agentkit.extensions.teams.bus import TeamMessage
+
+        task_msg = TeamMessage(
+            id="m1",
+            sender="lead",
+            receiver="lead",
+            content=json.dumps({
+                "type": TASK_OP_TYPE,
+                "op": "update",
+                "request_id": "r1",
+                "task_id": "t1",
+                "owner": "ghost",
+            }),
+            timestamp=1.0,
+        )
+
+        tasks = [{"id": "t1", "subject": "Task", "status": "pending"}]
+        result = await classify_and_process([task_msg], tasks, bus)
+
+        # Update should succeed even though notification failed
+        assert result["tasks"][0]["owner"] == "ghost"
+
+
 class TestProcessTaskOpUnknown:
     def test_unknown_op(self):
         ack_json, _ = process_task_op(

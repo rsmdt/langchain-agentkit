@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 import tempfile
 
 import pytest
@@ -49,6 +50,39 @@ class TestOSBackend:
             backend = OSBackend(tmpdir)
             with pytest.raises(PermissionError, match="Path traversal"):
                 backend.read("/../../etc/passwd")
+
+    def test_absolute_path_inside_root(self):
+        """Absolute paths within root should resolve correctly (no doubling)."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = OSBackend(tmpdir)
+            backend.write("/workspace/config.json", '{"key": "value"}')
+
+            # Read using the full absolute path (as LLM might construct)
+            abs_path = os.path.join(os.path.realpath(tmpdir), "workspace/config.json")
+            content = backend.read(abs_path)
+            assert "value" in content
+
+    def test_absolute_path_outside_root_blocked(self):
+        """Absolute paths that escape root via traversal must be rejected."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            backend = OSBackend(tmpdir)
+            # ../../../etc/passwd escapes root
+            with pytest.raises(PermissionError, match="Path traversal"):
+                backend.read("/../../../etc/passwd")
+
+    def test_absolute_path_truly_outside_root_blocked(self):
+        """Absolute path to a real file outside root must be rejected."""
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as other:
+                # Create a file in a different temp directory
+                other_file = os.path.join(other, "secret.txt")
+                with open(other_file, "w") as f:
+                    f.write("secret")
+
+                backend = OSBackend(tmpdir)
+                # realpath(other_file) is outside root, and won't
+                # resolve inside root via the relative fallback either
+                with pytest.raises((PermissionError, FileNotFoundError)):
+                    backend.read(other_file)
 
     def test_exists(self):
         with tempfile.TemporaryDirectory() as tmpdir:

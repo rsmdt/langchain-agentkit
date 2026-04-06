@@ -149,6 +149,79 @@ def _compute_blocks(task_id: str, tasks: list[dict[str, Any]]) -> list[str]:
     ]
 
 
+def _unresolved_blockers(
+    task: dict[str, Any],
+    tasks: list[dict[str, Any]],
+) -> list[str]:
+    """Return IDs of blockers that are NOT yet completed."""
+    blocked_by = task.get("blocked_by") or []
+    if not blocked_by:
+        return []
+    completed = {t["id"] for t in tasks if t.get("status") == "completed"}
+    return [bid for bid in blocked_by if bid not in completed]
+
+
+def _validate_claim(
+    task: dict[str, Any],
+    tasks: list[dict[str, Any]],
+    new_status: str | None,
+    new_owner: str | None,
+) -> None:
+    """Validate dependency and ownership constraints for status transitions.
+
+    Raises ``ToolException`` if:
+    - Transitioning to ``in_progress`` with unresolved blockers.
+    - Setting owner on a task already claimed by a different agent.
+    """
+    # Dependency enforcement: block in_progress when blockers unresolved
+    if new_status == "in_progress":
+        unresolved = _unresolved_blockers(task, tasks)
+        if unresolved:
+            ids = ", ".join(unresolved)
+            raise ToolException(
+                f"Task '{task['id']}' is blocked by unresolved tasks: {ids}. "
+                "Complete blockers first or remove the dependency."
+            )
+
+    # Claim validation: prevent overwriting another agent's claim
+    existing_owner = task.get("owner")
+    if (
+        new_owner
+        and existing_owner
+        and existing_owner != new_owner
+        and task.get("status") == "in_progress"
+    ):
+        raise ToolException(
+            f"Task '{task['id']}' is already claimed by '{existing_owner}'. "
+            "Wait for them to finish or use TaskStop to release it."
+        )
+
+
+def _cascade_delete(task_id: str, tasks: list[dict[str, Any]]) -> None:
+    """Remove *task_id* from all other tasks' blocks/blocked_by lists."""
+    for t in tasks:
+        if t["id"] == task_id:
+            continue
+        blocked_by = t.get("blocked_by")
+        if blocked_by and task_id in blocked_by:
+            t["blocked_by"] = [bid for bid in blocked_by if bid != task_id]
+        blocks = t.get("blocks")
+        if blocks and task_id in blocks:
+            t["blocks"] = [bid for bid in blocks if bid != task_id]
+
+
+def _filter_resolved_blockers(
+    task_summary: dict[str, Any],
+    completed_ids: set[str],
+) -> None:
+    """Remove completed task IDs from blocked_by in a task summary."""
+    blocked_by = task_summary.get("blocked_by") or []
+    if blocked_by:
+        task_summary["blocked_by"] = [
+            bid for bid in blocked_by if bid not in completed_ids
+        ]
+
+
 # ---------------------------------------------------------------------------
 # Tool implementations
 # ---------------------------------------------------------------------------
@@ -207,6 +280,40 @@ def _apply_blocks(
             )
 
 
+def _apply_task_fields(
+    task: dict[str, Any],
+    tasks: list[dict[str, Any]],
+    *,
+    status: str | None = None,
+    subject: str | None = None,
+    description: str | None = None,
+    active_form: str | None = None,
+    owner: str | None = None,
+    metadata: dict[str, Any] | None = None,
+    add_blocked_by: list[str] | None = None,
+    add_blocks: list[str] | None = None,
+) -> None:
+    """Apply field updates to a task dict in place."""
+    if status is not None:
+        task["status"] = status
+    if subject is not None:
+        task["subject"] = subject
+    if description is not None:
+        task["description"] = description
+    if active_form is not None:
+        task["active_form"] = active_form
+    if owner is not None:
+        task["owner"] = owner
+    if metadata is not None:
+        _merge_metadata(task, metadata)
+    if add_blocked_by:
+        task["blocked_by"] = list(
+            dict.fromkeys(task.get("blocked_by", []) + add_blocked_by),
+        )
+    if add_blocks:
+        _apply_blocks(task["id"], tasks, add_blocks)
+
+
 def _task_update(
     task_id: str,
     state: dict[str, Any],
@@ -226,24 +333,17 @@ def _task_update(
     if task is None:
         raise ToolException(f"Task '{task_id}' not found.")
 
-    if status is not None:
-        task["status"] = status
-    if subject is not None:
-        task["subject"] = subject
-    if description is not None:
-        task["description"] = description
-    if active_form is not None:
-        task["active_form"] = active_form
-    if owner is not None:
-        task["owner"] = owner
-    if metadata is not None:
-        _merge_metadata(task, metadata)
-    if add_blocked_by:
-        task["blocked_by"] = list(
-            dict.fromkeys(task.get("blocked_by", []) + add_blocked_by),
-        )
-    if add_blocks:
-        _apply_blocks(task_id, tasks, add_blocks)
+    _validate_claim(task, tasks, status, owner)
+
+    if status == "deleted":
+        _cascade_delete(task_id, tasks)
+
+    _apply_task_fields(
+        task, tasks,
+        status=status, subject=subject, description=description,
+        active_form=active_form, owner=owner, metadata=metadata,
+        add_blocked_by=add_blocked_by, add_blocks=add_blocks,
+    )
 
     return Command(
         update={
@@ -254,19 +354,25 @@ def _task_update(
 
 
 def _task_list(state: dict[str, Any]) -> str:
-    """List all non-deleted tasks."""
+    """List all non-deleted, non-internal tasks with resolved blockers filtered."""
     tasks = state.get("tasks") or []
-    summary = [
-        {
+    completed_ids = {t["id"] for t in tasks if t.get("status") == "completed"}
+    summary = []
+    for t in tasks:
+        if t.get("status") == "deleted":
+            continue
+        # Hide internal tasks
+        if (t.get("metadata") or {}).get("_internal") is True:
+            continue
+        entry = {
             "id": t["id"],
             "subject": t.get("subject", ""),
             "status": t.get("status", "pending"),
             "owner": t.get("owner", ""),
             "blocked_by": t.get("blocked_by", []),
         }
-        for t in tasks
-        if t.get("status") != "deleted"
-    ]
+        _filter_resolved_blockers(entry, completed_ids)
+        summary.append(entry)
     return json.dumps(summary)
 
 

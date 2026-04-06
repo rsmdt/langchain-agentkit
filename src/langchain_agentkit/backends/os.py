@@ -43,10 +43,24 @@ class OSBackend:
         self._root = os.path.realpath(root)
 
     def _resolve(self, path: str) -> str:
-        """Resolve path relative to root, blocking traversal."""
+        """Resolve path relative to root, blocking traversal.
+
+        Accepts three forms:
+        - Root-relative: ``/workspace/file.txt`` (leading ``/`` stripped)
+        - Absolute inside root: ``/tmp/sandbox123/workspace/file.txt``
+        - Traversal / outside root: blocked with ``PermissionError``
+        """
+        root_with_sep = self._root.rstrip(os.sep) + os.sep
+
+        # Check if the raw path already resolves inside root (handles
+        # absolute paths the LLM may construct from the prompt).
+        real_path = os.path.realpath(path)
+        if real_path == self._root or real_path.startswith(root_with_sep):
+            return real_path
+
+        # Treat as root-relative: strip leading "/" and join with root.
         cleaned = path.lstrip("/")
         resolved = os.path.realpath(os.path.join(self._root, cleaned))
-        root_with_sep = self._root.rstrip(os.sep) + os.sep
         if resolved != self._root and not resolved.startswith(root_with_sep):
             raise PermissionError(f"Path traversal blocked: {path}")
         return resolved

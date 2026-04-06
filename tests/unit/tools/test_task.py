@@ -368,6 +368,221 @@ class TestTaskUpdate:
         blocked = result.update["tasks"][0]["blocked_by"]
         assert blocked == ["task-2", "task-3"]  # no duplicate task-2
 
+    # -- Dependency enforcement (gap #1) --
+
+    def test_rejects_in_progress_with_unresolved_blockers(self):
+        state = {
+            "tasks": [
+                {"id": "task-1", "subject": "Blocker", "status": "pending", "active_form": ""},
+                {
+                    "id": "task-2",
+                    "subject": "Blocked",
+                    "status": "pending",
+                    "active_form": "",
+                    "blocked_by": ["task-1"],
+                },
+            ]
+        }
+
+        with pytest.raises(ToolException, match="blocked"):
+            _task_update(
+                task_id="task-2",
+                state=state,
+                tool_call_id=FAKE_TOOL_CALL_ID,
+                status="in_progress",
+            )
+
+    def test_allows_in_progress_when_blockers_completed(self):
+        state = {
+            "tasks": [
+                {"id": "task-1", "subject": "Blocker", "status": "completed", "active_form": ""},
+                {
+                    "id": "task-2",
+                    "subject": "Was blocked",
+                    "status": "pending",
+                    "active_form": "",
+                    "blocked_by": ["task-1"],
+                },
+            ]
+        }
+
+        result = _task_update(
+            task_id="task-2",
+            state=state,
+            tool_call_id=FAKE_TOOL_CALL_ID,
+            status="in_progress",
+        )
+
+        assert result.update["tasks"][1]["status"] == "in_progress"
+
+    def test_allows_non_status_update_on_blocked_task(self):
+        """Updating subject/description on a blocked task should work."""
+        state = {
+            "tasks": [
+                {"id": "task-1", "subject": "Blocker", "status": "pending", "active_form": ""},
+                {
+                    "id": "task-2",
+                    "subject": "Blocked",
+                    "status": "pending",
+                    "active_form": "",
+                    "blocked_by": ["task-1"],
+                },
+            ]
+        }
+
+        result = _task_update(
+            task_id="task-2",
+            state=state,
+            tool_call_id=FAKE_TOOL_CALL_ID,
+            subject="Updated subject",
+        )
+
+        assert result.update["tasks"][1]["subject"] == "Updated subject"
+
+    # -- Claim validation (gap #2) --
+
+    def test_rejects_claim_when_already_owned(self):
+        state = {
+            "tasks": [
+                {
+                    "id": "task-1",
+                    "subject": "Claimed",
+                    "status": "in_progress",
+                    "active_form": "",
+                    "owner": "agent-a",
+                },
+            ]
+        }
+
+        with pytest.raises(ToolException, match="already claimed"):
+            _task_update(
+                task_id="task-1",
+                state=state,
+                tool_call_id=FAKE_TOOL_CALL_ID,
+                status="in_progress",
+                owner="agent-b",
+            )
+
+    def test_allows_same_owner_to_reclaim(self):
+        state = {
+            "tasks": [
+                {
+                    "id": "task-1",
+                    "subject": "Mine",
+                    "status": "pending",
+                    "active_form": "",
+                    "owner": "agent-a",
+                },
+            ]
+        }
+
+        result = _task_update(
+            task_id="task-1",
+            state=state,
+            tool_call_id=FAKE_TOOL_CALL_ID,
+            status="in_progress",
+            owner="agent-a",
+        )
+
+        assert result.update["tasks"][0]["status"] == "in_progress"
+
+    # -- Deletion cascade (gap #5) --
+
+    def test_deletion_cascades_blocked_by_references(self):
+        state = {
+            "tasks": [
+                {"id": "task-1", "subject": "To delete", "status": "pending", "active_form": ""},
+                {
+                    "id": "task-2",
+                    "subject": "Was blocked",
+                    "status": "pending",
+                    "active_form": "",
+                    "blocked_by": ["task-1"],
+                },
+            ]
+        }
+
+        result = _task_update(
+            task_id="task-1",
+            state=state,
+            tool_call_id=FAKE_TOOL_CALL_ID,
+            status="deleted",
+        )
+
+        task_2 = next(t for t in result.update["tasks"] if t["id"] == "task-2")
+        assert "task-1" not in task_2.get("blocked_by", [])
+
+    def test_deletion_cascades_both_blocks_and_blocked_by(self):
+        """Task with both blocks and blocked_by refs should cascade both."""
+        state = {
+            "tasks": [
+                {
+                    "id": "task-a",
+                    "subject": "Upstream",
+                    "status": "pending",
+                    "active_form": "",
+                    "blocks": ["task-1"],
+                },
+                {
+                    "id": "task-1",
+                    "subject": "To delete",
+                    "status": "pending",
+                    "active_form": "",
+                    "blocked_by": ["task-a"],
+                    "blocks": ["task-b"],
+                },
+                {
+                    "id": "task-b",
+                    "subject": "Downstream",
+                    "status": "pending",
+                    "active_form": "",
+                    "blocked_by": ["task-1"],
+                },
+            ]
+        }
+
+        result = _task_update(
+            task_id="task-1",
+            state=state,
+            tool_call_id=FAKE_TOOL_CALL_ID,
+            status="deleted",
+        )
+
+        task_a = next(t for t in result.update["tasks"] if t["id"] == "task-a")
+        task_b = next(t for t in result.update["tasks"] if t["id"] == "task-b")
+        assert "task-1" not in task_a.get("blocks", [])
+        assert "task-1" not in task_b.get("blocked_by", [])
+
+    def test_deletion_cascades_blocks_references(self):
+        state = {
+            "tasks": [
+                {
+                    "id": "task-1",
+                    "subject": "To delete",
+                    "status": "pending",
+                    "active_form": "",
+                    "blocks": ["task-2"],
+                },
+                {
+                    "id": "task-2",
+                    "subject": "Was blocking",
+                    "status": "pending",
+                    "active_form": "",
+                    "blocked_by": ["task-1"],
+                },
+            ]
+        }
+
+        result = _task_update(
+            task_id="task-1",
+            state=state,
+            tool_call_id=FAKE_TOOL_CALL_ID,
+            status="deleted",
+        )
+
+        task_2 = next(t for t in result.update["tasks"] if t["id"] == "task-2")
+        assert "task-1" not in task_2.get("blocked_by", [])
+
 
 class TestTaskList:
     def test_returns_json_string(self):
@@ -430,6 +645,70 @@ class TestTaskList:
         parsed = json.loads(result)
 
         assert parsed[0]["owner"] == ""
+
+    # -- Filter resolved blockers (gap #6) --
+
+    def test_filters_resolved_blockers(self):
+        state = {
+            "tasks": [
+                {"id": "1", "subject": "Done", "status": "completed"},
+                {"id": "2", "subject": "Still blocking", "status": "pending"},
+                {
+                    "id": "3",
+                    "subject": "Mixed blockers",
+                    "status": "pending",
+                    "blocked_by": ["1", "2"],
+                },
+            ]
+        }
+
+        result = _task_list(state=state)
+        parsed = json.loads(result)
+
+        task_3 = next(t for t in parsed if t["id"] == "3")
+        assert task_3["blocked_by"] == ["2"]  # "1" filtered (completed)
+
+    def test_filters_all_resolved_blockers(self):
+        """When all blockers completed, blocked_by should be empty."""
+        state = {
+            "tasks": [
+                {"id": "1", "subject": "Done A", "status": "completed"},
+                {"id": "2", "subject": "Done B", "status": "completed"},
+                {
+                    "id": "3",
+                    "subject": "Unblocked",
+                    "status": "pending",
+                    "blocked_by": ["1", "2"],
+                },
+            ]
+        }
+
+        result = _task_list(state=state)
+        parsed = json.loads(result)
+
+        task_3 = next(t for t in parsed if t["id"] == "3")
+        assert task_3["blocked_by"] == []
+
+    # -- Filter internal tasks (gap #7) --
+
+    def test_filters_internal_tasks(self):
+        state = {
+            "tasks": [
+                {"id": "1", "subject": "Visible", "status": "pending"},
+                {
+                    "id": "2",
+                    "subject": "Internal",
+                    "status": "pending",
+                    "metadata": {"_internal": True},
+                },
+            ]
+        }
+
+        result = _task_list(state=state)
+        parsed = json.loads(result)
+
+        assert len(parsed) == 1
+        assert parsed[0]["id"] == "1"
 
 
 class TestTaskGet:

@@ -11,16 +11,49 @@ plain lists instead of LangGraph ``Command`` objects.
 
 from __future__ import annotations
 
+import contextlib
 import json
 import uuid
 from typing import TYPE_CHECKING, Any
 
 from langchain_core.messages import HumanMessage
 
+from langchain_agentkit.extensions.tasks.tools import (
+    _cascade_delete,
+    _filter_resolved_blockers,
+    _unresolved_blockers,
+)
 from langchain_agentkit.extensions.teams.task_proxy import TASK_OP_TYPE
 
 if TYPE_CHECKING:
     from langchain_agentkit.extensions.teams.bus import TeamMessage, TeamMessageBus
+
+
+async def _notify_assignment(
+    bus: TeamMessageBus,
+    result_json: str,
+    old_owner: str | None,
+    sender: str,
+    timestamp: float,
+) -> None:
+    """Send task_assignment notification when owner changes (best-effort)."""
+    result_parsed = json.loads(result_json)
+    new_task = result_parsed.get("task")
+    if not new_task or "error" in result_parsed:
+        return
+    new_owner = new_task.get("owner")
+    if not new_owner or new_owner == old_owner:
+        return
+    notification = json.dumps({
+        "type": "task_assignment",
+        "task_id": new_task["id"],
+        "subject": new_task.get("subject", ""),
+        "description": new_task.get("description", ""),
+        "assigned_by": sender,
+        "timestamp": str(timestamp),
+    })
+    with contextlib.suppress(ValueError, Exception):
+        await bus.send("lead", new_owner, notification)
 
 
 async def classify_and_process(
@@ -38,9 +71,22 @@ async def classify_and_process(
     for m in raw_messages:
         parsed = try_parse_task_op(m.content)
         if parsed is not None:
+            # Inject sender from message metadata (proxy payloads don't include it)
+            parsed["sender"] = m.sender
+
+            # Capture pre-update owner for assignment detection
+            old_owner = None
+            if parsed.get("op") == "update" and parsed.get("task_id"):
+                existing = next((t for t in tasks if t["id"] == parsed["task_id"]), None)
+                if existing:
+                    old_owner = existing.get("owner")
+
             result, tasks = process_task_op(parsed, tasks)
             tasks_changed = True
             await bus.send("lead", m.sender, result)
+
+            if parsed.get("op") == "update":
+                await _notify_assignment(bus, result, old_owner, m.sender, m.timestamp)
         else:
             human_messages.append(
                 HumanMessage(
@@ -176,29 +222,78 @@ def _op_update(
     if task is None:
         return _ack(request_id, error=f"Task '{task_id}' not found."), tasks
 
+    new_status = op.get("status")
+    new_owner = op.get("owner")
+    sender = op.get("sender")
+
+    # Dependency enforcement: block in_progress when blockers unresolved
+    if new_status == "in_progress":
+        unresolved = _unresolved_blockers(task, tasks)
+        if unresolved:
+            ids = ", ".join(unresolved)
+            msg = f"Task '{task_id}' is blocked by unresolved tasks: {ids}."
+            return _ack(request_id, error=msg), tasks
+
+    # Claim validation: prevent overwriting another agent's claim
+    existing_owner = task.get("owner")
+    if (
+        new_owner
+        and existing_owner
+        and existing_owner != new_owner
+        and task.get("status") == "in_progress"
+    ):
+        msg = f"Task '{task_id}' is already claimed by '{existing_owner}'."
+        return _ack(request_id, error=msg), tasks
+
+    # Deletion cascade: remove references from other tasks
+    if new_status == "deleted":
+        _cascade_delete(task_id, tasks)
+
+    # Auto-owner: when teammate sets in_progress without explicit owner
+    if (
+        new_status == "in_progress"
+        and not new_owner
+        and not task.get("owner")
+        and sender
+    ):
+        op["owner"] = sender
+
     _apply_scalar_fields(task, op)
     if op.get("metadata") is not None:
         _apply_metadata(task, op["metadata"])
     _apply_dependency_fields(task, tasks, op)
 
-    return _ack(request_id, task=task), tasks
+    # Completion nudge: tell teammate to check for next work
+    extra: dict[str, Any] = {"task": task}
+    if new_status == "completed":
+        extra["message"] = (
+            "Task completed. Call TaskList now to find your next "
+            "available task or see if your work unblocked others."
+        )
+
+    return _ack(request_id, **extra), tasks
 
 
 def _op_list(
     tasks: list[dict[str, Any]],
     request_id: str,
 ) -> tuple[str, list[dict[str, Any]]]:
-    summary = [
-        {
+    completed_ids = {t["id"] for t in tasks if t.get("status") == "completed"}
+    summary = []
+    for t in tasks:
+        if t.get("status") == "deleted":
+            continue
+        if (t.get("metadata") or {}).get("_internal") is True:
+            continue
+        entry = {
             "id": t["id"],
             "subject": t.get("subject", ""),
             "status": t.get("status", "pending"),
             "owner": t.get("owner", ""),
             "blocked_by": t.get("blocked_by", []),
         }
-        for t in tasks
-        if t.get("status") != "deleted"
-    ]
+        _filter_resolved_blockers(entry, completed_ids)
+        summary.append(entry)
     return _ack(request_id, tasks=summary), tasks
 
 

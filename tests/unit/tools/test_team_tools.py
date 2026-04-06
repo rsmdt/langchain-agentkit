@@ -354,6 +354,41 @@ class TestTeamStatus:
         assert content["pending_messages"][0]["content"] == "I found results"
 
     @pytest.mark.asyncio
+    async def test_check_teammates_includes_task_based_status(self):
+        """Members with unresolved owned tasks should show as busy."""
+        mw = _make_extension_with_active_team(["researcher", "coder"])
+
+        state = {
+            "tasks": [
+                {
+                    "id": "t1",
+                    "subject": "Research X",
+                    "status": "in_progress",
+                    "owner": "researcher",
+                },
+                {
+                    "id": "t2",
+                    "subject": "Done task",
+                    "status": "completed",
+                    "owner": "coder",
+                },
+            ]
+        }
+
+        result = await _check_teammates(
+            state=state,
+            tool_call_id=FAKE_TOOL_CALL_ID,
+            ext=mw,
+        )
+
+        content = json.loads(result.update["messages"][0].content)
+        members = {m["name"]: m for m in content["members"]}
+        assert members["researcher"]["work_status"] == "busy"
+        assert members["researcher"]["current_tasks"] == ["t1"]
+        assert members["coder"]["work_status"] == "idle"
+        assert members["coder"]["current_tasks"] == []
+
+    @pytest.mark.asyncio
     async def test_check_teammates_with_no_team_raises(self):
         mw = _make_extension_with_agents("researcher")
 
@@ -432,6 +467,102 @@ class TestTeamDissolve:
         member_names = [m["name"] for m in content["final_statuses"]]
         assert "researcher" in member_names
         assert "coder" in member_names
+
+    @pytest.mark.asyncio
+    async def test_dissolve_team_unassigns_owned_tasks(self):
+        """Tasks owned by dissolved teammates should reset to pending."""
+        mw = _make_extension_with_active_team(["researcher"])
+
+        # Replace with real completed task
+        async def _noop():
+            return "shutdown"
+
+        for name in list(mw._active_team.members.keys()):
+            task = asyncio.create_task(_noop())
+            await task
+            mw._active_team.members[name] = task
+
+        state = {
+            "tasks": [
+                {
+                    "id": "t1",
+                    "subject": "Research X",
+                    "status": "in_progress",
+                    "owner": "researcher",
+                    "active_form": "",
+                },
+                {
+                    "id": "t2",
+                    "subject": "Other work",
+                    "status": "completed",
+                    "owner": "researcher",
+                    "active_form": "",
+                },
+            ]
+        }
+
+        result = await _dissolve_team(
+            state=state,
+            tool_call_id=FAKE_TOOL_CALL_ID,
+            timeout=5.0,
+            ext=mw,
+        )
+
+        tasks = result.update.get("tasks", [])
+        # t1 was in_progress — should be reset to pending with no owner
+        t1 = next(t for t in tasks if t["id"] == "t1")
+        assert t1["status"] == "pending"
+        assert t1.get("owner") is None
+        # t2 was completed — should stay completed
+        t2 = next(t for t in tasks if t["id"] == "t2")
+        assert t2["status"] == "completed"
+
+
+# ---------------------------------------------------------------------------
+# _unassign_teammate_tasks
+# ---------------------------------------------------------------------------
+
+
+class TestUnassignTeammateTasks:
+    def test_empty_task_list(self):
+        from langchain_agentkit.extensions.teams.tools import _unassign_teammate_tasks
+
+        result = _unassign_teammate_tasks([], ["researcher"])
+        assert result == []
+
+    def test_no_owned_tasks(self):
+        from langchain_agentkit.extensions.teams.tools import _unassign_teammate_tasks
+
+        tasks = [
+            {"id": "t1", "subject": "Task", "status": "pending", "owner": "other"},
+            {"id": "t2", "subject": "Task", "status": "in_progress"},
+        ]
+        result = _unassign_teammate_tasks(tasks, ["researcher"])
+        assert result[0]["owner"] == "other"
+        assert result[1].get("owner") is None  # No owner, no change
+
+    def test_preserves_completed_and_deleted(self):
+        from langchain_agentkit.extensions.teams.tools import _unassign_teammate_tasks
+
+        tasks = [
+            {"id": "t1", "subject": "Done", "status": "completed", "owner": "researcher"},
+            {"id": "t2", "subject": "Removed", "status": "deleted", "owner": "researcher"},
+            {"id": "t3", "subject": "Active", "status": "in_progress", "owner": "researcher"},
+        ]
+        result = _unassign_teammate_tasks(tasks, ["researcher"])
+        assert result[0]["owner"] == "researcher"  # Completed — untouched
+        assert result[1]["owner"] == "researcher"  # Deleted — untouched
+        assert result[2].get("owner") is None  # In progress — unassigned
+        assert result[2]["status"] == "pending"
+
+    def test_does_not_mutate_original(self):
+        from langchain_agentkit.extensions.teams.tools import _unassign_teammate_tasks
+
+        tasks = [
+            {"id": "t1", "subject": "Active", "status": "in_progress", "owner": "researcher"},
+        ]
+        _unassign_teammate_tasks(tasks, ["researcher"])
+        assert tasks[0]["owner"] == "researcher"  # Original unchanged
 
 
 # ---------------------------------------------------------------------------

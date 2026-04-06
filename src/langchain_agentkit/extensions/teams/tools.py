@@ -417,6 +417,14 @@ async def _check_teammates(
     """Check team member statuses and drain pending messages for lead."""
     team = _require_active_team(ext)
 
+    # Derive task-based work status per agent
+    tasks = state.get("tasks") or []
+    agent_tasks: dict[str, list[str]] = {}
+    for t in tasks:
+        owner = t.get("owner")
+        if owner and t.get("status") not in ("completed", "deleted"):
+            agent_tasks.setdefault(owner, []).append(t["id"])
+
     # Gather member statuses from asyncio.Task states
     member_statuses: list[dict[str, Any]] = []
     for name, task in team.members.items():
@@ -431,11 +439,14 @@ async def _check_teammates(
         else:
             status = "running"
 
+        current_tasks = agent_tasks.get(name, [])
         member_statuses.append(
             {
                 "name": name,
                 "agent_type": team.member_types.get(name, "unknown"),
                 "status": status,
+                "work_status": "busy" if current_tasks else "idle",
+                "current_tasks": current_tasks,
                 "pending_messages": team.bus.pending_count(name),
             }
         )
@@ -529,6 +540,26 @@ def _cleanup_bus(team: Any) -> None:
         team.bus.unregister("lead")
 
 
+def _unassign_teammate_tasks(
+    tasks: list[dict[str, Any]],
+    member_names: list[str],
+) -> list[dict[str, Any]]:
+    """Reset unresolved tasks owned by dissolved teammates to pending.
+
+    Returns a new list with ownership cleared on affected tasks.
+    """
+    name_set = set(member_names)
+    result = []
+    for t in tasks:
+        t = dict(t)
+        owner = t.get("owner")
+        if owner and owner in name_set and t.get("status") not in ("completed", "deleted"):
+            t["status"] = "pending"
+            t["owner"] = None
+        result.append(t)
+    return result
+
+
 async def _dissolve_team(
     state: dict[str, Any],
     tool_call_id: str,
@@ -555,19 +586,26 @@ async def _dissolve_team(
         _cleanup_bus(team)
         ext.active_team = None
 
+    # Unassign tasks owned by dissolved teammates
+    member_names = [m["name"] for m in final_members]
+    tasks = list(state.get("tasks") or [])
+    updated_tasks = _unassign_teammate_tasks(tasks, member_names)
+
     result = {
         "dissolved": True,
         "team_name": team.name,
         "final_statuses": final_members,
     }
 
-    return Command(
-        update={
-            "team_members": final_members,
-            "team_name": None,
-            "messages": [ToolMessage(content=json.dumps(result), tool_call_id=tool_call_id)],
-        }
-    )
+    update: dict[str, Any] = {
+        "team_members": final_members,
+        "team_name": None,
+        "messages": [ToolMessage(content=json.dumps(result), tool_call_id=tool_call_id)],
+    }
+    if updated_tasks:
+        update["tasks"] = updated_tasks
+
+    return Command(update=update)
 
 
 # ---------------------------------------------------------------------------
