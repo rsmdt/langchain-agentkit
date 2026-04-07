@@ -142,6 +142,69 @@ class TestDirectoryMode:
 
             assert mw.configs == []
 
+    def test_skips_missing_frontmatter_with_warning(self, caplog):
+        import logging
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_skill(Path(tmpdir), "plain", "No frontmatter here, just markdown.")
+
+            with caplog.at_level(logging.WARNING):
+                mw = SkillsExtension(skills=tmpdir)
+
+            assert mw.configs == []
+            assert any("skipping" in r.message.lower() for r in caplog.records)
+
+    def test_skips_malformed_yaml_with_warning(self, caplog):
+        import logging
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_skill(Path(tmpdir), "bad", "---\n: broken: yaml: {{{\n---\nbody")
+
+            with caplog.at_level(logging.WARNING):
+                mw = SkillsExtension(skills=tmpdir)
+
+            assert mw.configs == []
+            assert any("skipping" in r.message.lower() for r in caplog.records)
+
+    def test_logs_warning_for_invalid_name(self, caplog):
+        import logging
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            _write_skill(Path(tmpdir), "BAD", "---\nname: BAD\ndescription: bad\n---\nbody")
+
+            with caplog.at_level(logging.WARNING):
+                mw = SkillsExtension(skills=tmpdir)
+
+            assert mw.configs == []
+            assert any("skipping" in r.message.lower() for r in caplog.records)
+
+    def test_broken_frontmatter_excluded_valid_kept(self, caplog):
+        """Mixed directory: broken files excluded, valid files loaded."""
+        import logging
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Valid skill
+            _write_skill(Path(tmpdir), "good", _SKILL_MD)
+            # No frontmatter
+            _write_skill(Path(tmpdir), "plain", "Just markdown, no delimiters.")
+            # Malformed YAML
+            _write_skill(Path(tmpdir), "broken", "---\n: bad: {{{\n---\nbody")
+            # Missing required name
+            _write_skill(Path(tmpdir), "noname", "---\ndescription: orphan\n---\nbody")
+            # Invalid name format
+            _write_skill(Path(tmpdir), "UPPER", "---\nname: UPPER\ndescription: bad\n---\nb")
+
+            with caplog.at_level(logging.WARNING):
+                mw = SkillsExtension(skills=tmpdir)
+
+            # Only the valid skill loaded
+            assert len(mw.configs) == 1
+            assert mw.configs[0].name == "market-sizing"
+
+            # Four broken files logged
+            skip_warnings = [r for r in caplog.records if "skipping" in r.message.lower()]
+            assert len(skip_warnings) == 4
+
     def test_deduplicates_by_name(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_skill(Path(tmpdir), "a", "---\nname: dupe\ndescription: first\n---\nbody1")

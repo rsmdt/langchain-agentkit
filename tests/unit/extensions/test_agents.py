@@ -107,6 +107,54 @@ class TestDirectoryMode:
 
             assert mw._agents_by_name == {}
 
+    def test_skips_missing_frontmatter_with_warning(self, caplog):
+        import logging
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "plain.md").write_text("No frontmatter, just text.")
+
+            with caplog.at_level(logging.WARNING):
+                mw = AgentExtension(agents=tmpdir)
+
+            assert mw._agents_by_name == {}
+            assert any("skipping" in r.message.lower() for r in caplog.records)
+
+    def test_skips_malformed_yaml_with_warning(self, caplog):
+        import logging
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "bad.md").write_text("---\n: broken: yaml: {{{\n---\nbody")
+
+            with caplog.at_level(logging.WARNING):
+                mw = AgentExtension(agents=tmpdir)
+
+            assert mw._agents_by_name == {}
+            assert any("skipping" in r.message.lower() for r in caplog.records)
+
+    def test_broken_frontmatter_excluded_valid_kept(self, caplog):
+        """Mixed directory: broken files excluded, valid files loaded."""
+        import logging
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            # Valid agent
+            (Path(tmpdir) / "researcher.md").write_text(_AGENT_MD)
+            # No frontmatter
+            (Path(tmpdir) / "plain.md").write_text("Just text, no delimiters.")
+            # Malformed YAML
+            (Path(tmpdir) / "broken.md").write_text("---\n: bad: {{{\n---\nbody")
+            # Missing name
+            (Path(tmpdir) / "noname.md").write_text("---\ndescription: orphan\n---\nbody")
+            # Invalid name format
+            (Path(tmpdir) / "upper.md").write_text("---\nname: UPPER\ndescription: x\n---\nb")
+
+            with caplog.at_level(logging.WARNING):
+                mw = AgentExtension(agents=tmpdir)
+
+            assert list(mw._agents_by_name.keys()) == ["researcher"]
+
+            skip_warnings = [r for r in caplog.records if "skipping" in r.message.lower()]
+            assert len(skip_warnings) == 4
+
     def test_deduplicates_by_name(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "a.md").write_text("---\nname: dupe\ndescription: first\n---\nbody1")

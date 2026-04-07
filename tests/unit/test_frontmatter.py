@@ -97,3 +97,21 @@ class TestParseFrontmatterString:
 
         assert result.metadata == {}
         assert "name: test" in result.content
+
+    def test_malformed_yaml_returns_empty_metadata_with_warning(self):
+        text = "---\n: invalid: yaml: {{{\n---\nbody content"
+
+        result = parse_frontmatter_string(text)
+
+        assert result.metadata == {}
+        assert result.content == "body content"
+
+    def test_malformed_yaml_logs_warning(self, caplog):
+        import logging
+
+        text = "---\n: invalid: yaml: {{{\n---\nbody content"
+
+        with caplog.at_level(logging.WARNING):
+            parse_frontmatter_string(text)
+
+        assert any("frontmatter" in r.message.lower() for r in caplog.records)

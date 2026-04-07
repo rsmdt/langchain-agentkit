@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from langchain_agentkit.extensions.skills.types import SkillConfig
@@ -10,6 +11,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from langchain_agentkit.backends.protocol import BackendProtocol
+
+logger = logging.getLogger(__name__)
 
 
 def validate_name(name: str) -> str | None:
@@ -73,10 +76,18 @@ def discover_skills_from_directory(path: Path) -> list[SkillConfig]:
         try:
             metadata, content = _parse_frontmatter(skill_file)
         except (OSError, UnicodeDecodeError):
+            logger.warning("Skipping unreadable skill file: %s", skill_file)
+            continue
+        if not metadata:
+            logger.warning("Skipping skill without frontmatter: %s", skill_file)
             continue
         config = SkillConfig.from_frontmatter(metadata, content)
         errors = validate_skill_config(config)
-        if errors or config.name in seen_names:
+        if errors:
+            logger.warning("Skipping invalid skill %s: %s", skill_file, "; ".join(errors))
+            continue
+        if config.name in seen_names:
+            logger.warning("Skipping duplicate skill name '%s': %s", config.name, skill_file)
             continue
         seen_names.add(config.name)
         configs.append(config)
@@ -92,12 +103,20 @@ def discover_skills_from_backend(backend: BackendProtocol, path: str) -> list[Sk
         try:
             formatted = backend.read(match, limit=100_000)
         except (FileNotFoundError, OSError):
+            logger.warning("Skipping unreadable skill file: %s", match)
             continue
         content = _strip_line_numbers(formatted)
         metadata, body = _parse_frontmatter_string(content)
+        if not metadata:
+            logger.warning("Skipping skill without frontmatter: %s", match)
+            continue
         config = SkillConfig.from_frontmatter(metadata, body)
         errors = validate_skill_config(config)
-        if errors or config.name in seen_names:
+        if errors:
+            logger.warning("Skipping invalid skill %s: %s", match, "; ".join(errors))
+            continue
+        if config.name in seen_names:
+            logger.warning("Skipping duplicate skill name '%s': %s", config.name, match)
             continue
         seen_names.add(config.name)
         configs.append(config)

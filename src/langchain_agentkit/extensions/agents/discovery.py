@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any
 
 from langchain_agentkit.extensions.agents.types import AgentConfig
@@ -10,6 +11,8 @@ if TYPE_CHECKING:
     from pathlib import Path
 
     from langchain_agentkit.backends.protocol import BackendProtocol
+
+logger = logging.getLogger(__name__)
 
 
 def _parse_comma_list(value: Any) -> list[str] | None:
@@ -70,9 +73,17 @@ def discover_agents_from_directory(path: Path) -> list[AgentConfig]:
         try:
             result = parse_frontmatter(md_file)
         except (OSError, UnicodeDecodeError):
+            logger.warning("Skipping unreadable agent file: %s", md_file)
+            continue
+        if not result.metadata:
+            logger.warning("Skipping agent without frontmatter: %s", md_file)
             continue
         agent_config = _agent_config_from_metadata(result.metadata, result.content)
-        if agent_config is None or agent_config.name in seen_names:
+        if agent_config is None:
+            logger.warning("Skipping agent with invalid/missing name: %s", md_file)
+            continue
+        if agent_config.name in seen_names:
+            logger.warning("Skipping duplicate agent name '%s': %s", agent_config.name, md_file)
             continue
         seen_names.add(agent_config.name)
         agents.append(agent_config)
@@ -90,11 +101,19 @@ def discover_agents_from_backend(backend: BackendProtocol, path: str) -> list[Ag
         try:
             formatted = backend.read(match, limit=100_000)
         except (FileNotFoundError, OSError):
+            logger.warning("Skipping unreadable agent file: %s", match)
             continue
         content = _strip_line_numbers(formatted)
         result = parse_frontmatter_string(content)
+        if not result.metadata:
+            logger.warning("Skipping agent without frontmatter: %s", match)
+            continue
         agent_config = _agent_config_from_metadata(result.metadata, result.content)
-        if agent_config is None or agent_config.name in seen_names:
+        if agent_config is None:
+            logger.warning("Skipping agent with invalid/missing name: %s", match)
+            continue
+        if agent_config.name in seen_names:
+            logger.warning("Skipping duplicate agent name '%s': %s", agent_config.name, match)
             continue
         seen_names.add(agent_config.name)
         agents.append(agent_config)
