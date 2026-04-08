@@ -42,8 +42,9 @@ packages = ["src/langchain_agentkit"]
 [tool.poe.tasks]
 test = "pytest tests/unit/ -q"
 "test:unit" = "pytest tests/unit/ -q"
+"test:integration" = "pytest tests/integration/ -v"
 "test:evals" = "pytest tests/evals/ -m eval -v"
-"test:all" = ["test:unit", "test:evals"]
+"test:all" = ["test:unit", "test:integration", "test:evals"]
 lint = "ruff check src/ tests/ --fix"
 typecheck = "mypy src/"
 

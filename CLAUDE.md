@@ -3,18 +3,18 @@
 ## Commands
 
 ```bash
-uv run pytest tests/              # All tests (unit + evals)
-uv run pytest tests/unit/ -q      # Unit tests only
-uv run pytest tests/evals/ -m eval -v  # LLM evals only (needs OPENAI_API_KEY)
-uv run ruff check src/ tests/     # Lint
-uv run mypy src/                  # Type check
+uv run pytest tests/unit/ -q           # Unit tests only (fast, no external deps)
+uv run pytest tests/integration/ -v    # Integration tests (needs DAYTONA_API_URL)
+uv run pytest tests/evals/ -m eval -v  # LLM evals (needs OPENAI_API_KEY)
+uv run ruff check src/ tests/          # Lint
+uv run mypy src/                       # Type check
 ```
 
 ## Tests
 
-- **Unit tests** (`tests/unit/`) — fast, no external deps, ~600 tests in <1s
-- **Evals** (`tests/evals/`) — LLM integration evals that make real API calls. Require `OPENAI_API_KEY` in `.env` or environment. Marked with `@pytest.mark.eval`. ~25 evals, ~4 min.
-- Run everything with `pytest tests/` — no need to split runs.
+- **Unit tests** (`tests/unit/`) — fast, no external deps, no network calls.
+- **Integration tests** (`tests/integration/`) — BackendProtocol conformance matrix. Runs against OSBackend always; also against DaytonaBackend when `DAYTONA_API_URL` is set and `daytona-sdk` is installed.
+- **Evals** (`tests/evals/`) — LLM integration evals that make real API calls. Require `OPENAI_API_KEY` in `.env` or environment. Marked with `@pytest.mark.eval`.
 
 ## Project
 
