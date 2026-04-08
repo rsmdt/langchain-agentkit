@@ -6,7 +6,6 @@ Handles the three composition patterns:
 - ``wrap_*``: composes as onion layers (first extension = outermost)
 
 Also handles:
-- ``process_history``: pipeline composition (output of one feeds next)
 - ``on_error``: fires on unhandled errors
 - Per-tool filtering for all tool hooks (before, after, wrap)
 - ``jump_to`` routing from before_model/after_model hooks
@@ -40,7 +39,6 @@ class HookRunner:
     def __init__(self, extensions: list[Any]) -> None:
         self._extensions = list(extensions)
         self._hooks = self._collect_hooks()
-        self._history_processors = self._collect_history_processors()
         self._error_hooks = self._collect_error_hooks()
 
     def _collect_hooks(self) -> dict[tuple[str, str], list[_HookEntry]]:
@@ -67,15 +65,6 @@ class HookRunner:
                     hooks[(phase, point)].append((ext, method, tool_filter))
 
         return dict(hooks)
-
-    def _collect_history_processors(self) -> list[Callable[..., Any]]:
-        """Collect process_history methods from extensions, in order."""
-        processors = []
-        for ext in self._extensions:
-            method = getattr(ext, "process_history", None)
-            if callable(method):
-                processors.append(method)
-        return processors
 
     def _collect_error_hooks(self) -> list[Callable[..., Any]]:
         """Collect on_error hooks from extensions."""
@@ -133,7 +122,7 @@ class HookRunner:
         for _ext, method, tool_filter in self._hooks.get(("before", point), []):
             if not self._matches_tool_filter(tool_filter, tool_name):
                 continue
-            result = await method(state, runtime)
+            result = await method(state=state, runtime=runtime)
             if result is not None:
                 self._validate_jump_to(result)
                 updates.append(result)
@@ -161,7 +150,7 @@ class HookRunner:
         for _ext, method, tool_filter in reversed(hooks):
             if not self._matches_tool_filter(tool_filter, tool_name):
                 continue
-            result = await method(state, runtime)
+            result = await method(state=state, runtime=runtime)
             if result is not None:
                 self._validate_jump_to(result)
                 updates.append(result)
@@ -171,11 +160,15 @@ class HookRunner:
         self,
         point: str,
         *,
-        request: Any,
+        state: Any,
         handler: Callable[..., Any],
+        runtime: Any,
         tool_name: str | None = None,
     ) -> Any:
         """Run wrap hooks as onion layers around the handler.
+
+        Each hook receives ``state``, ``handler``, and ``runtime`` as
+        keyword arguments — consistent with before/after hooks.
 
         First extension = outermost layer. Per-tool filtering applied
         when ``tool_name`` is provided.
@@ -190,7 +183,7 @@ class HookRunner:
             applicable.append(method)
 
         if not applicable:
-            return await handler(request)
+            return await handler(state)
 
         # Build onion: last hook wraps the handler, first hook is outermost
         current_handler = handler
@@ -200,25 +193,16 @@ class HookRunner:
             async def make_layer(
                 m: Callable[..., Any],
                 h: Callable[..., Any],
+                rt: Any,
             ) -> Callable[..., Any]:
-                async def layer(req: Any) -> Any:
-                    return await m(req, h)
+                async def layer(st: Any) -> Any:
+                    return await m(state=st, handler=h, runtime=rt)
 
                 return layer
 
-            current_handler = await make_layer(method, outer_handler)
+            current_handler = await make_layer(method, outer_handler, runtime)
 
-        return await current_handler(request)
-
-    def run_process_history(self, messages: list[Any]) -> list[Any]:
-        """Run process_history pipeline in declaration order.
-
-        Output of one processor feeds into the next.
-        """
-        result = messages
-        for processor in self._history_processors:
-            result = processor(result)
-        return result
+        return await current_handler(state)
 
     async def run_on_error(
         self,
@@ -229,4 +213,4 @@ class HookRunner:
     ) -> None:
         """Run on_error hooks."""
         for hook in self._error_hooks:
-            await hook(error, state, runtime)
+            await hook(error=error, state=state, runtime=runtime)

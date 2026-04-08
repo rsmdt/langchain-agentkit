@@ -111,18 +111,15 @@ def build_graph(  # noqa: C901
         # --- before_model hooks ---
         before_updates = await hook_runner.run_before("model", state=state, runtime=runtime)
 
-        # Check for jump_to routing directive from before_model hooks.
-        # Stored in per-invocation state (_agentkit_jump_to) so concurrent
-        # graph invocations don't race on a shared variable.
+        # Apply before_model updates ephemerally (affects LLM call, not
+        # persisted to graph state).  Check for jump_to routing directive.
+        handler_state = dict(state)
         for update in before_updates:
             if "jump_to" in update:
                 state_update = {k: v for k, v in update.items() if k != "jump_to"}
                 state_update["_agentkit_jump_to"] = update["jump_to"]
                 return state_update
-
-        # --- process_history ---
-        processed_messages = hook_runner.run_process_history(list(state.get("messages", [])))
-        handler_state = {**state, "messages": processed_messages}
+            handler_state.update(update)
 
         # --- compose prompt and system reminder (single pass) ---
         # NOTE: called per-step intentionally. Extension prompts are dynamic —
@@ -147,14 +144,19 @@ def build_graph(  # noqa: C901
         inject = {k: v for k, v in available.items() if k in handler_params}
 
         # --- wrap_model hooks (onion around handler) ---
+        # The request passed to wrap hooks is handler_state so hooks can
+        # transform messages before the LLM sees them.  _call_handler
+        # uses the request (not a closure) so modifications propagate.
         async def _call_handler(request: Any) -> dict[str, Any]:
-            result = handler(handler_state, **inject)
+            result = handler(request, **inject)
             if inspect.isawaitable(result):
                 result = await result
             return result  # type: ignore[no-any-return]
 
         try:
-            result = await hook_runner.run_wrap("model", request=state, handler=_call_handler)
+            result = await hook_runner.run_wrap(
+                "model", state=handler_state, handler=_call_handler, runtime=runtime
+            )
         except Exception as exc:
             await hook_runner.run_on_error(exc, state=state, runtime=runtime)
             raise
@@ -270,8 +272,9 @@ def build_graph(  # noqa: C901
 
             result = await hook_runner.run_wrap(
                 "tool",
-                request=request,
+                state=request,
                 handler=_inner_handler,
+                runtime=request.runtime,
                 tool_name=tool_name,
             )
 
