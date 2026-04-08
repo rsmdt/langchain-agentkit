@@ -7,6 +7,7 @@ uv run pytest tests/unit/ -q           # Unit tests only (fast, no external deps
 uv run pytest tests/integration/ -v    # Integration tests (needs DAYTONA_API_URL)
 uv run pytest tests/evals/ -m eval -v  # LLM evals (needs OPENAI_API_KEY)
 uv run ruff check src/ tests/          # Lint
+uv run ruff format --check src/ tests/ # Format check (must match CI)
 uv run mypy src/                       # Type check
 ```
 

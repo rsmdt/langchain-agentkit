@@ -44,14 +44,16 @@ async def _notify_assignment(
     new_owner = new_task.get("owner")
     if not new_owner or new_owner == old_owner:
         return
-    notification = json.dumps({
-        "type": "task_assignment",
-        "task_id": new_task["id"],
-        "subject": new_task.get("subject", ""),
-        "description": new_task.get("description", ""),
-        "assigned_by": sender,
-        "timestamp": str(timestamp),
-    })
+    notification = json.dumps(
+        {
+            "type": "task_assignment",
+            "task_id": new_task["id"],
+            "subject": new_task.get("subject", ""),
+            "description": new_task.get("description", ""),
+            "assigned_by": sender,
+            "timestamp": str(timestamp),
+        }
+    )
     with contextlib.suppress(ValueError, Exception):
         await bus.send("lead", new_owner, notification)
 
@@ -250,12 +252,7 @@ def _op_update(
         _cascade_delete(task_id, tasks)
 
     # Auto-owner: when teammate sets in_progress without explicit owner
-    if (
-        new_status == "in_progress"
-        and not new_owner
-        and not task.get("owner")
-        and sender
-    ):
+    if new_status == "in_progress" and not new_owner and not task.get("owner") and sender:
         op["owner"] = sender
 
     _apply_scalar_fields(task, op)
@@ -315,8 +312,7 @@ def _op_get(
     result["blocks"] = [
         t["id"]
         for t in tasks
-        if task_id in t.get("blocked_by", [])
-        and t.get("status") not in ("completed", "deleted")
+        if task_id in t.get("blocked_by", []) and t.get("status") not in ("completed", "deleted")
     ]
     return _ack(request_id, task=result), tasks
 

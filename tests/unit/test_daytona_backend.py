@@ -112,11 +112,14 @@ class TestExecute:
     def test_passes_command_to_sdk(self):
         backend, mock = _make_backend()
         mock.process.exec.return_value = SimpleNamespace(
-            result="hello\n", exit_code=0,
+            result="hello\n",
+            exit_code=0,
         )
         result = backend.execute("echo hello")
         mock.process.exec.assert_called_once_with(
-            "echo hello", cwd="/workspace", timeout=60,
+            "echo hello",
+            cwd="/workspace",
+            timeout=60,
         )
         assert result["output"] == "hello\n"
         assert result["exit_code"] == 0
@@ -126,7 +129,9 @@ class TestExecute:
         mock.process.exec.return_value = SimpleNamespace(result="", exit_code=0)
         backend.execute("sleep 1", timeout=10)
         mock.process.exec.assert_called_once_with(
-            "sleep 1", cwd="/workspace", timeout=10,
+            "sleep 1",
+            cwd="/workspace",
+            timeout=10,
         )
 
     def test_resolves_workdir_override(self):
@@ -134,13 +139,17 @@ class TestExecute:
         mock.process.exec.return_value = SimpleNamespace(result="", exit_code=0)
         backend.execute("ls", workdir="/src")
         mock.process.exec.assert_called_once_with(
-            "ls", cwd="/workspace/src", timeout=60,
+            "ls",
+            cwd="/workspace/src",
+            timeout=60,
         )
 
     def test_captures_stderr_when_available(self):
         backend, mock = _make_backend()
         mock.process.exec.return_value = SimpleNamespace(
-            result="", exit_code=1, stderr="error details",
+            result="",
+            exit_code=1,
+            stderr="error details",
         )
         result = backend.execute("bad_command")
         assert result["stderr"] == "error details"

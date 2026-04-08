@@ -46,11 +46,13 @@ def _read_notebook(backend: Any, file_path: str) -> tuple[str, dict[str, Any]]:
         cell_outputs: list[str] = []
         for output in cell.get("outputs", []):
             _format_notebook_output(output, parts, cell_outputs)
-        structured_cells.append({
-            "cell_type": cell_type,
-            "source": source,
-            "outputs": cell_outputs,
-        })
+        structured_cells.append(
+            {
+                "cell_type": cell_type,
+                "source": source,
+                "outputs": cell_outputs,
+            }
+        )
     content = "\n".join(parts)
     return content, {
         "type": "notebook",
@@ -109,14 +111,18 @@ def _read_image(backend: Any, file_path: str, ext: str) -> tuple[str, dict[str, 
     mime_type = _IMAGE_MIME_MAP.get(ext, "application/octet-stream")
     encoded = base64.b64encode(data).decode("ascii")
 
-    content = json.dumps([{
-        "type": "image",
-        "source": {
-            "type": "base64",
-            "data": encoded,
-            "media_type": mime_type,
-        },
-    }])
+    content = json.dumps(
+        [
+            {
+                "type": "image",
+                "source": {
+                    "type": "base64",
+                    "data": encoded,
+                    "media_type": mime_type,
+                },
+            }
+        ]
+    )
 
     dimensions = _detect_image_dimensions(data)
     artifact: dict[str, Any] = {
@@ -150,7 +156,9 @@ def _parse_page_range(pages: str) -> tuple[int, int]:
 
 
 def _read_pdf(
-    backend: Any, file_path: str, pages: str | None = None,
+    backend: Any,
+    file_path: str,
+    pages: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Read a PDF file and return base64 content, optionally extracting pages."""
     data = backend.read_bytes(file_path)
@@ -171,7 +179,9 @@ def _read_pdf(
 
 
 def _read_pdf_pages(
-    data: bytes, file_path: str, pages: str,
+    data: bytes,
+    file_path: str,
+    pages: str,
 ) -> tuple[str, dict[str, Any]]:
     """Extract specific pages from a PDF. Requires pymupdf."""
     try:
@@ -322,8 +332,7 @@ def _build_read(backend: Any, read_state: dict[str, str]) -> BaseTool:
             if ext in PDF_EXTENSIONS:
                 return _read_pdf(backend, file_path, pages=pages)
             raise ToolException(
-                f"Cannot read binary {ext} file. "
-                f"Use appropriate tools for binary file analysis."
+                f"Cannot read binary {ext} file. Use appropriate tools for binary file analysis."
             )
 
         return _read_text(backend, file_path, offset, limit, read_state)

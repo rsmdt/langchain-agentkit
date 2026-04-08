@@ -11,38 +11,126 @@ from pydantic import BaseModel, Field
 # File type constants (ported from Claude Code constants/files.ts)
 # ---------------------------------------------------------------------------
 
-BINARY_EXTENSIONS: frozenset[str] = frozenset({
-    # Images
-    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".webp", ".tiff", ".tif",
-    # Video
-    ".mp4", ".mov", ".avi", ".mkv", ".webm", ".wmv", ".flv", ".m4v", ".mpeg", ".mpg",
-    # Audio
-    ".mp3", ".wav", ".ogg", ".flac", ".aac", ".m4a", ".wma", ".aiff", ".opus",
-    # Archives
-    ".zip", ".tar", ".gz", ".bz2", ".7z", ".rar", ".xz", ".z", ".tgz", ".iso",
-    # Executables/binaries
-    ".exe", ".dll", ".so", ".dylib", ".bin", ".o", ".a", ".obj", ".lib",
-    ".app", ".msi", ".deb", ".rpm",
-    # Documents
-    ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".ppt", ".pptx",
-    ".odt", ".ods", ".odp",
-    # Fonts
-    ".ttf", ".otf", ".woff", ".woff2", ".eot",
-    # Bytecode / VM artifacts
-    ".pyc", ".pyo", ".class", ".jar", ".war", ".ear", ".node", ".wasm", ".rlib",
-    # Database files
-    ".sqlite", ".sqlite3", ".db", ".mdb", ".idx",
-    # Design / 3D
-    ".psd", ".ai", ".eps", ".sketch", ".fig", ".xd", ".blend", ".3ds", ".max",
-    # Flash
-    ".swf", ".fla",
-    # Lock/profiling data
-    ".lockb", ".dat", ".data",
-})
+BINARY_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        # Images
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".bmp",
+        ".ico",
+        ".webp",
+        ".tiff",
+        ".tif",
+        # Video
+        ".mp4",
+        ".mov",
+        ".avi",
+        ".mkv",
+        ".webm",
+        ".wmv",
+        ".flv",
+        ".m4v",
+        ".mpeg",
+        ".mpg",
+        # Audio
+        ".mp3",
+        ".wav",
+        ".ogg",
+        ".flac",
+        ".aac",
+        ".m4a",
+        ".wma",
+        ".aiff",
+        ".opus",
+        # Archives
+        ".zip",
+        ".tar",
+        ".gz",
+        ".bz2",
+        ".7z",
+        ".rar",
+        ".xz",
+        ".z",
+        ".tgz",
+        ".iso",
+        # Executables/binaries
+        ".exe",
+        ".dll",
+        ".so",
+        ".dylib",
+        ".bin",
+        ".o",
+        ".a",
+        ".obj",
+        ".lib",
+        ".app",
+        ".msi",
+        ".deb",
+        ".rpm",
+        # Documents
+        ".pdf",
+        ".doc",
+        ".docx",
+        ".xls",
+        ".xlsx",
+        ".ppt",
+        ".pptx",
+        ".odt",
+        ".ods",
+        ".odp",
+        # Fonts
+        ".ttf",
+        ".otf",
+        ".woff",
+        ".woff2",
+        ".eot",
+        # Bytecode / VM artifacts
+        ".pyc",
+        ".pyo",
+        ".class",
+        ".jar",
+        ".war",
+        ".ear",
+        ".node",
+        ".wasm",
+        ".rlib",
+        # Database files
+        ".sqlite",
+        ".sqlite3",
+        ".db",
+        ".mdb",
+        ".idx",
+        # Design / 3D
+        ".psd",
+        ".ai",
+        ".eps",
+        ".sketch",
+        ".fig",
+        ".xd",
+        ".blend",
+        ".3ds",
+        ".max",
+        # Flash
+        ".swf",
+        ".fla",
+        # Lock/profiling data
+        ".lockb",
+        ".dat",
+        ".data",
+    }
+)
 
-IMAGE_EXTENSIONS: frozenset[str] = frozenset({
-    ".png", ".jpg", ".jpeg", ".gif", ".webp",
-})
+IMAGE_EXTENSIONS: frozenset[str] = frozenset(
+    {
+        ".png",
+        ".jpg",
+        ".jpeg",
+        ".gif",
+        ".webp",
+    }
+)
 
 PDF_EXTENSIONS: frozenset[str] = frozenset({".pdf"})
 
@@ -86,8 +174,7 @@ class _ReadInput(BaseModel):
     pages: str | None = Field(
         default=None,
         description=(
-            'Page range for PDF files (e.g., "1-5", "3", "10-20"). '
-            "Only applicable to PDF files."
+            'Page range for PDF files (e.g., "1-5", "3", "10-20"). Only applicable to PDF files.'
         ),
     )
 
@@ -174,16 +261,12 @@ class _GrepInput(BaseModel):
     )
     type: str | None = Field(
         default=None,
-        description=(
-            "File type to search (rg --type). "
-            "Common types: js, py, rust, go, java, etc."
-        ),
+        description=("File type to search (rg --type). Common types: js, py, rust, go, java, etc."),
     )
     head_limit: int = Field(
         default=250,
         description=(
-            "Limit output to first N lines/entries. "
-            "Defaults to 250. Pass 0 for unlimited."
+            "Limit output to first N lines/entries. Defaults to 250. Pass 0 for unlimited."
         ),
     )
     offset: int = Field(
@@ -192,10 +275,7 @@ class _GrepInput(BaseModel):
     )
     multiline: bool = Field(
         default=False,
-        description=(
-            "Enable multiline mode where . matches newlines "
-            "and patterns can span lines."
-        ),
+        description=("Enable multiline mode where . matches newlines and patterns can span lines."),
     )
 
     model_config = {"populate_by_name": True}
@@ -260,13 +340,15 @@ def _compute_structured_patch(  # noqa: C901
             elif tag == "insert":
                 for line in new_lines[j1:j2]:
                     lines.append("+" + line.rstrip("\n"))
-        hunks.append({
-            "oldStart": old_start,
-            "oldLines": old_end - old_start + 1,
-            "newStart": new_start,
-            "newLines": new_end - new_start + 1,
-            "lines": lines,
-        })
+        hunks.append(
+            {
+                "oldStart": old_start,
+                "oldLines": old_end - old_start + 1,
+                "newStart": new_start,
+                "newLines": new_end - new_start + 1,
+                "lines": lines,
+            }
+        )
     return hunks
 
 

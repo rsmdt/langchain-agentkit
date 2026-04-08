@@ -62,7 +62,8 @@ def _inject_system_reminder(
 
     return {
         **handler_state,
-        "messages": list(handler_state.get("messages", [])) + [
+        "messages": list(handler_state.get("messages", []))
+        + [
             HumanMessage(
                 content=f"<system-reminder>\n{system_reminder}\n</system-reminder>",
             ),

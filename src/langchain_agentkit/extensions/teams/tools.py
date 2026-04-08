@@ -171,18 +171,14 @@ def _compile_with_proxy_tasks(
 
     # Replace user-level task tools with proxies
     proxy_tools = create_task_proxy_tools(bus, member_name)
-    filtered_user_tools = [
-        t for t in (original_tools or []) if t.name not in _TASK_TOOL_NAMES
-    ]
+    filtered_user_tools = [t for t in (original_tools or []) if t.name not in _TASK_TOOL_NAMES]
     new_user_tools = filtered_user_tools + proxy_tools
 
     # Also strip task tools from kit extensions to avoid duplicates
     from langchain_agentkit.agent_kit import AgentKit
     from langchain_agentkit.extensions.tasks import TasksExtension
 
-    filtered_extensions = [
-        ext for ext in kit._extensions if not isinstance(ext, TasksExtension)
-    ]
+    filtered_extensions = [ext for ext in kit._extensions if not isinstance(ext, TasksExtension)]
     new_kit = AgentKit(extensions=filtered_extensions, prompt=kit._prompt)
 
     rebuilt = build_graph(
@@ -333,7 +329,9 @@ async def _agent_team_inner(  # noqa: C901
                 compiled = agent_target
             else:
                 compiled = _compile_with_proxy_tasks(
-                    agent_target, bus, member_name,
+                    agent_target,
+                    bus,
+                    member_name,
                 )
             agent_type_label = agent_id  # type: ignore[assignment]
 

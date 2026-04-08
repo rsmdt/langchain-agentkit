@@ -421,13 +421,19 @@ class TestRouterNodeTaskOps:
         )
 
         # Put a task create op on the lead queue
-        await bus.send("alice", "lead", json.dumps({
-            "type": TASK_OP_TYPE,
-            "op": "create",
-            "request_id": "req-1",
-            "subject": "Write docs",
-            "description": "Document the API",
-        }))
+        await bus.send(
+            "alice",
+            "lead",
+            json.dumps(
+                {
+                    "type": TASK_OP_TYPE,
+                    "op": "create",
+                    "request_id": "req-1",
+                    "subject": "Write docs",
+                    "description": "Document the API",
+                }
+            ),
+        )
 
         router_node, _ = _extract_router_node(mw)
         result = await router_node({"tasks": []})
@@ -464,17 +470,26 @@ class TestRouterNodeTaskOps:
         running.done.return_value = False
 
         mw._active_team = ActiveTeam(
-            name="t", bus=bus, members={"bob": running}, member_types={"bob": "coder"},
+            name="t",
+            bus=bus,
+            members={"bob": running},
+            member_types={"bob": "coder"},
         )
 
-        await bus.send("bob", "lead", json.dumps({
-            "type": TASK_OP_TYPE,
-            "op": "update",
-            "request_id": "req-2",
-            "task_id": "t1",
-            "status": "completed",
-            "owner": "bob",
-        }))
+        await bus.send(
+            "bob",
+            "lead",
+            json.dumps(
+                {
+                    "type": TASK_OP_TYPE,
+                    "op": "update",
+                    "request_id": "req-2",
+                    "task_id": "t1",
+                    "status": "completed",
+                    "owner": "bob",
+                }
+            ),
+        )
 
         router_node, _ = _extract_router_node(mw)
         existing_tasks = [{"id": "t1", "subject": "Fix bug", "status": "in_progress"}]
@@ -502,15 +517,24 @@ class TestRouterNodeTaskOps:
         running.done.return_value = False
 
         mw._active_team = ActiveTeam(
-            name="t", bus=bus, members={"alice": running}, member_types={"alice": "r"},
+            name="t",
+            bus=bus,
+            members={"alice": running},
+            member_types={"alice": "r"},
         )
 
         # Send a task op and a regular message
-        await bus.send("alice", "lead", json.dumps({
-            "type": TASK_OP_TYPE,
-            "op": "list",
-            "request_id": "req-3",
-        }))
+        await bus.send(
+            "alice",
+            "lead",
+            json.dumps(
+                {
+                    "type": TASK_OP_TYPE,
+                    "op": "list",
+                    "request_id": "req-3",
+                }
+            ),
+        )
         await bus.send("alice", "lead", "I finished analyzing the data")
 
         router_node, _ = _extract_router_node(mw)
@@ -554,7 +578,10 @@ class TestRouterNodeTaskOps:
         done_task.done.return_value = True
 
         mw._active_team = ActiveTeam(
-            name="t", bus=bus, members={"alice": done_task}, member_types={"alice": "r"},
+            name="t",
+            bus=bus,
+            members={"alice": done_task},
+            member_types={"alice": "r"},
         )
 
         router_node, _ = _extract_router_node(mw)
@@ -590,7 +617,10 @@ class TestRouterNodeTaskOps:
         running.done.return_value = False
 
         mw._active_team = ActiveTeam(
-            name="t", bus=bus, members={"a": running}, member_types={"a": "r"},
+            name="t",
+            bus=bus,
+            members={"a": running},
+            member_types={"a": "r"},
         )
 
         _, router_cond = _extract_router_node(mw)

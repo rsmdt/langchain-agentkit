@@ -203,14 +203,16 @@ class TestProcessTaskOpList:
             {"id": "t3", "subject": "C", "status": "deleted"},
         ]
         ack_json, _ = process_task_op(
-            {"type": TASK_OP_TYPE, "op": "list", "request_id": "r1"}, tasks,
+            {"type": TASK_OP_TYPE, "op": "list", "request_id": "r1"},
+            tasks,
         )
         ack = json.loads(ack_json)
         assert len(ack["tasks"]) == 2  # excludes deleted
 
     def test_list_empty(self):
         ack_json, _ = process_task_op(
-            {"type": TASK_OP_TYPE, "op": "list", "request_id": "r1"}, [],
+            {"type": TASK_OP_TYPE, "op": "list", "request_id": "r1"},
+            [],
         )
         ack = json.loads(ack_json)
         assert ack["tasks"] == []
@@ -225,7 +227,8 @@ class TestProcessTaskOpGet:
     def test_get_task(self):
         tasks = [{"id": "t1", "subject": "A", "status": "pending"}]
         ack_json, _ = process_task_op(
-            {"type": TASK_OP_TYPE, "op": "get", "request_id": "r1", "task_id": "t1"}, tasks,
+            {"type": TASK_OP_TYPE, "op": "get", "request_id": "r1", "task_id": "t1"},
+            tasks,
         )
         ack = json.loads(ack_json)
         assert ack["task"]["id"] == "t1"
@@ -233,7 +236,8 @@ class TestProcessTaskOpGet:
 
     def test_get_missing_task(self):
         ack_json, _ = process_task_op(
-            {"type": TASK_OP_TYPE, "op": "get", "request_id": "r1", "task_id": "nope"}, [],
+            {"type": TASK_OP_TYPE, "op": "get", "request_id": "r1", "task_id": "nope"},
+            [],
         )
         ack = json.loads(ack_json)
         assert "error" in ack
@@ -244,7 +248,8 @@ class TestProcessTaskOpGet:
             {"id": "t2", "subject": "B", "status": "pending", "blocked_by": ["t1"]},
         ]
         ack_json, _ = process_task_op(
-            {"type": TASK_OP_TYPE, "op": "get", "request_id": "r1", "task_id": "t1"}, tasks,
+            {"type": TASK_OP_TYPE, "op": "get", "request_id": "r1", "task_id": "t1"},
+            tasks,
         )
         ack = json.loads(ack_json)
         assert "t2" in ack["task"]["blocks"]
@@ -353,13 +358,15 @@ class TestProcessTaskOpUpdateValidation:
             id="m1",
             sender="alice",
             receiver="lead",
-            content=json.dumps({
-                "type": TASK_OP_TYPE,
-                "op": "update",
-                "request_id": "r1",
-                "task_id": "t1",
-                "status": "in_progress",
-            }),
+            content=json.dumps(
+                {
+                    "type": TASK_OP_TYPE,
+                    "op": "update",
+                    "request_id": "r1",
+                    "task_id": "t1",
+                    "status": "in_progress",
+                }
+            ),
             timestamp=1.0,
         )
 
@@ -395,7 +402,8 @@ class TestProcessTaskOpListFiltering:
             {"id": "t3", "subject": "Mixed", "status": "pending", "blocked_by": ["t1", "t2"]},
         ]
         ack_json, _ = process_task_op(
-            {"type": TASK_OP_TYPE, "op": "list", "request_id": "r1"}, tasks,
+            {"type": TASK_OP_TYPE, "op": "list", "request_id": "r1"},
+            tasks,
         )
         ack = json.loads(ack_json)
         t3 = next(t for t in ack["tasks"] if t["id"] == "t3")
@@ -405,12 +413,15 @@ class TestProcessTaskOpListFiltering:
         tasks = [
             {"id": "t1", "subject": "Visible", "status": "pending"},
             {
-                "id": "t2", "subject": "Internal", "status": "pending",
+                "id": "t2",
+                "subject": "Internal",
+                "status": "pending",
                 "metadata": {"_internal": True},
             },
         ]
         ack_json, _ = process_task_op(
-            {"type": TASK_OP_TYPE, "op": "list", "request_id": "r1"}, tasks,
+            {"type": TASK_OP_TYPE, "op": "list", "request_id": "r1"},
+            tasks,
         )
         ack = json.loads(ack_json)
         assert len(ack["tasks"]) == 1
@@ -450,13 +461,15 @@ class TestAssignmentNotification:
             id="m1",
             sender="lead",
             receiver="lead",
-            content=json.dumps({
-                "type": TASK_OP_TYPE,
-                "op": "update",
-                "request_id": "r1",
-                "task_id": "t1",
-                "owner": "alice",
-            }),
+            content=json.dumps(
+                {
+                    "type": TASK_OP_TYPE,
+                    "op": "update",
+                    "request_id": "r1",
+                    "task_id": "t1",
+                    "owner": "alice",
+                }
+            ),
             timestamp=1.0,
         )
 
@@ -485,13 +498,15 @@ class TestAssignmentNotificationEdgeCases:
             id="m1",
             sender="lead",
             receiver="lead",
-            content=json.dumps({
-                "type": TASK_OP_TYPE,
-                "op": "update",
-                "request_id": "r1",
-                "task_id": "t1",
-                "owner": "ghost",
-            }),
+            content=json.dumps(
+                {
+                    "type": TASK_OP_TYPE,
+                    "op": "update",
+                    "request_id": "r1",
+                    "task_id": "t1",
+                    "owner": "ghost",
+                }
+            ),
             timestamp=1.0,
         )
 
@@ -505,7 +520,8 @@ class TestAssignmentNotificationEdgeCases:
 class TestProcessTaskOpUnknown:
     def test_unknown_op(self):
         ack_json, _ = process_task_op(
-            {"type": TASK_OP_TYPE, "op": "explode", "request_id": "r1"}, [],
+            {"type": TASK_OP_TYPE, "op": "explode", "request_id": "r1"},
+            [],
         )
         ack = json.loads(ack_json)
         assert "error" in ack
@@ -537,7 +553,11 @@ class TestBusRequestResponse:
 
         payload = json.dumps({"type": TASK_OP_TYPE, "op": "create", "request_id": req_id})
         result = await bus.request_response(
-            "alice", "lead", payload, request_id=req_id, timeout=5.0,
+            "alice",
+            "lead",
+            payload,
+            request_id=req_id,
+            timeout=5.0,
         )
 
         assert result is not None
@@ -576,7 +596,11 @@ class TestBusRequestResponse:
 
         payload = json.dumps({"type": TASK_OP_TYPE, "op": "list", "request_id": req_id})
         result = await bus.request_response(
-            "alice", "lead", payload, request_id=req_id, timeout=5.0,
+            "alice",
+            "lead",
+            payload,
+            request_id=req_id,
+            timeout=5.0,
         )
 
         assert result is not None
@@ -605,12 +629,14 @@ class TestClassifyAndProcess:
             id="m1",
             sender="alice",
             receiver="lead",
-            content=json.dumps({
-                "type": TASK_OP_TYPE,
-                "op": "create",
-                "request_id": "r1",
-                "subject": "Do thing",
-            }),
+            content=json.dumps(
+                {
+                    "type": TASK_OP_TYPE,
+                    "op": "create",
+                    "request_id": "r1",
+                    "subject": "Do thing",
+                }
+            ),
             timestamp=1.0,
         )
         text_msg = TeamMessage(
@@ -651,11 +677,13 @@ class TestClassifyAndProcess:
             id="m1",
             sender="bob",
             receiver="lead",
-            content=json.dumps({
-                "type": TASK_OP_TYPE,
-                "op": "list",
-                "request_id": "r2",
-            }),
+            content=json.dumps(
+                {
+                    "type": TASK_OP_TYPE,
+                    "op": "list",
+                    "request_id": "r2",
+                }
+            ),
             timestamp=1.0,
         )
 
@@ -671,8 +699,11 @@ class TestClassifyAndProcess:
         from langchain_agentkit.extensions.teams.bus import TeamMessage
 
         msg = TeamMessage(
-            id="m1", sender="alice", receiver="lead",
-            content="just a normal message", timestamp=1.0,
+            id="m1",
+            sender="alice",
+            receiver="lead",
+            content="just a normal message",
+            timestamp=1.0,
         )
 
         result = await classify_and_process([msg], [], bus)

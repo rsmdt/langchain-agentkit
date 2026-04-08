@@ -22,9 +22,9 @@ if TYPE_CHECKING:
 # Quote normalization constants (ported from Claude Code utils.ts)
 # ---------------------------------------------------------------------------
 
-_LEFT_SINGLE_CURLY = "\u2018"   # '
+_LEFT_SINGLE_CURLY = "\u2018"  # '
 _RIGHT_SINGLE_CURLY = "\u2019"  # '
-_LEFT_DOUBLE_CURLY = "\u201c"   # "
+_LEFT_DOUBLE_CURLY = "\u201c"  # "
 _RIGHT_DOUBLE_CURLY = "\u201d"  # "
 
 _CURLY_TO_STRAIGHT: dict[str, str] = {
@@ -63,8 +63,7 @@ def _apply_curly_double_quotes(text: str) -> str:
     for i, ch in enumerate(chars):
         if ch == '"':
             result.append(
-                _LEFT_DOUBLE_CURLY if _is_opening_context(chars, i)
-                else _RIGHT_DOUBLE_CURLY,
+                _LEFT_DOUBLE_CURLY if _is_opening_context(chars, i) else _RIGHT_DOUBLE_CURLY,
             )
         else:
             result.append(ch)
@@ -101,14 +100,8 @@ def _preserve_quote_style(
     if old_string == actual_old_string:
         return new_string
 
-    has_double = (
-        _LEFT_DOUBLE_CURLY in actual_old_string
-        or _RIGHT_DOUBLE_CURLY in actual_old_string
-    )
-    has_single = (
-        _LEFT_SINGLE_CURLY in actual_old_string
-        or _RIGHT_SINGLE_CURLY in actual_old_string
-    )
+    has_double = _LEFT_DOUBLE_CURLY in actual_old_string or _RIGHT_DOUBLE_CURLY in actual_old_string
+    has_single = _LEFT_SINGLE_CURLY in actual_old_string or _RIGHT_SINGLE_CURLY in actual_old_string
 
     if not has_double and not has_single:
         return new_string
@@ -156,7 +149,9 @@ def _strip_trailing_whitespace(text: str) -> str:
 
 
 def _handle_empty_old_string(
-    backend: Any, file_path: str, new_string: str,
+    backend: Any,
+    file_path: str,
+    new_string: str,
 ) -> tuple[str, dict[str, Any]]:
     """Handle edit with empty old_string — file creation or filling empty file."""
     from langchain_agentkit.extensions.filesystem.tools.common import _strip_line_prefixes
@@ -165,8 +160,7 @@ def _handle_empty_old_string(
         content = backend.read(file_path, limit=1)
         if _strip_line_prefixes(content).strip():
             raise ToolException(
-                f"File {file_path} is not empty. "
-                f"Cannot use empty old_string on a non-empty file."
+                f"File {file_path} is not empty. Cannot use empty old_string on a non-empty file."
             )
     except FileNotFoundError:
         pass  # File doesn't exist — will create
@@ -189,7 +183,10 @@ def _handle_empty_old_string(
 
 def _build_edit(backend: Any) -> BaseTool:  # noqa: C901
     def edit(
-        file_path: str, old_string: str, new_string: str, replace_all: bool = False,
+        file_path: str,
+        old_string: str,
+        new_string: str,
+        replace_all: bool = False,
     ) -> tuple[str, dict[str, Any]]:
         """Perform exact string replacement in a file."""
         if old_string == "":
@@ -226,7 +223,10 @@ def _build_edit(backend: Any) -> BaseTool:  # noqa: C901
 
         try:
             result = backend.edit(
-                file_path, effective_old, effective_new, replace_all=replace_all,
+                file_path,
+                effective_old,
+                effective_new,
+                replace_all=replace_all,
             )
             count = result.get("replacements", 0) if isinstance(result, dict) else result
         except ValueError as exc:

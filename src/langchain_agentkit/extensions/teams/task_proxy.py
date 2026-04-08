@@ -109,17 +109,22 @@ async def _proxy_task_create(
 ) -> str:
     """Create a task via the lead's state."""
     request_id = str(uuid.uuid4())
-    payload = json.dumps({
-        "type": TASK_OP_TYPE,
-        "op": "create",
-        "request_id": request_id,
-        "subject": subject,
-        "description": description,
-        "active_form": active_form,
-    })
+    payload = json.dumps(
+        {
+            "type": TASK_OP_TYPE,
+            "op": "create",
+            "request_id": request_id,
+            "subject": subject,
+            "description": description,
+            "active_form": active_form,
+        }
+    )
 
     response = await bus.request_response(
-        member_name, "lead", payload, request_id=request_id,
+        member_name,
+        "lead",
+        payload,
+        request_id=request_id,
     )
     if response is None:
         return json.dumps({"error": "Timeout waiting for task creation acknowledgment."})
@@ -160,15 +165,20 @@ async def _proxy_task_update(
     if add_blocks is not None:
         fields["add_blocks"] = add_blocks
 
-    payload = json.dumps({
-        "type": TASK_OP_TYPE,
-        "op": "update",
-        "request_id": request_id,
-        **fields,
-    })
+    payload = json.dumps(
+        {
+            "type": TASK_OP_TYPE,
+            "op": "update",
+            "request_id": request_id,
+            **fields,
+        }
+    )
 
     response = await bus.request_response(
-        member_name, "lead", payload, request_id=request_id,
+        member_name,
+        "lead",
+        payload,
+        request_id=request_id,
     )
     if response is None:
         return json.dumps({"error": "Timeout waiting for task update acknowledgment."})
@@ -182,14 +192,19 @@ async def _proxy_task_list(
 ) -> str:
     """List all tasks from the lead's state."""
     request_id = str(uuid.uuid4())
-    payload = json.dumps({
-        "type": TASK_OP_TYPE,
-        "op": "list",
-        "request_id": request_id,
-    })
+    payload = json.dumps(
+        {
+            "type": TASK_OP_TYPE,
+            "op": "list",
+            "request_id": request_id,
+        }
+    )
 
     response = await bus.request_response(
-        member_name, "lead", payload, request_id=request_id,
+        member_name,
+        "lead",
+        payload,
+        request_id=request_id,
     )
     if response is None:
         return json.dumps({"error": "Timeout waiting for task list."})
@@ -204,15 +219,20 @@ async def _proxy_task_get(
 ) -> str:
     """Get full details of a task from the lead's state."""
     request_id = str(uuid.uuid4())
-    payload = json.dumps({
-        "type": TASK_OP_TYPE,
-        "op": "get",
-        "request_id": request_id,
-        "task_id": task_id,
-    })
+    payload = json.dumps(
+        {
+            "type": TASK_OP_TYPE,
+            "op": "get",
+            "request_id": request_id,
+            "task_id": task_id,
+        }
+    )
 
     response = await bus.request_response(
-        member_name, "lead", payload, request_id=request_id,
+        member_name,
+        "lead",
+        payload,
+        request_id=request_id,
     )
     if response is None:
         return json.dumps({"error": "Timeout waiting for task details."})

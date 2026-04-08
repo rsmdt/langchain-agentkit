@@ -217,9 +217,7 @@ def _filter_resolved_blockers(
     """Remove completed task IDs from blocked_by in a task summary."""
     blocked_by = task_summary.get("blocked_by") or []
     if blocked_by:
-        task_summary["blocked_by"] = [
-            bid for bid in blocked_by if bid not in completed_ids
-        ]
+        task_summary["blocked_by"] = [bid for bid in blocked_by if bid not in completed_ids]
 
 
 # ---------------------------------------------------------------------------
@@ -339,10 +337,16 @@ def _task_update(
         _cascade_delete(task_id, tasks)
 
     _apply_task_fields(
-        task, tasks,
-        status=status, subject=subject, description=description,
-        active_form=active_form, owner=owner, metadata=metadata,
-        add_blocked_by=add_blocked_by, add_blocks=add_blocks,
+        task,
+        tasks,
+        status=status,
+        subject=subject,
+        description=description,
+        active_form=active_form,
+        owner=owner,
+        metadata=metadata,
+        add_blocked_by=add_blocked_by,
+        add_blocks=add_blocks,
     )
 
     return Command(

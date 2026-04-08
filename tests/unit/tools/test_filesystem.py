@@ -154,6 +154,7 @@ class TestReadTool:
         result = tool.invoke({"file_path": "/image.png"})
 
         import base64
+
         assert base64.b64encode(data).decode() in result
 
     def test_reads_jpg_as_base64(self):
@@ -165,6 +166,7 @@ class TestReadTool:
         result = tool.invoke({"file_path": "/photo.jpg"})
 
         import base64
+
         assert base64.b64encode(data).decode() in result
 
     def test_reads_jpeg_as_base64(self):
@@ -176,6 +178,7 @@ class TestReadTool:
         result = tool.invoke({"file_path": "/photo.jpeg"})
 
         import base64
+
         assert base64.b64encode(data).decode() in result
 
     # --- PDF carve-out ---
@@ -379,9 +382,7 @@ class TestEditTool:
     # --- Quote normalization ---
 
     def test_curly_to_straight_quote_matching(self):
-        backend, tmpdir = _make_backend_with_files(
-            {"/f.txt": "She said \u201chello\u201d to him"}
-        )
+        backend, tmpdir = _make_backend_with_files({"/f.txt": "She said \u201chello\u201d to him"})
         tool = create_filesystem_tools(backend)[2]
 
         result = tool.invoke(
@@ -636,9 +637,7 @@ class TestGrepTool:
         assert "line4" in result
 
     def test_asymmetric_context_before_only(self):
-        backend, _ = _make_backend_with_files(
-            {"/f.txt": "line1\nline2\nTARGET\nline4\nline5"}
-        )
+        backend, _ = _make_backend_with_files({"/f.txt": "line1\nline2\nTARGET\nline4\nline5"})
         tool = create_filesystem_tools(backend)[4]
 
         result = tool.invoke(
@@ -654,9 +653,7 @@ class TestGrepTool:
         assert "line4" not in result
 
     def test_asymmetric_context_after_only(self):
-        backend, _ = _make_backend_with_files(
-            {"/f.txt": "line1\nline2\nTARGET\nline4\nline5"}
-        )
+        backend, _ = _make_backend_with_files({"/f.txt": "line1\nline2\nTARGET\nline4\nline5"})
         tool = create_filesystem_tools(backend)[4]
 
         result = tool.invoke(
@@ -672,9 +669,7 @@ class TestGrepTool:
         assert "line4" in result
 
     def test_multiline_match(self):
-        backend, _ = _make_backend_with_files(
-            {"/f.txt": "start\nhello\nworld\nend"}
-        )
+        backend, _ = _make_backend_with_files({"/f.txt": "start\nhello\nworld\nend"})
         tool = create_filesystem_tools(backend)[4]
 
         result = tool.invoke(
@@ -781,9 +776,13 @@ class TestStructuredOutput:
     def test_read_notebook_artifact(self):
         import json as json_mod
 
-        nb = {"nbformat": 4, "metadata": {}, "cells": [
-            {"cell_type": "code", "source": ["x = 1"], "outputs": [], "metadata": {}},
-        ]}
+        nb = {
+            "nbformat": 4,
+            "metadata": {},
+            "cells": [
+                {"cell_type": "code", "source": ["x = 1"], "outputs": [], "metadata": {}},
+            ],
+        }
         backend, _ = _make_backend_with_files({})
         backend.write("/nb.ipynb", json_mod.dumps(nb))
         tool = create_filesystem_tools(backend)[0]
@@ -817,7 +816,8 @@ class TestStructuredOutput:
         backend, _ = _make_backend_with_files({"/f.txt": "hello world"})
         tool = create_filesystem_tools(backend)[2]
         content, artifact = self._call_raw(
-            tool, {"file_path": "/f.txt", "old_string": "hello", "new_string": "hi"},
+            tool,
+            {"file_path": "/f.txt", "old_string": "hello", "new_string": "hi"},
         )
 
         assert artifact["filePath"] == "/f.txt"
@@ -849,7 +849,8 @@ class TestStructuredOutput:
         backend, _ = _make_backend_with_files({"/f.txt": "match\nno\nmatch"})
         tool = create_filesystem_tools(backend)[4]
         content, artifact = self._call_raw(
-            tool, {"pattern": "match", "output_mode": "content"},
+            tool,
+            {"pattern": "match", "output_mode": "content"},
         )
 
         assert artifact["mode"] == "content"
@@ -859,7 +860,8 @@ class TestStructuredOutput:
         backend, _ = _make_backend_with_files({"/f.txt": "a\na\na"})
         tool = create_filesystem_tools(backend)[4]
         content, artifact = self._call_raw(
-            tool, {"pattern": "a", "output_mode": "count"},
+            tool,
+            {"pattern": "a", "output_mode": "count"},
         )
 
         assert artifact["mode"] == "count"
@@ -903,16 +905,15 @@ class TestStructuredOutput:
         backend, _ = _make_backend_with_files({"/f.txt": "hello world"})
         tool = create_filesystem_tools(backend)[2]
         _, artifact = self._call_raw(
-            tool, {"file_path": "/f.txt", "old_string": "hello", "new_string": "hi"},
+            tool,
+            {"file_path": "/f.txt", "old_string": "hello", "new_string": "hi"},
         )
 
         assert "structuredPatch" in artifact
         assert len(artifact["structuredPatch"]) > 0
 
     def test_edit_preserves_curly_quotes_in_new_string(self):
-        backend, tmpdir = _make_backend_with_files(
-            {"/f.txt": "She said \u201chello\u201d"}
-        )
+        backend, tmpdir = _make_backend_with_files({"/f.txt": "She said \u201chello\u201d"})
         tool = create_filesystem_tools(backend)[2]
         tool.invoke(
             {

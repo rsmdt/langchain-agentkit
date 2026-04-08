@@ -35,10 +35,7 @@ def _build_glob(backend: Any) -> BaseTool:
         matches = all_matches[:_GLOB_DEFAULT_LIMIT]
         content = "\n".join(matches)
         if truncated:
-            content += (
-                "\n(Results are truncated. "
-                "Consider using a more specific path or pattern.)"
-            )
+            content += "\n(Results are truncated. Consider using a more specific path or pattern.)"
         artifact: dict[str, Any] = {
             "numFiles": len(all_matches),
             "filenames": matches,

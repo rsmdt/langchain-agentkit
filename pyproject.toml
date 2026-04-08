@@ -46,6 +46,8 @@ test = "pytest tests/unit/ -q"
 "test:evals" = "pytest tests/evals/ -m eval -v"
 "test:all" = ["test:unit", "test:integration", "test:evals"]
 lint = "ruff check src/ tests/ --fix"
+format = "ruff format src/ tests/"
+"format:check" = "ruff format --check src/ tests/"
 typecheck = "mypy src/"
 
 [tool.pytest.ini_options]

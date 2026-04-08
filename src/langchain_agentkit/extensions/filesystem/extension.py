@@ -225,7 +225,9 @@ def _build_bash_tool(backend: BackendProtocol) -> BaseTool:
     """Build the Bash tool for shell command execution."""
 
     def _bash(
-        command: str, timeout: int | None = None, description: str | None = None,
+        command: str,
+        timeout: int | None = None,
+        description: str | None = None,
     ) -> tuple[str, dict[str, Any]]:
         result = backend.execute(command, timeout=timeout)
         stdout = result.get("output", "")

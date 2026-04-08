@@ -35,9 +35,7 @@ def _build_write(backend: Any) -> BaseTool:
             message = f"The file {file_path} has been updated successfully."
 
         patch = (
-            _compute_structured_patch(original_file, content)
-            if original_file is not None
-            else []
+            _compute_structured_patch(original_file, content) if original_file is not None else []
         )
         artifact: dict[str, Any] = {
             "type": op_type,

@@ -21,13 +21,34 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 _TYPE_GLOB_MAP: dict[str, str] = {
-    "py": "*.py", "js": "*.js", "ts": "*.ts", "tsx": "*.tsx",
-    "jsx": "*.jsx", "java": "*.java", "go": "*.go", "rs": "*.rs",
-    "rust": "*.rs", "rb": "*.rb", "c": "*.c", "cpp": "*.cpp",
-    "h": "*.h", "cs": "*.cs", "php": "*.php", "swift": "*.swift",
-    "kt": "*.kt", "scala": "*.scala", "sh": "*.sh", "yaml": "*.yaml",
-    "yml": "*.yml", "json": "*.json", "xml": "*.xml", "html": "*.html",
-    "css": "*.css", "md": "*.md", "sql": "*.sql", "r": "*.r",
+    "py": "*.py",
+    "js": "*.js",
+    "ts": "*.ts",
+    "tsx": "*.tsx",
+    "jsx": "*.jsx",
+    "java": "*.java",
+    "go": "*.go",
+    "rs": "*.rs",
+    "rust": "*.rs",
+    "rb": "*.rb",
+    "c": "*.c",
+    "cpp": "*.cpp",
+    "h": "*.h",
+    "cs": "*.cs",
+    "php": "*.php",
+    "swift": "*.swift",
+    "kt": "*.kt",
+    "scala": "*.scala",
+    "sh": "*.sh",
+    "yaml": "*.yaml",
+    "yml": "*.yml",
+    "json": "*.json",
+    "xml": "*.xml",
+    "html": "*.html",
+    "css": "*.css",
+    "md": "*.md",
+    "sql": "*.sql",
+    "r": "*.r",
 }
 
 
@@ -62,7 +83,9 @@ def _resolve_grep_context(
 
 
 def _apply_offset_to_results(
-    results: list[dict[str, Any]], offset: int, output_mode: str,
+    results: list[dict[str, Any]],
+    offset: int,
+    output_mode: str,
 ) -> list[dict[str, Any]]:
     """Skip first N entries, scoped by output mode."""
     if offset <= 0:
@@ -90,14 +113,16 @@ def _grep_multiline(
         try:
             content = _read_full_text(backend, file_path)
             for match in regex.finditer(content):
-                line_num = content[:match.start()].count("\n") + 1
+                line_num = content[: match.start()].count("\n") + 1
                 matched_text = match.group()
                 for i, line_text in enumerate(matched_text.split("\n")):
-                    results.append({
-                        "path": file_path,
-                        "line": line_num + i,
-                        "text": line_text,
-                    })
+                    results.append(
+                        {
+                            "path": file_path,
+                            "line": line_num + i,
+                            "text": line_text,
+                        }
+                    )
         except (FileNotFoundError, OSError, UnicodeDecodeError):
             continue
     return results
@@ -203,7 +228,10 @@ def _format_content_results(
     has_context = (before and before > 0) or (after and after > 0)
     if has_context:
         lines = _format_grep_with_context(
-            backend, results, before=before or 0, after=after or 0,
+            backend,
+            results,
+            before=before or 0,
+            after=after or 0,
         )
     elif line_numbers:
         lines = [f"{r['path']}:{r['line']}: {r['text']}" for r in results]
@@ -253,18 +281,27 @@ def _build_grep(backend: Any) -> BaseTool:
     ) -> tuple[str, dict[str, Any]]:
         """Search file contents for a regex pattern."""
         effective_before, effective_after = _resolve_grep_context(
-            context, context_alias, before_context, after_context,
+            context,
+            context_alias,
+            before_context,
+            after_context,
         )
         effective_glob = _resolve_grep_glob(glob, type)
 
         if multiline:
             results = _grep_multiline(
-                backend, pattern, path=path, glob=effective_glob,
+                backend,
+                pattern,
+                path=path,
+                glob=effective_glob,
                 ignore_case=ignore_case,
             )
         else:
             results = backend.grep(
-                pattern, path=path, glob=effective_glob, ignore_case=ignore_case,
+                pattern,
+                path=path,
+                glob=effective_glob,
+                ignore_case=ignore_case,
             )
         if not results:
             return "No matches found.", {
@@ -280,8 +317,13 @@ def _build_grep(backend: Any) -> BaseTool:
         if output_mode == "count":
             return _grep_count(results, head_limit, offset)
         return _format_content_results(
-            backend, results, effective_before, effective_after,
-            line_numbers, head_limit, offset,
+            backend,
+            results,
+            effective_before,
+            effective_after,
+            line_numbers,
+            head_limit,
+            offset,
         )
 
     return StructuredTool.from_function(
