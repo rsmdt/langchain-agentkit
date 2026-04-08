@@ -24,7 +24,6 @@ from __future__ import annotations
 
 import json
 import uuid
-from functools import partial
 from typing import TYPE_CHECKING, Any
 
 from langchain_core.tools import StructuredTool
@@ -286,30 +285,46 @@ def create_task_proxy_tools(
     tools but route operations through the message bus to the lead's graph
     state instead of reading/writing local state.
     """
+
+    # Wrap partials in async closures because inspect.iscoroutinefunction()
+    # does not recognise functools.partial(async_func) on Python < 3.14,
+    # causing StructuredTool.from_function to reject the coroutine argument.
+    async def _create(**kwargs: Any) -> str:
+        return await _proxy_task_create(bus=bus, member_name=member_name, **kwargs)
+
+    async def _update(**kwargs: Any) -> str:
+        return await _proxy_task_update(bus=bus, member_name=member_name, **kwargs)
+
+    async def _list(**kwargs: Any) -> str:
+        return await _proxy_task_list(bus=bus, member_name=member_name, **kwargs)
+
+    async def _get(**kwargs: Any) -> str:
+        return await _proxy_task_get(bus=bus, member_name=member_name, **kwargs)
+
     return [
         StructuredTool.from_function(
-            coroutine=partial(_proxy_task_create, bus=bus, member_name=member_name),
+            coroutine=_create,
             name="TaskCreate",
             description=_PROXY_TASK_CREATE_DESC,
             args_schema=_ProxyTaskCreateInput,
             handle_tool_error=True,
         ),
         StructuredTool.from_function(
-            coroutine=partial(_proxy_task_update, bus=bus, member_name=member_name),
+            coroutine=_update,
             name="TaskUpdate",
             description=_PROXY_TASK_UPDATE_DESC,
             args_schema=_ProxyTaskUpdateInput,
             handle_tool_error=True,
         ),
         StructuredTool.from_function(
-            coroutine=partial(_proxy_task_list, bus=bus, member_name=member_name),
+            coroutine=_list,
             name="TaskList",
             description=_PROXY_TASK_LIST_DESC,
             args_schema=_ProxyTaskListInput,
             handle_tool_error=True,
         ),
         StructuredTool.from_function(
-            coroutine=partial(_proxy_task_get, bus=bus, member_name=member_name),
+            coroutine=_get,
             name="TaskGet",
             description=_PROXY_TASK_GET_DESC,
             args_schema=_ProxyTaskGetInput,
