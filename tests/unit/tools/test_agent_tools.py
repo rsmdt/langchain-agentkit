@@ -28,25 +28,36 @@ FAKE_TOOL_CALL_ID = "call_test123"
 # ---------------------------------------------------------------------------
 
 
+class _FakeGraph:
+    """Stub that looks like a raw StateGraph but does NOT satisfy AgentLike.
+
+    MagicMock auto-satisfies any Protocol (including AgentLike) on some
+    Python versions, causing _compile_or_resolve to skip compilation.
+    This stub only exposes the attributes that a raw graph has.
+    """
+
+    def __init__(self, name: str, compiled: AsyncMock) -> None:
+        self.name = name
+        self.description = "Test agent"
+        self.tools_inherit = False
+        self.nodes: dict = {}
+        self._compiled = compiled
+
+    def compile(self, **kwargs):  # noqa: ANN003, ANN201, ARG002
+        return self._compiled
+
+
 def _make_mock_agent_graph(
     name: str,
     response_content: str = "agent response",
-) -> MagicMock:
-    """Create a mock agent graph that returns a canned response when compiled and invoked."""
-    mock_graph = MagicMock()
-    mock_graph.name = name
-    mock_graph.description = "Test agent"
-    mock_graph.tools_inherit = False
-    mock_graph.nodes = {}
-
+) -> _FakeGraph:
+    """Create a fake agent graph that returns a canned response when compiled and invoked."""
     mock_compiled = AsyncMock()
     mock_compiled.ainvoke.return_value = {
         "messages": [AIMessage(content=response_content)],
         "sender": name,
     }
-    mock_graph.compile.return_value = mock_compiled
-
-    return mock_graph
+    return _FakeGraph(name, mock_compiled)
 
 
 # ---------------------------------------------------------------------------
@@ -208,10 +219,9 @@ class TestDelegatePredefined:
 
     @pytest.mark.asyncio
     async def test_exception_returns_command_with_error(self):
-        agent_graph = _make_mock_agent_graph("researcher")
         mock_compiled = AsyncMock()
         mock_compiled.ainvoke.side_effect = RuntimeError("boom")
-        agent_graph.compile.return_value = mock_compiled
+        agent_graph = _FakeGraph("researcher", mock_compiled)
 
         result = await _delegate_predefined(
             agent_id="researcher",

@@ -129,11 +129,15 @@ class TestAutoWrapping:
     def test_wrap_if_needed_wraps_raw_graph(self):
         from langchain_agentkit.composability import wrap_if_needed
 
-        graph = MagicMock()
-        graph.name = "researcher"
-        graph.description = "desc"
+        class FakeGraph:
+            name = "researcher"
+            description = "desc"
+            nodes: dict = {}
 
-        result = wrap_if_needed(graph)
+            def compile(self, **kwargs):  # noqa: ANN003, ANN201, ARG002
+                return MagicMock()
+
+        result = wrap_if_needed(FakeGraph())
 
         assert isinstance(result, CompiledAgent)
         assert result.name == "researcher"

@@ -58,32 +58,46 @@ class TestCompileOrResolve:
     def test_compiles_raw_graph(self):
         from langchain_agentkit.extensions.agents.tools import _compile_or_resolve
 
-        graph = MagicMock()
-        graph.name = "researcher"
-        graph.tools_inherit = False
         compiled = MagicMock()
-        graph.compile.return_value = compiled
 
+        class FakeGraph:
+            name = "researcher"
+            tools_inherit = False
+            nodes: dict = {}
+            _compiled = compiled
+
+            def compile(self, **kwargs):  # noqa: ANN003, ANN201, ARG002
+                return self._compiled
+
+        graph = FakeGraph()
         result = _compile_or_resolve(graph, {}, None)
 
-        graph.compile.assert_called_once()
         assert result is compiled
 
     def test_caches_compiled_graph(self):
         from langchain_agentkit.extensions.agents.tools import _compile_or_resolve
 
-        graph = MagicMock()
-        graph.name = "researcher"
-        graph.tools_inherit = False
         compiled = MagicMock()
-        graph.compile.return_value = compiled
-        cache = {}
+
+        class FakeGraph:
+            name = "researcher"
+            tools_inherit = False
+            nodes: dict = {}
+            _compiled = compiled
+            _compile_count = 0
+
+            def compile(self, **kwargs):  # noqa: ANN003, ANN201, ARG002
+                self._compile_count += 1
+                return self._compiled
+
+        graph = FakeGraph()
+        cache: dict = {}
 
         result1 = _compile_or_resolve(graph, cache, None)
         result2 = _compile_or_resolve(graph, cache, None)
 
         assert result1 is result2
-        graph.compile.assert_called_once()  # Only compiled once
+        assert graph._compile_count == 1  # Only compiled once
 
     def test_agent_like_not_cached(self):
         from langchain_agentkit.extensions.agents.tools import _compile_or_resolve
