@@ -15,6 +15,9 @@ from langchain_agentkit.extensions.agents import AgentExtension as AgentExtensio
 from langchain_agentkit.extensions.filesystem import (
     FilesystemExtension as FilesystemExtension,
 )
+from langchain_agentkit.extensions.history import (
+    HistoryExtension as HistoryExtension,
+)
 from langchain_agentkit.extensions.hitl import HITLExtension as HITLExtension
 from langchain_agentkit.extensions.skills import SkillsExtension as SkillsExtension
 from langchain_agentkit.extensions.tasks import TasksExtension as TasksExtension
@@ -33,6 +36,7 @@ __all__ = [
     "AgentExtension",
     "DuckDuckGoSearchProvider",
     "FilesystemExtension",
+    "HistoryExtension",
     "HITLExtension",
     "QwantSearchProvider",
     "SkillsExtension",
