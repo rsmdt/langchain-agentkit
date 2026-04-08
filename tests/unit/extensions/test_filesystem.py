@@ -205,9 +205,7 @@ class TestPermissionGate2:
             ext = FilesystemExtension(root=tmpdir, permissions=PERMISSIVE_RULESET)
             write_tool = next(t for t in ext.tools if t.name == "Write")
             result = write_tool.invoke({"file_path": "/test.txt", "content": "hello"})
-            # Permission-wrapped tools return (content, artifact) tuple
-            content = result[0] if isinstance(result, tuple) else result
-            assert "successfully" in content
+            assert "successfully" in result
 
     def test_permissive_denies_secrets_read(self):
         with tempfile.TemporaryDirectory() as tmpdir:
