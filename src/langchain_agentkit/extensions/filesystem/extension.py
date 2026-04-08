@@ -210,7 +210,7 @@ class _BashInput(BaseModel):
     )
     timeout: int | None = Field(
         default=None,
-        description="Optional timeout in milliseconds (max 600000).",
+        description="Optional timeout in seconds.",
     )
     description: str | None = Field(
         default=None,
@@ -328,10 +328,16 @@ def _wrap_with_permission_check(
             f"interactive approvals for this operation."
         )
 
-    return StructuredTool.from_function(
-        func=_checked,
-        name=tool.name,
-        description=tool.description,
-        args_schema=tool.args_schema,
-        handle_tool_error=True,
-    )
+    # Preserve response_format from the original tool so that
+    # content_and_artifact tools continue returning (content, artifact).
+    fmt = getattr(tool, "response_format", None)
+    kwargs: dict[str, Any] = {
+        "func": _checked,
+        "name": tool.name,
+        "description": tool.description,
+        "args_schema": tool.args_schema,
+        "handle_tool_error": True,
+    }
+    if fmt:
+        kwargs["response_format"] = fmt
+    return StructuredTool.from_function(**kwargs)

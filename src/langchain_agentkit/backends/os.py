@@ -173,7 +173,7 @@ class OSBackend:
                 cwd=cwd,
             )
             return ExecuteResponse(
-                output=result.stdout + result.stderr,
+                output=result.stdout,
                 exit_code=result.returncode,
                 truncated=False,
                 stderr=result.stderr,
