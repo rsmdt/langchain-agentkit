@@ -28,8 +28,7 @@ from langchain_agentkit.agent_kit import AgentKit
 # Backends
 from langchain_agentkit.backends import (
     BackendProtocol,
-    BaseSandbox,
-    DaytonaSandbox,
+    DaytonaBackend,
     OSBackend,
 )
 from langchain_agentkit.composability import AgentLike, CompiledAgent, TeamAgent, wrap_if_needed
@@ -80,8 +79,7 @@ __all__ = [
     "wrap",
     # Backends
     "BackendProtocol",
-    "BaseSandbox",
-    "DaytonaSandbox",
+    "DaytonaBackend",
     "OSBackend",
     # Permissions
     "DEFAULT_RULESET",

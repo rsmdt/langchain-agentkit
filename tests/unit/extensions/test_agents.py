@@ -185,7 +185,7 @@ class TestBackendMode:
 
     def test_discovers_agents_from_backend(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            from langchain_agentkit.backend import OSBackend
+            from langchain_agentkit.backends import OSBackend
 
             (Path(tmpdir) / "researcher.md").write_text(_AGENT_MD)
             backend = OSBackend(tmpdir)
@@ -196,7 +196,7 @@ class TestBackendMode:
 
     def test_discovered_agent_has_description_via_backend(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            from langchain_agentkit.backend import OSBackend
+            from langchain_agentkit.backends import OSBackend
 
             (Path(tmpdir) / "researcher.md").write_text(_AGENT_MD)
             backend = OSBackend(tmpdir)
@@ -208,7 +208,7 @@ class TestBackendMode:
 
     def test_empty_backend_returns_empty_roster(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            from langchain_agentkit.backend import OSBackend
+            from langchain_agentkit.backends import OSBackend
 
             backend = OSBackend(tmpdir)
 
@@ -218,7 +218,7 @@ class TestBackendMode:
 
     def test_deduplicates_by_name_via_backend(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            from langchain_agentkit.backend import OSBackend
+            from langchain_agentkit.backends import OSBackend
 
             (Path(tmpdir) / "a.md").write_text("---\nname: dupe\ndescription: first\n---\nbody1")
             (Path(tmpdir) / "b.md").write_text("---\nname: dupe\ndescription: second\n---\nbody2")

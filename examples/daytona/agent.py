@@ -37,7 +37,7 @@ from langchain_agentkit import (
     SkillsExtension,
     agent,
 )
-from langchain_agentkit.backends import DaytonaSandbox
+from langchain_agentkit.backends import DaytonaBackend
 from langchain_agentkit.permissions import DEFAULT_RULESET
 
 # Paths inside the sandbox where skills and agents are uploaded
@@ -45,7 +45,7 @@ SKILLS_PATH = ".agentkit/skills"
 AGENTS_PATH = ".agentkit/agents"
 
 
-def seed_sandbox(backend: DaytonaSandbox) -> None:
+def seed_sandbox(backend: DaytonaBackend) -> None:
     """Upload local skills/ and agents/ directories into the sandbox."""
     local_dir = Path(__file__).parent
 
@@ -62,7 +62,7 @@ def seed_sandbox(backend: DaytonaSandbox) -> None:
             print(f"  uploaded {AGENTS_PATH}/{rel}")
 
 
-def build_agent(backend: DaytonaSandbox):
+def build_agent(backend: DaytonaBackend):
     """Build the agent with Daytona-backed extensions."""
 
     class sandbox_agent(agent):
@@ -98,7 +98,7 @@ async def main() -> None:
     print(f"  work dir:   {sandbox.get_work_dir()}")
 
     try:
-        backend = DaytonaSandbox(sandbox)
+        backend = DaytonaBackend(sandbox)
 
         print("\nSeeding sandbox filesystem...")
         seed_sandbox(backend)

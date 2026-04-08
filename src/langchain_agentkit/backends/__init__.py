@@ -1,19 +1,19 @@
 """Backend implementations for agent environments.
 
-The 6-method ``BackendProtocol`` mirrors the Claude Code tool surface:
-Read, Write, Edit, Glob, Grep, Bash.
+Two backends are provided:
 
-For sandbox providers with shell access, ``BaseSandbox`` implements
-all file operations via shell commands — a new provider only needs
-``execute()``.
+- ``OSBackend`` — native local filesystem via Python stdlib.
+- ``DaytonaBackend`` — Daytona cloud sandbox via shell commands.
+
+Both implement the ``BackendProtocol`` which mirrors the Claude Code
+tool surface: Read, Write, Edit, Glob, Grep, Bash.
 
 Usage::
 
-    from langchain_agentkit.backends import BackendProtocol, OSBackend, BaseSandbox
+    from langchain_agentkit.backends import BackendProtocol, OSBackend, DaytonaBackend
 """
 
-from langchain_agentkit.backends.base import BaseSandbox
-from langchain_agentkit.backends.daytona import DaytonaSandbox
+from langchain_agentkit.backends.daytona import DaytonaBackend
 from langchain_agentkit.backends.os import OSBackend
 from langchain_agentkit.backends.protocol import (
     BackendProtocol,
@@ -26,8 +26,7 @@ from langchain_agentkit.backends.protocol import (
 
 __all__ = [
     "BackendProtocol",
-    "BaseSandbox",
-    "DaytonaSandbox",
+    "DaytonaBackend",
     "EditResult",
     "ExecuteResponse",
     "FileInfo",

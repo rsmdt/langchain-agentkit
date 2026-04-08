@@ -1,27 +1,24 @@
-"""Backend protocol — the 6-method interface for agent environments.
+"""Backend protocol — the interface for agent environments.
 
 Mirrors the Claude Code tool surface: Read, Write, Edit, Glob, Grep, Bash.
 
-Any environment (local OS, Docker, Daytona, Modal) implements this protocol.
-With ``BaseSandbox``, a new provider only needs to implement ``execute()``.
+Two implementations are provided:
+
+- ``OSBackend`` — native local filesystem via Python stdlib.
+- ``DaytonaBackend`` — Daytona cloud sandbox via shell commands.
 
 Usage::
 
-    from langchain_agentkit.backends import BackendProtocol, BaseSandbox
+    from langchain_agentkit.backends import BackendProtocol
 
-    # Full implementation
     class MyBackend:
         def read(self, path, offset=0, limit=2000) -> str: ...
+        def read_bytes(self, path) -> bytes: ...
         def write(self, path, content) -> WriteResult: ...
         def edit(self, path, old_string, new_string, replace_all=False) -> EditResult: ...
         def glob(self, pattern, path="/") -> list[str]: ...
         def grep(self, pattern, path=None, glob=None, ignore_case=False) -> list[GrepMatch]: ...
         def execute(self, command, timeout=None, workdir=None) -> ExecuteResponse: ...
-
-    # Minimal implementation (sandbox with shell access)
-    class MySandbox(BaseSandbox):
-        def execute(self, command, timeout=None, workdir=None) -> ExecuteResponse: ...
-        # read, write, edit, glob, grep all inherited via shell commands
 """
 
 from __future__ import annotations

@@ -228,7 +228,7 @@ class TestBackendMode:
 
     def test_discovers_skills_from_backend(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            from langchain_agentkit.backend import OSBackend
+            from langchain_agentkit.backends import OSBackend
 
             _write_skill(Path(tmpdir), "market-sizing", _SKILL_MD)
             backend = OSBackend(tmpdir)
@@ -240,7 +240,7 @@ class TestBackendMode:
 
     def test_skill_tool_works_from_backend(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            from langchain_agentkit.backend import OSBackend
+            from langchain_agentkit.backends import OSBackend
 
             _write_skill(Path(tmpdir), "market-sizing", _SKILL_MD)
             backend = OSBackend(tmpdir)
@@ -252,7 +252,7 @@ class TestBackendMode:
 
     def test_empty_backend_returns_no_configs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            from langchain_agentkit.backend import OSBackend
+            from langchain_agentkit.backends import OSBackend
 
             backend = OSBackend(tmpdir)
 
@@ -262,7 +262,7 @@ class TestBackendMode:
 
     def test_deduplicates_by_name_via_backend(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            from langchain_agentkit.backend import OSBackend
+            from langchain_agentkit.backends import OSBackend
 
             _write_skill(Path(tmpdir), "a", "---\nname: dupe\ndescription: first\n---\nbody1")
             _write_skill(Path(tmpdir), "b", "---\nname: dupe\ndescription: second\n---\nbody2")

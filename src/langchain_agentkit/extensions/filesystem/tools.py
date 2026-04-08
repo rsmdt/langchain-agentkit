@@ -5,7 +5,7 @@ Parameters and descriptions match the Claude Code tool API.
 
 Usage::
 
-    from langchain_agentkit.backend import OSBackend
+    from langchain_agentkit.backends.os import OSBackend
     from langchain_agentkit.tools.filesystem import create_filesystem_tools
 
     backend = OSBackend("./workspace")
