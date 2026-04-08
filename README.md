@@ -110,6 +110,7 @@ extensions = [
     TasksExtension(),
     FilesystemExtension(),
     WebSearchExtension(),
+    HistoryExtension(strategy="count", max_messages=50),
     HITLExtension(interrupt_on={"send_email": True}, tools=True),
     AgentExtension(agents=[researcher, coder]),
     TeamExtension(agents=[researcher, coder]),
@@ -290,6 +291,28 @@ from langchain_tavily import TavilySearch
 
 ext = WebSearchExtension(providers=[TavilySearch(max_results=5)])
 ```
+
+### HistoryExtension
+
+Manage conversation history to keep the LLM context window lean. Truncated messages are removed from graph state via `ReplaceMessages` so the checkpointer stays compact.
+
+```python
+from langchain_agentkit import HistoryExtension
+
+# Keep the last 50 messages
+ext = HistoryExtension(strategy="count", max_messages=50)
+
+# Keep messages within a token budget
+ext = HistoryExtension(strategy="tokens", max_tokens=4000)
+
+# Custom token counter
+ext = HistoryExtension(strategy="tokens", max_tokens=4000, token_counter=my_fn)
+
+# Custom strategy — any object with transform(messages) -> messages
+ext = HistoryExtension(strategy=MySummarizationStrategy())
+```
+
+Both built-in strategies preserve a leading `SystemMessage` when truncating. Dropped messages are bulk-replaced in graph state using LangGraph's `REMOVE_ALL_MESSAGES` sentinel (wrapped in `ReplaceMessages` for convenience).
 
 ### HITLExtension
 
