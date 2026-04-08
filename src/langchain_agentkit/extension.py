@@ -6,15 +6,15 @@ and graph modifications into a cohesive, reusable package.
 Simple case — override named methods::
 
     class SecurityExtension(Extension):
-        async def before_model(self, state, runtime):
+        async def before_model(self, *, state, runtime):
             return sanitize_messages(state)
 
 Advanced case — decorators with per-tool filtering::
 
     class GovernanceExtension(Extension):
         @wrap("tool", tools=["delete_file"])
-        async def require_approval(self, request, handler):
-            return interrupt(request)
+        async def require_approval(self, *, state, handler, runtime):
+            return interrupt(state)
 """
 
 from __future__ import annotations

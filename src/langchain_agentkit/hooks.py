@@ -9,7 +9,7 @@ Three decorators mark methods as hooks:
 All support per-tool filtering via the ``tools`` parameter::
 
     @wrap("tool", tools=["delete_file", "send_email"])
-    async def gate(self, request, handler):
+    async def gate(self, *, state, handler, runtime):
         ...
 """
 
