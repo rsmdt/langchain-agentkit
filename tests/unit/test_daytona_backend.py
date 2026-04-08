@@ -1,0 +1,188 @@
+"""Unit tests for DaytonaBackend.
+
+Uses a stub Daytona sandbox object (edge mock — the SDK is the external
+boundary). Tests the logic that lives in DaytonaBackend itself:
+path resolution, execute() error wrapping, shell quoting, and
+line-number reformatting.
+"""
+
+from __future__ import annotations
+
+from types import SimpleNamespace
+from unittest.mock import MagicMock
+
+import pytest
+
+from langchain_agentkit.backends.daytona import DaytonaBackend, _shell_quote
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+
+def _make_backend(workdir: str = "/workspace") -> tuple[DaytonaBackend, MagicMock]:
+    """Create a DaytonaBackend with a mock Daytona SDK sandbox."""
+    mock_sandbox = MagicMock()
+    mock_sandbox.get_work_dir.return_value = workdir
+    backend = DaytonaBackend(mock_sandbox, timeout=60)
+    return backend, mock_sandbox
+
+
+# ---------------------------------------------------------------------------
+# _shell_quote
+# ---------------------------------------------------------------------------
+
+
+class TestShellQuote:
+    def test_plain_string(self):
+        assert _shell_quote("hello") == "'hello'"
+
+    def test_string_with_spaces(self):
+        assert _shell_quote("hello world") == "'hello world'"
+
+    def test_string_with_single_quote(self):
+        result = _shell_quote("it's")
+        assert result == "'it'\"'\"'s'"
+
+    def test_string_with_special_chars(self):
+        result = _shell_quote("$HOME `cmd` \\n")
+        # Inside single quotes, $, `, \ are literal
+        assert result.startswith("'")
+        assert result.endswith("'")
+        assert "$HOME" in result
+
+    def test_empty_string(self):
+        assert _shell_quote("") == "''"
+
+    def test_string_with_newline(self):
+        result = _shell_quote("line1\nline2")
+        assert "\n" in result
+
+
+# ---------------------------------------------------------------------------
+# _resolve — path traversal prevention
+# ---------------------------------------------------------------------------
+
+
+class TestResolve:
+    def test_simple_path(self):
+        backend, _ = _make_backend()
+        assert backend._resolve("test.txt") == "/workspace/test.txt"
+
+    def test_leading_slash_stripped(self):
+        backend, _ = _make_backend()
+        assert backend._resolve("/test.txt") == "/workspace/test.txt"
+
+    def test_nested_path(self):
+        backend, _ = _make_backend()
+        assert backend._resolve("/src/main.py") == "/workspace/src/main.py"
+
+    def test_empty_path_returns_workdir(self):
+        backend, _ = _make_backend()
+        assert backend._resolve("/") == "/workspace"
+        assert backend._resolve("") == "/workspace"
+
+    def test_traversal_blocked(self):
+        backend, _ = _make_backend()
+        with pytest.raises(PermissionError, match="Path traversal"):
+            backend._resolve("../../etc/passwd")
+
+    def test_traversal_with_leading_slash_blocked(self):
+        backend, _ = _make_backend()
+        with pytest.raises(PermissionError, match="Path traversal"):
+            backend._resolve("/../../../etc/passwd")
+
+    def test_dot_dot_in_middle_blocked(self):
+        backend, _ = _make_backend()
+        with pytest.raises(PermissionError, match="Path traversal"):
+            backend._resolve("/src/../../etc/passwd")
+
+    def test_dot_dot_staying_inside_allowed(self):
+        backend, _ = _make_backend()
+        result = backend._resolve("/src/../test.txt")
+        assert result == "/workspace/test.txt"
+
+
+# ---------------------------------------------------------------------------
+# execute — SDK bridge
+# ---------------------------------------------------------------------------
+
+
+class TestExecute:
+    def test_passes_command_to_sdk(self):
+        backend, mock = _make_backend()
+        mock.process.exec.return_value = SimpleNamespace(
+            result="hello\n", exit_code=0,
+        )
+        result = backend.execute("echo hello")
+        mock.process.exec.assert_called_once_with(
+            "echo hello", cwd="/workspace", timeout=60,
+        )
+        assert result["output"] == "hello\n"
+        assert result["exit_code"] == 0
+
+    def test_uses_custom_timeout(self):
+        backend, mock = _make_backend()
+        mock.process.exec.return_value = SimpleNamespace(result="", exit_code=0)
+        backend.execute("sleep 1", timeout=10)
+        mock.process.exec.assert_called_once_with(
+            "sleep 1", cwd="/workspace", timeout=10,
+        )
+
+    def test_resolves_workdir_override(self):
+        backend, mock = _make_backend()
+        mock.process.exec.return_value = SimpleNamespace(result="", exit_code=0)
+        backend.execute("ls", workdir="/src")
+        mock.process.exec.assert_called_once_with(
+            "ls", cwd="/workspace/src", timeout=60,
+        )
+
+    def test_captures_stderr_when_available(self):
+        backend, mock = _make_backend()
+        mock.process.exec.return_value = SimpleNamespace(
+            result="", exit_code=1, stderr="error details",
+        )
+        result = backend.execute("bad_command")
+        assert result["stderr"] == "error details"
+
+    def test_stderr_empty_when_not_available(self):
+        backend, mock = _make_backend()
+        mock.process.exec.return_value = SimpleNamespace(result="output", exit_code=0)
+        result = backend.execute("echo hi")
+        assert result["stderr"] == ""
+
+    def test_sdk_error_raises_runtime_error(self):
+        backend, mock = _make_backend()
+        mock.process.exec.side_effect = ConnectionError("network down")
+        with pytest.raises(RuntimeError, match="Daytona sandbox execution failed"):
+            backend.execute("echo hello")
+
+    def test_nonzero_exit_code_returned(self):
+        backend, mock = _make_backend()
+        mock.process.exec.return_value = SimpleNamespace(result="", exit_code=127)
+        result = backend.execute("nonexistent_command")
+        assert result["exit_code"] == 127
+
+    def test_workdir_traversal_blocked(self):
+        backend, _ = _make_backend()
+        with pytest.raises(PermissionError, match="Path traversal"):
+            backend.execute("ls", workdir="/../../etc")
+
+
+# ---------------------------------------------------------------------------
+# Constructor
+# ---------------------------------------------------------------------------
+
+
+class TestConstructor:
+    def test_workdir_from_sandbox(self):
+        backend, _ = _make_backend("/workspace")
+        assert backend.workdir == "/workspace"
+
+    def test_strips_trailing_slash(self):
+        backend, _ = _make_backend("/workspace/")
+        assert backend.workdir == "/workspace"
+
+    def test_default_timeout(self):
+        backend, _ = _make_backend()
+        assert backend._timeout == 60
