@@ -31,7 +31,7 @@ class TestDecorators:
 
     def test_wrap_sets_metadata(self):
         @wrap("run")
-        async def my_hook(self, request, handler):
+        async def my_hook(self, state, handler, runtime):
             pass
 
         assert my_hook._hook_phase == "wrap"
@@ -40,7 +40,7 @@ class TestDecorators:
 
     def test_per_tool_filtering(self):
         @wrap("tool", tools=["delete_file", "send_email"])
-        async def my_hook(self, request, handler):
+        async def my_hook(self, state, handler, runtime):
             pass
 
         assert my_hook._hook_tool_filter == ["delete_file", "send_email"]
@@ -112,7 +112,7 @@ class TestExtensionHookCollection:
                 pass
 
             @wrap("tool", tools=["delete"])
-            async def gate(self, request, handler):
+            async def gate(self, state, handler, runtime):
                 pass
 
         assert ("before", "model") in MyExt._decorated_hooks
@@ -128,7 +128,7 @@ class TestExtensionHookCollection:
     def test_preserves_tool_filter_on_collected_hooks(self):
         class MyExt(Extension):
             @wrap("tool", tools=["send_email"])
-            async def gate(self, request, handler):
+            async def gate(self, state, handler, runtime):
                 pass
 
         hook = MyExt._decorated_hooks[("wrap", "tool")][0]
@@ -164,8 +164,8 @@ class TestExtensionNamedMethods:
 
     def test_discovers_named_wrap_tool(self):
         class MyExt(Extension):
-            async def wrap_tool(self, request, handler):
-                return await handler(request)
+            async def wrap_tool(self, state, handler, runtime):
+                return await handler(state)
 
         hooks = MyExt._get_named_hooks()
         assert ("wrap", "tool") in hooks
@@ -187,8 +187,8 @@ class TestExtensionNamedMethods:
             async def after_model(self, state, runtime):
                 return None
 
-            async def wrap_model(self, request, handler):
-                return await handler(request)
+            async def wrap_model(self, state, handler, runtime):
+                return await handler(state)
 
             async def before_tool(self, request, runtime):
                 return None
@@ -196,8 +196,8 @@ class TestExtensionNamedMethods:
             async def after_tool(self, request, result, runtime):
                 return result
 
-            async def wrap_tool(self, request, handler):
-                return await handler(request)
+            async def wrap_tool(self, state, handler, runtime):
+                return await handler(state)
 
         hooks = FullExt._get_named_hooks()
         expected = [
@@ -242,7 +242,7 @@ class TestExtensionGetAllHooks:
     def test_decorated_only(self):
         class MyExt(Extension):
             @wrap("tool", tools=["delete"])
-            async def gate(self, request, handler):
+            async def gate(self, state, handler, runtime):
                 pass
 
         instance = MyExt()
@@ -315,15 +315,3 @@ class TestExtensionProtocol:
 
         ext = MyExt()
         assert ext.state_schema is dict
-
-    def test_process_history_optional(self):
-        """process_history is optional — not present by default."""
-
-        class MyExt(Extension):
-            pass
-
-        ext = MyExt()
-        assert (
-            not hasattr(ext.__class__, "process_history")
-            or getattr(ext.__class__, "process_history", None) is None
-        )

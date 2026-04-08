@@ -17,31 +17,31 @@ class LoggingExtension(Extension):
         self._name = name
         self._log = log
 
-    async def before_model(self, state, runtime):
+    async def before_model(self, *, state, runtime):
         self._log.append(f"{self._name}:before_model")
         return None
 
-    async def after_model(self, state, runtime):
+    async def after_model(self, *, state, runtime):
         self._log.append(f"{self._name}:after_model")
         return None
 
-    async def wrap_model(self, request, handler):
+    async def wrap_model(self, *, state, handler, runtime):
         self._log.append(f"{self._name}:wrap_model:enter")
-        result = await handler(request)
+        result = await handler(state)
         self._log.append(f"{self._name}:wrap_model:exit")
         return result
 
-    async def before_run(self, state, runtime):
+    async def before_run(self, *, state, runtime):
         self._log.append(f"{self._name}:before_run")
         return None
 
-    async def after_run(self, state, runtime):
+    async def after_run(self, *, state, runtime):
         self._log.append(f"{self._name}:after_run")
         return None
 
-    async def wrap_tool(self, request, handler):
+    async def wrap_tool(self, *, state, handler, runtime):
         self._log.append(f"{self._name}:wrap_tool:enter")
-        result = await handler(request)
+        result = await handler(state)
         self._log.append(f"{self._name}:wrap_tool:exit")
         return result
 
@@ -51,31 +51,21 @@ class ToolFilterExtension(Extension):
         self._log = log
 
     @wrap("tool", tools=["delete_file"])
-    async def gate_delete(self, request, handler):
+    async def gate_delete(self, *, state, handler, runtime):
         self._log.append("gate_delete")
-        return await handler(request)
+        return await handler(state)
 
     @wrap("tool", tools=["send_email"])
-    async def gate_email(self, request, handler):
+    async def gate_email(self, *, state, handler, runtime):
         self._log.append("gate_email")
-        return await handler(request)
-
-
-class HistoryExtension(Extension):
-    def __init__(self, prefix: str, log: list):
-        self._prefix = prefix
-        self._log = log
-
-    def process_history(self, messages):
-        self._log.append(f"{self._prefix}:process_history")
-        return [f"[{self._prefix}]{m}" for m in messages]
+        return await handler(state)
 
 
 class ErrorExtension(Extension):
     def __init__(self, log: list):
         self._log = log
 
-    async def on_error(self, error, state, runtime):
+    async def on_error(self, *, error, state, runtime):
         self._log.append(f"on_error:{type(error).__name__}")
         return None
 
@@ -160,7 +150,7 @@ class TestHookRunnerWrapComposition:
             log.append("model_call")
             return "response"
 
-        result = await runner.run_wrap("model", request="input", handler=actual_model)
+        result = await runner.run_wrap("model", state="input", handler=actual_model, runtime=None)
 
         assert log == [
             "A:wrap_model:enter",
@@ -185,7 +175,7 @@ class TestHookRunnerWrapComposition:
             log.append("tool_call")
             return "tool_result"
 
-        result = await runner.run_wrap("tool", request="input", handler=actual_tool)
+        result = await runner.run_wrap("tool", state="input", handler=actual_tool, runtime=None)
 
         assert log == [
             "A:wrap_tool:enter",
@@ -203,7 +193,7 @@ class TestHookRunnerWrapComposition:
         async def actual_model(request):
             return "direct"
 
-        result = await runner.run_wrap("model", request="input", handler=actual_model)
+        result = await runner.run_wrap("model", state="input", handler=actual_model, runtime=None)
         assert result == "direct"
 
 
@@ -218,7 +208,9 @@ class TestHookRunnerToolFiltering:
         async def handler(request):
             return "ok"
 
-        await runner.run_wrap("tool", request="input", handler=handler, tool_name="delete_file")
+        await runner.run_wrap(
+            "tool", state="input", handler=handler, runtime=None, tool_name="delete_file"
+        )
 
         assert "gate_delete" in log
         assert "gate_email" not in log
@@ -231,7 +223,9 @@ class TestHookRunnerToolFiltering:
         async def handler(request):
             return "ok"
 
-        await runner.run_wrap("tool", request="input", handler=handler, tool_name="read_file")
+        await runner.run_wrap(
+            "tool", state="input", handler=handler, runtime=None, tool_name="read_file"
+        )
 
         assert log == []
 
@@ -243,45 +237,11 @@ class TestHookRunnerToolFiltering:
         async def handler(request):
             return "ok"
 
-        await runner.run_wrap("tool", request="input", handler=handler, tool_name="anything")
-
-        assert "A:wrap_tool:enter" in log
-
-
-class TestHookRunnerProcessHistory:
-    """process_history composes as a pipeline in declaration order."""
-
-    def test_single_processor(self):
-        log = []
-        runner = HookRunner([HistoryExtension("A", log)])
-
-        result = runner.run_process_history(["msg1", "msg2"])
-
-        assert result == ["[A]msg1", "[A]msg2"]
-        assert log == ["A:process_history"]
-
-    def test_pipeline_order(self):
-        log = []
-        runner = HookRunner(
-            [
-                HistoryExtension("A", log),
-                HistoryExtension("B", log),
-            ]
+        await runner.run_wrap(
+            "tool", state="input", handler=handler, runtime=None, tool_name="anything"
         )
 
-        result = runner.run_process_history(["msg"])
-
-        assert log == ["A:process_history", "B:process_history"]
-        # B processes A's output
-        assert result == ["[B][A]msg"]
-
-    def test_no_processors_returns_unchanged(self):
-        runner = HookRunner([])
-
-        messages = ["msg1", "msg2"]
-        result = runner.run_process_history(messages)
-
-        assert result == messages
+        assert "A:wrap_tool:enter" in log
 
 
 class TestHookRunnerOnError:
