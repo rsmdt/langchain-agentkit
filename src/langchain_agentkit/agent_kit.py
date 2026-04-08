@@ -282,10 +282,18 @@ class AgentKit:
 
 def _load_prompt_source(source: str | Path) -> str:
     """Load a single prompt source from file path or return inline string."""
-    path = Path(source)
-    if path.exists() and path.is_file():
-        return path.read_text()
-    return str(source)
+    text = str(source)
+    # Skip path resolution for strings that are clearly inline prompts
+    # (contain newlines or exceed OS filename limits).
+    if "\n" in text or len(text) > 255:
+        return text
+    path = Path(text)
+    try:
+        if path.exists() and path.is_file():
+            return path.read_text()
+    except OSError:
+        pass
+    return text
 
 
 def _load_prompt(source: str | Path | list[str | Path] | None) -> str:
