@@ -41,16 +41,17 @@ graph = researcher.compile()
 result = graph.invoke({"messages": [HumanMessage("Size the B2B SaaS market")]})
 ```
 
-The `model` attribute accepts a `BaseChatModel` instance (used as-is) or a string resolved via `AgentKit.model_resolver`:
+The `model` attribute accepts a `BaseChatModel` instance (used as-is) or a string resolved via an `AgentExtension`'s `model_resolver`:
 
 ```python
-kit = AgentKit(
-    extensions=[...],
-    model_resolver=lambda name: ChatOpenAI(model=name),
-)
-
 class fast_agent(agent):
-    model = "gpt-4o-mini"  # resolved via model_resolver
+    model = "gpt-4o-mini"  # resolved via AgentExtension.model_resolver
+    extensions = [
+        AgentExtension(
+            agents=[researcher, coder],
+            model_resolver=lambda name: ChatOpenAI(model=name),
+        ),
+    ]
     ...
 ```
 
@@ -381,7 +382,7 @@ See [`examples/team.py`](examples/team.py) for a complete example.
 
 ## Custom Extensions
 
-Any class with `tools`, `prompt()`, and `state_schema` satisfies the protocol:
+Any subclass of `Extension` can contribute tools, a prompt section, state schema, lifecycle hooks, and graph modifications:
 
 ```python
 from langchain_agentkit import Extension
@@ -397,6 +398,42 @@ class MyExtension(Extension):
     @property
     def state_schema(self):
         return None  # or a TypedDict mixin
+```
+
+### Sibling-aware configuration via `setup()`
+
+When an extension needs to react to other extensions in the kit (e.g. enabling a feature only when a particular sibling is present), override `setup()`:
+
+```python
+from langchain_agentkit import Extension
+from langchain_agentkit.extensions.hitl import HITLExtension
+
+class MyExtension(Extension):
+    def __init__(self):
+        self._hitl_enabled = False
+
+    def setup(self, *, extensions, **_):
+        # Inspect the assembled kit and configure self accordingly.
+        self._hitl_enabled = any(isinstance(e, HITLExtension) for e in extensions)
+```
+
+`setup()` is called once by `AgentKit` after dependency resolution, before the graph is built. Each extension declares only the kwargs it needs — the framework uses signature introspection to pass only what's requested. Available kwargs:
+
+| Kwarg | Type | Meaning |
+|---|---|---|
+| `extensions` | `list[Extension]` | All extensions in the kit, including `self` |
+| `prompt` | `str` | The base prompt configured on `AgentKit` (empty if none) |
+
+**Contract — inspect presence, not state**: `setup()` runs in declaration order, so another extension's `setup()` may not have run yet when yours executes. Only inspect sibling *presence* via `isinstance()` checks — never read mutable state that another extension's `setup()` might populate. Anything that depends on a sibling being fully configured should happen lazily at runtime.
+
+### Declaring dependencies
+
+If your extension requires another extension to function, declare it via `dependencies()` — AgentKit will auto-add it if missing:
+
+```python
+class MyExtension(Extension):
+    def dependencies(self):
+        return [TasksExtension()]  # auto-added if user didn't include one
 ```
 
 ## Contributing
