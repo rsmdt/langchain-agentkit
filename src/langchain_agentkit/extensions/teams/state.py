@@ -29,17 +29,8 @@ def _merge_team_members(
     return [by_name[n] for n in order if n in by_name]
 
 
-def _append_messages(
-    left: list[dict[str, Any]],
-    right: list[dict[str, Any]],
-) -> list[dict[str, Any]]:
-    """Append-only reducer for team messages."""
-    return (left or []) + (right or [])
-
-
 class TeamState(TypedDict, total=False):
     """State mixin for team coordination."""
 
     team_members: Annotated[list[dict[str, Any]], _merge_team_members]
-    team_messages: Annotated[list[dict[str, Any]], _append_messages]
     team_name: str | None

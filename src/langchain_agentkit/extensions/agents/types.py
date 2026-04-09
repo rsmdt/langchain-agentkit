@@ -29,15 +29,14 @@ class AgentConfig:
 class _AgentConfigProxy:
     """Proxy that makes an AgentConfig look like an agent to the roster.
 
-    Has ``name``, ``description``, and ``tools_inherit = False``.
-    The delegation tool detects ``_agent_config`` attribute and
-    routes to the definition-based delegation path.
+    Has ``name`` and ``description``. The delegation tool detects the
+    ``_agent_config`` attribute and routes to the definition-based
+    delegation path before any ``tools_inherit`` check is reached.
     """
 
     def __init__(self, definition: AgentConfig) -> None:
         self.name = definition.name
         self.description = definition.description
-        self.tools_inherit = False
         self._agent_config = definition
 
 

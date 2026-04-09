@@ -4,7 +4,6 @@ from typing import get_type_hints
 
 from langchain_agentkit.extensions.teams.state import (
     TeamState,
-    _append_messages,
     _merge_team_members,
 )
 
@@ -94,59 +93,11 @@ class TestMergeTeamMembers:
         assert result[0]["agent_type"] == "researcher"
 
 
-class TestAppendMessages:
-    def test_appends_right_to_left(self):
-        left = [{"from": "a", "content": "hello"}]
-        right = [{"from": "b", "content": "world"}]
-
-        result = _append_messages(left, right)
-
-        assert len(result) == 2
-        assert result[0]["from"] == "a"
-        assert result[1]["from"] == "b"
-
-    def test_empty_left(self):
-        result = _append_messages([], [{"content": "msg"}])
-
-        assert len(result) == 1
-
-    def test_empty_right(self):
-        result = _append_messages([{"content": "msg"}], [])
-
-        assert len(result) == 1
-
-    def test_both_empty(self):
-        assert _append_messages([], []) == []
-
-    def test_none_left(self):
-        result = _append_messages(None, [{"content": "msg"}])
-
-        assert len(result) == 1
-
-    def test_none_right(self):
-        result = _append_messages([{"content": "msg"}], None)
-
-        assert len(result) == 1
-
-    def test_preserves_order(self):
-        left = [{"id": 1}, {"id": 2}]
-        right = [{"id": 3}]
-
-        result = _append_messages(left, right)
-
-        assert [m["id"] for m in result] == [1, 2, 3]
-
-
 class TestTeamStateStructure:
     def test_has_team_members_key(self):
         hints = get_type_hints(TeamState, include_extras=True)
 
         assert "team_members" in hints
-
-    def test_has_team_messages_key(self):
-        hints = get_type_hints(TeamState, include_extras=True)
-
-        assert "team_messages" in hints
 
     def test_has_team_name_key(self):
         hints = get_type_hints(TeamState, include_extras=True)
@@ -159,7 +110,6 @@ class TestTeamStateStructure:
     def test_can_instantiate_as_typed_dict(self):
         state: TeamState = {
             "team_members": [],
-            "team_messages": [],
             "team_name": "test-team",
         }
 
