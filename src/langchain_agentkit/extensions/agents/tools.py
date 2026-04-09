@@ -31,12 +31,12 @@ from langgraph.prebuilt import InjectedState, ToolNode
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
+from langchain_agentkit._graph_builder import build_ephemeral_graph
 from langchain_agentkit.extensions.agents.refs import (
     Dynamic,
     Predefined,
     resolve_agent_by_name,
 )
-from langchain_agentkit.state import AgentKitState
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -331,50 +331,6 @@ async def _delegate_predefined(
     )
 
 
-def _compile_ephemeral_graph(
-    name: str,
-    llm: Any,
-    prompt: str,
-    tools: list[BaseTool] | None = None,
-    max_turns: int | None = None,
-) -> Any:
-    """Build and compile a minimal ReAct graph for ephemeral/config-based agents.
-
-    Shared by both ``_delegate_agent_config`` and ``_delegate_dynamic``.
-    """
-    from langchain_agentkit._graph_builder import build_graph
-    from langchain_agentkit.agent_kit import AgentKit
-
-    agent_tools = list(tools or [])
-
-    async def _handler(
-        state_inner: dict[str, Any],
-        *,
-        llm: Any,
-        prompt: str,
-        tools: Any = None,
-    ) -> dict[str, Any]:
-        from langchain_core.messages import SystemMessage
-
-        msgs = [SystemMessage(content=prompt)] + list(state_inner.get("messages", []))
-        response = await llm.ainvoke(msgs)
-        return {"messages": [response], "sender": name}
-
-    kit = AgentKit([], prompt=prompt)
-    graph = build_graph(
-        name=name,
-        handler=_handler,
-        llm=llm,
-        user_tools=agent_tools,
-        kit=kit,
-        state_type=AgentKitState,
-    )
-    compile_kwargs: dict[str, Any] = {}
-    if max_turns is not None:
-        compile_kwargs["recursion_limit"] = max_turns * 2
-    return graph.compile(**compile_kwargs)
-
-
 async def _delegate_agent_config(
     agent_config: Any,
     message: str,
@@ -413,11 +369,11 @@ async def _delegate_agent_config(
     agent_name = agent_config.name
 
     try:
-        compiled = _compile_ephemeral_graph(
+        compiled = build_ephemeral_graph(
             name=agent_name,
             llm=llm,
             prompt=prompt,
-            tools=agent_tools,
+            user_tools=agent_tools,
             max_turns=agent_config.max_turns,
         )
     except Exception as exc:
@@ -452,7 +408,7 @@ async def _delegate_dynamic(
     ephemeral_name = "dynamic"
 
     try:
-        compiled = _compile_ephemeral_graph(
+        compiled = build_ephemeral_graph(
             name=ephemeral_name,
             llm=llm,
             prompt=prompt,

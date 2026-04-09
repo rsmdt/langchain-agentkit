@@ -346,3 +346,60 @@ def build_graph(  # noqa: C901
             workflow.add_edge(node_name, END)
 
     return workflow
+
+
+def build_ephemeral_graph(
+    name: str,
+    llm: Any,
+    prompt: str,
+    *,
+    user_tools: list[BaseTool] | None = None,
+    max_turns: int | None = None,
+    checkpointer: Any | None = None,
+) -> Any:
+    """Build and compile a minimal ReAct graph for ephemeral / config-based agents.
+
+    Shared by ``AgentExtension``'s definition-based and dynamic delegation
+    paths and by ``TeamExtension``'s ephemeral teammates. The handler simply
+    prepends a ``SystemMessage`` carrying ``prompt`` and invokes ``llm``.
+
+    Args:
+        name: Graph name; also used as the ``sender`` on produced messages.
+        llm: Chat model used for the single model call.
+        prompt: System prompt injected on every turn.
+        user_tools: Optional list of tools the agent can invoke.
+        max_turns: When set, caps ``recursion_limit`` to ``max_turns * 2``.
+        checkpointer: Optional checkpointer forwarded to ``compile``.
+    """
+    from langchain_agentkit.agent_kit import AgentKit
+
+    agent_tools = list(user_tools or [])
+
+    async def _handler(
+        handler_state: dict[str, Any],
+        *,
+        llm: Any,
+        prompt: str,
+        tools: Any = None,
+    ) -> dict[str, Any]:
+        from langchain_core.messages import SystemMessage
+
+        msgs = [SystemMessage(content=prompt)] + list(handler_state.get("messages", []))
+        response = await llm.ainvoke(msgs)
+        return {"messages": [response], "sender": name}
+
+    kit = AgentKit(extensions=[], prompt=prompt)
+    graph = build_graph(
+        name=name,
+        handler=_handler,
+        llm=llm,
+        user_tools=agent_tools,
+        kit=kit,
+        state_type=AgentKitState,
+    )
+    compile_kwargs: dict[str, Any] = {}
+    if max_turns is not None:
+        compile_kwargs["recursion_limit"] = max_turns * 2
+    if checkpointer is not None:
+        compile_kwargs["checkpointer"] = checkpointer
+    return graph.compile(**compile_kwargs)

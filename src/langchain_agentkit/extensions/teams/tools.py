@@ -282,8 +282,9 @@ async def _agent_team_inner(  # noqa: C901
 
         if agent_prompt is not None:
             # Ephemeral agent — build on-the-fly graph with teammate addendum
-            from langchain_agentkit._graph_builder import build_graph
-            from langchain_agentkit.agent_kit import AgentKit
+            from langgraph.checkpoint.memory import InMemorySaver
+
+            from langchain_agentkit._graph_builder import build_ephemeral_graph
             from langchain_agentkit.extensions.teams.task_proxy import create_task_proxy_tools
 
             parent_llm_getter = ext.parent_llm_getter
@@ -295,30 +296,13 @@ async def _agent_team_inner(  # noqa: C901
             full_prompt = _TEAMMATE_ADDENDUM + agent_prompt
             teammate_tools: list[Any] = create_task_proxy_tools(bus, member_name)
 
-            async def _ephemeral_handler(
-                handler_state: dict[str, Any],
-                *,
-                llm: Any,
-                prompt: str,
-                _sender: str = member_name,
-                **kwargs: Any,
-            ) -> dict[str, Any]:
-                from langchain_core.messages import SystemMessage
-
-                messages = [SystemMessage(content=prompt)] + handler_state["messages"]
-                response = await llm.ainvoke(messages)
-                return {"messages": [response], "sender": _sender}
-
-            ephemeral_graph = build_graph(
+            compiled = build_ephemeral_graph(
                 name=member_name,
-                handler=_ephemeral_handler,
                 llm=ephemeral_llm,
+                prompt=full_prompt,
                 user_tools=teammate_tools,
-                kit=AgentKit(extensions=[], prompt=full_prompt),
+                checkpointer=InMemorySaver(),
             )
-            from langgraph.checkpoint.memory import InMemorySaver
-
-            compiled = ephemeral_graph.compile(checkpointer=InMemorySaver())
             agent_type_label = f"ephemeral:{member_name}"
         else:
             # Predefined agent — resolve and compile with proxy task tools
