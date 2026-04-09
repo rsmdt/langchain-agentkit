@@ -15,8 +15,10 @@
         model = ChatOpenAI(model="gpt-4o")
         extensions = [SkillsExtension(skills="skills/")]
         prompt = "You are a research assistant."
-        async def handler(state, *, llm, prompt):
-            ...
+        async def handler(state, *, llm, tools, prompt):
+            bound = llm.bind_tools(tools)
+            response = await bound.ainvoke(state["messages"])
+            return {"messages": [response]}
 
     graph = researcher.compile()
 """

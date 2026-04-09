@@ -129,14 +129,15 @@ def build_graph(  # noqa: C901
         # Inject ephemeral system-reminder as a HumanMessage (never stored).
         system_reminder = "\n\n".join(reminder_parts) if reminder_parts else ""
         handler_state = _inject_system_reminder(handler_state, system_reminder)
-        # NOTE: bind_tools is called per-step intentionally (not cached at build
-        # time). This enables handlers to mutate the tool list dynamically — e.g.,
-        # enabling/disabling tools based on state, or injecting runtime-resolved
-        # tools. Do NOT hoist this outside _agent_node.
-        bound_llm = llm.bind_tools(all_tools) if all_tools else llm
 
+        # NOTE: tool binding is the handler's responsibility. The framework
+        # injects the raw ``llm`` and the composed ``tools`` list; the handler
+        # decides when and how to call ``llm.bind_tools(tools, ...)``. This
+        # gives implementers full control over provider-specific kwargs
+        # (``strict``, ``parallel_tool_calls``, ``tool_choice``) and enables
+        # dynamic tool filtering per step.
         available = {
-            "llm": bound_llm,
+            "llm": llm,
             "tools": list(all_tools),
             "prompt": composed_prompt,
             "runtime": runtime,

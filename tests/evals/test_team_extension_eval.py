@@ -125,11 +125,11 @@ def _build_team_lead(mw_team, mw_tasks):
         extensions = [mw_tasks, mw_team]
         prompt = _TEAM_LEAD_PROMPT
 
-        async def handler(state, *, llm, prompt):
+        async def handler(state, *, llm, tools, prompt):
             from langchain_core.messages import SystemMessage
 
             messages = [SystemMessage(content=prompt)] + state["messages"]
-            response = await llm.ainvoke(messages)
+            response = await llm.bind_tools(tools).ainvoke(messages)
             return {"messages": [response], "sender": "team_lead"}
 
     return team_lead

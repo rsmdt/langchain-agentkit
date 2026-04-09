@@ -31,10 +31,10 @@ from langchain_openai import ChatOpenAI
 
 from langchain_agentkit import AgentExtension, TasksExtension, agent
 
-
 # ---------------------------------------------------------------------------
 # 1. Define specialist agents
 # ---------------------------------------------------------------------------
+
 
 @tool
 def web_search(query: str) -> str:
@@ -78,6 +78,7 @@ class analyst(agent):
 # 2. Create the lead agent with delegation
 # ---------------------------------------------------------------------------
 
+
 class lead(agent):
     """Lead agent that delegates to specialists."""
 
@@ -86,7 +87,7 @@ class lead(agent):
         TasksExtension(),
         AgentExtension(
             agents=[researcher, analyst],
-            ephemeral=True,           # enable dynamic agents
+            ephemeral=True,  # enable dynamic agents
             delegation_timeout=60.0,  # 60s max per delegation
         ),
     ]
@@ -110,7 +111,11 @@ if __name__ == "__main__":
     async def main():
         graph = lead.compile()
         result = await graph.ainvoke(
-            {"messages": [HumanMessage("What is the global SaaS market size? Calculate 15% growth.")]}
+            {
+                "messages": [
+                    HumanMessage("What is the global SaaS market size? Calculate 15% growth.")
+                ]
+            }
         )
 
         print("=== Final Response ===")

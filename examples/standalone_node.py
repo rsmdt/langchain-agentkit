@@ -24,16 +24,14 @@ class researcher(agent):
     extensions = [SkillsExtension(skills="skills/")]
     prompt = "You are a research assistant."
 
-    async def handler(state, *, llm, prompt):
+    async def handler(state, *, llm, tools, prompt):
         messages = [SystemMessage(content=prompt)] + state["messages"]
-        response = await llm.ainvoke(messages)
+        response = await llm.bind_tools(tools).ainvoke(messages)
         return {"messages": [response]}
 
 
 # researcher is a StateGraph — compile and invoke
 if __name__ == "__main__":
     graph = researcher.compile()
-    result = graph.invoke(
-        {"messages": [HumanMessage("Size the B2B SaaS market in Europe")]}
-    )
+    result = graph.invoke({"messages": [HumanMessage("Size the B2B SaaS market in Europe")]})
     print(result["messages"][-1].content)

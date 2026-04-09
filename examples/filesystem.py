@@ -24,11 +24,16 @@ workspace = Path(tempfile.mkdtemp(prefix="agentkit_"))
 
 # 1. Write config directly
 (workspace / "data").mkdir()
-(workspace / "data" / "config.json").write_text(json.dumps({
-    "app_name": "MyApp",
-    "version": "2.1.0",
-    "features": {"dark_mode": True, "notifications": False},
-}, indent=2))
+(workspace / "data" / "config.json").write_text(
+    json.dumps(
+        {
+            "app_name": "MyApp",
+            "version": "2.1.0",
+            "features": {"dark_mode": True, "notifications": False},
+        },
+        indent=2,
+    )
+)
 
 # 2. Copy from real filesystem
 readme_path = Path(__file__).parent.parent / "README.md"
@@ -45,6 +50,7 @@ for quarter in range(1, 4):
 
 # --- Create an agent with filesystem access ---
 
+
 class analyst(agent):
     model = ChatOpenAI(model="gpt-4o")
     extensions = [FilesystemExtension(root=workspace)]
@@ -53,9 +59,9 @@ You are a data analyst. You have access to a filesystem with
 project files. Use Glob to discover files, Read to examine them,
 and Write to save your analysis results."""
 
-    async def handler(state, *, llm, prompt):
+    async def handler(state, *, llm, tools, prompt):
         messages = [SystemMessage(content=prompt)] + state["messages"]
-        response = await llm.ainvoke(messages)
+        response = await llm.bind_tools(tools).ainvoke(messages)
         return {"messages": [response]}
 
 
@@ -64,9 +70,11 @@ async def main():
 
     # The agent can discover and read all pre-loaded files
     result = await graph.ainvoke(
-        {"messages": [HumanMessage(
-            "List all available files, then read the config and summarize it."
-        )]}
+        {
+            "messages": [
+                HumanMessage("List all available files, then read the config and summarize it.")
+            ]
+        }
     )
     print(result["messages"][-1].content[:500])
 

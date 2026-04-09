@@ -46,6 +46,6 @@ Composable extension framework for LangGraph agents. Python 3.11+, src layout (`
 
 ### Key design decisions
 
-- `llm.bind_tools()` is called **per-step** intentionally (not cached at build time) to support dynamic tool binding in handlers.
+- **Tool binding is the handler's responsibility, always.** The framework never calls `llm.bind_tools()` — it injects the raw `llm` and the composed `tools` list, and handlers call `llm.bind_tools(tools, ...)` themselves. This keeps provider-specific kwargs (`strict`, `parallel_tool_calls`, `tool_choice`) and dynamic per-step tool filtering fully in implementer control.
 - `kit.prompt()` is called **per-step** intentionally — extension prompts render current state (task list, team status).
 - The `agent` metaclass returns a `StateGraph`, not a class. This is deliberate.

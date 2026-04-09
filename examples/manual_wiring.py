@@ -20,10 +20,12 @@ def web_search(query: str) -> str:
     return f"Results for: {query}"
 
 
-kit = AgentKit([
-    SkillsExtension(skills="skills/"),
-    TasksExtension(),
-])
+kit = AgentKit(
+    [
+        SkillsExtension(skills="skills/"),
+        TasksExtension(),
+    ]
+)
 
 llm = ChatOpenAI(model="gpt-4o")
 all_tools = [web_search] + kit.tools
@@ -59,7 +61,5 @@ graph = workflow.compile()
 if __name__ == "__main__":
     import asyncio
 
-    result = asyncio.run(
-        graph.ainvoke({"messages": [HumanMessage("Size the B2B SaaS market")]})
-    )
+    result = asyncio.run(graph.ainvoke({"messages": [HumanMessage("Size the B2B SaaS market")]}))
     print(result["messages"][-1].content)

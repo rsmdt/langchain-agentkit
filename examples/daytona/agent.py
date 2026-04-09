@@ -77,9 +77,9 @@ You are a development assistant working in a sandboxed environment.
 You have access to a filesystem, skills, and specialist agents.
 Use your tools to explore, read, and modify files."""
 
-        async def handler(state, *, llm, prompt):
+        async def handler(state, *, llm, tools, prompt):
             messages = [SystemMessage(content=prompt)] + state["messages"]
-            response = await llm.ainvoke(messages)
+            response = await llm.bind_tools(tools).ainvoke(messages)
             return {"messages": [response]}
 
     return sandbox_agent
@@ -109,9 +109,11 @@ async def main() -> None:
 
         print("Running agent...\n")
         result = await compiled.ainvoke(
-            {"messages": [HumanMessage(
-                "List all files in the workspace, then summarize what you find."
-            )]}
+            {
+                "messages": [
+                    HumanMessage("List all files in the workspace, then summarize what you find.")
+                ]
+            }
         )
 
         print("=" * 60)

@@ -11,7 +11,8 @@ Usage::
         prompt = "You are a research assistant."
 
         async def handler(state, *, llm, tools, prompt, runtime):
-            response = await llm.ainvoke(state["messages"])
+            bound = llm.bind_tools(tools)
+            response = await bound.ainvoke(state["messages"])
             return {"messages": [response], "sender": "researcher"}
 
 ``researcher`` is a ``StateGraph`` — call ``.compile()`` to get a
@@ -235,7 +236,8 @@ class agent(metaclass=_AgentMeta):  # noqa: N801
             prompt = "You are a research assistant."
 
             async def handler(state, *, llm, tools, prompt, runtime):
-                response = await llm.ainvoke(state["messages"])
+                bound = llm.bind_tools(tools)
+                response = await bound.ainvoke(state["messages"])
                 return {"messages": [response], "sender": "researcher"}
 
         # Model can be a string (resolved via model_resolver):
@@ -265,7 +267,12 @@ class agent(metaclass=_AgentMeta):  # noqa: N801
 
     Injectable parameters:
 
-        llm: LLM with all tools bound (user tools + extension tools).
+        llm: The raw model, exactly as declared in the ``model`` attribute.
+            Tool binding is the handler's responsibility — call
+            ``llm.bind_tools(tools, ...)`` when you need tool calling. This
+            gives implementers full control over provider-specific kwargs
+            (``strict``, ``parallel_tool_calls``, ``tool_choice``) and
+            enables dynamic tool filtering per step.
         tools: Complete tool list (user tools + extension tools).
         prompt: Fully composed system prompt (template + extension sections).
         runtime: ToolRuntime — unified runtime context. Use

@@ -38,12 +38,12 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from langchain_agentkit import TeamExtension, TasksExtension, agent
-
+from langchain_agentkit import TasksExtension, TeamExtension, agent
 
 # ---------------------------------------------------------------------------
 # 1. Define worker agents
 # ---------------------------------------------------------------------------
+
 
 @tool
 def web_search(query: str) -> str:
@@ -85,6 +85,7 @@ class coder(agent):
 # ---------------------------------------------------------------------------
 # 2. Create the lead agent with team coordination
 # ---------------------------------------------------------------------------
+
 
 class lead(agent):
     """Team lead that coordinates researcher and coder."""
@@ -138,11 +139,16 @@ if __name__ == "__main__":
 
         print("=== Team Members (final) ===")
         for member in result.get("team_members", []):
-            print(f"  {member['name']} ({member.get('agent_type', '?')}): {member.get('status', '?')}")
+            print(
+                f"  {member['name']} ({member.get('agent_type', '?')}): {member.get('status', '?')}"
+            )
 
         print("\n=== Tasks ===")
         for task in result.get("tasks", []):
-            print(f"  [{task.get('status', '?')}] {task.get('subject', '?')} (owner: {task.get('owner', '?')})")
+            status = task.get("status", "?")
+            subject = task.get("subject", "?")
+            owner = task.get("owner", "?")
+            print(f"  [{status}] {subject} (owner: {owner})")
 
         print("\n=== Final Response ===")
         print(result["messages"][-1].content)

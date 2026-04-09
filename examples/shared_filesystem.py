@@ -53,9 +53,9 @@ class researcher(agent):
 You are a research assistant. Use the Skill tool to load methodologies,
 and Read/Glob to access workspace files. Write your findings to the workspace."""
 
-    async def handler(state, *, llm, prompt):
+    async def handler(state, *, llm, tools, prompt):
         messages = [SystemMessage(content=prompt)] + state["messages"]
-        response = await llm.ainvoke(messages)
+        response = await llm.bind_tools(tools).ainvoke(messages)
         return {"messages": [response]}
 
 
@@ -63,10 +63,14 @@ async def main():
     graph = researcher.compile()
 
     result = await graph.ainvoke(
-        {"messages": [HumanMessage(
-            "Read the project brief, load the market-sizing skill, "
-            "then write an initial analysis to /analysis.md"
-        )]}
+        {
+            "messages": [
+                HumanMessage(
+                    "Read the project brief, load the market-sizing skill, "
+                    "then write an initial analysis to /analysis.md"
+                )
+            ]
+        }
     )
 
     print(result["messages"][-1].content[:500])

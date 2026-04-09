@@ -21,9 +21,9 @@ class quick_researcher(agent):
     extensions = [WebSearchExtension()]
     prompt = "You are a research assistant. Use web search to find current information."
 
-    async def handler(state, *, llm, prompt):
+    async def handler(state, *, llm, tools, prompt):
         messages = [SystemMessage(content=prompt)] + state["messages"]
-        response = await llm.ainvoke(messages)
+        response = await llm.bind_tools(tools).ainvoke(messages)
         return {"messages": [response]}
 
 
@@ -37,9 +37,9 @@ class quick_researcher(agent):
 #     extensions = [WebSearchExtension(providers=[TavilySearch(max_results=5)])]
 #     prompt = "You are a research assistant."
 #
-#     async def handler(state, *, llm, prompt):
+#     async def handler(state, *, llm, tools, prompt):
 #         messages = [SystemMessage(content=prompt)] + state["messages"]
-#         response = await llm.ainvoke(messages)
+#         response = await llm.bind_tools(tools).ainvoke(messages)
 #         return {"messages": [response]}
 
 

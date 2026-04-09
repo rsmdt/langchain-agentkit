@@ -33,9 +33,9 @@ class researcher(agent):
     ]
     prompt = "You are a research assistant."
 
-    async def handler(state, *, llm, prompt):
+    async def handler(state, *, llm, tools, prompt):
         messages = [SystemMessage(content=prompt)] + state["messages"]
-        return {"messages": [await llm.ainvoke(messages)]}
+        return {"messages": [await llm.bind_tools(tools).ainvoke(messages)]}
 
 graph = researcher.compile()
 result = graph.invoke({"messages": [HumanMessage("Size the B2B SaaS market")]})

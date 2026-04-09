@@ -37,9 +37,9 @@ class researcher(agent):
     extensions = [SkillsExtension(skills="skills/")]
     prompt = "You are a research assistant."
 
-    async def handler(state, *, llm, prompt):
+    async def handler(state, *, llm, tools, prompt):
         messages = [SystemMessage(content=prompt)] + state["messages"]
-        response = await llm.ainvoke(messages)
+        response = await llm.bind_tools(tools).ainvoke(messages)
         return {"messages": [response]}
 
 
@@ -48,9 +48,9 @@ class analyst(agent):
     tools = [sql_query, calculate]
     prompt = "You are a data analyst."
 
-    async def handler(state, *, llm, prompt):
+    async def handler(state, *, llm, tools, prompt):
         messages = [SystemMessage(content=prompt)] + state["messages"]
-        response = await llm.ainvoke(messages)
+        response = await llm.bind_tools(tools).ainvoke(messages)
         return {"messages": [response]}
 
 
@@ -68,8 +68,6 @@ workflow.add_edge("analyst", END)
 graph = workflow.compile()
 
 if __name__ == "__main__":
-    result = graph.invoke(
-        {"messages": [HumanMessage("Analyze the European SaaS market")]}
-    )
+    result = graph.invoke({"messages": [HumanMessage("Analyze the European SaaS market")]})
     for msg in result["messages"]:
         print(f"[{msg.type}] {msg.content[:100]}")

@@ -41,9 +41,9 @@ class drafter(agent):
     model = ChatOpenAI(model="gpt-4o")
     tools = [save_component]
 
-    async def handler(state: WorkflowState, *, llm):
+    async def handler(state: WorkflowState, *, llm, tools):
         messages = [SystemMessage(content="You are a document drafter.")] + state["messages"]
-        response = await llm.ainvoke(messages)
+        response = await llm.bind_tools(tools).ainvoke(messages)
         return {"messages": [response]}
 
 

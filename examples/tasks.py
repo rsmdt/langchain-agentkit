@@ -27,19 +27,23 @@ You are a project planner. When given a complex objective:
 3. Work through tasks in order, marking each in_progress then completed
 """
 
-    async def handler(state, *, llm, prompt):
+    async def handler(state, *, llm, tools, prompt):
         messages = [SystemMessage(content=prompt)] + state["messages"]
-        response = await llm.ainvoke(messages)
+        response = await llm.bind_tools(tools).ainvoke(messages)
         return {"messages": [response]}
 
 
 async def main():
     graph = planner.compile()
     result = await graph.ainvoke(
-        {"messages": [HumanMessage(
-            "Set up a new Python project with: "
-            "1) project structure, 2) CI/CD pipeline, 3) documentation"
-        )]}
+        {
+            "messages": [
+                HumanMessage(
+                    "Set up a new Python project with: "
+                    "1) project structure, 2) CI/CD pipeline, 3) documentation"
+                )
+            ]
+        }
     )
 
     # Print the final task list from state

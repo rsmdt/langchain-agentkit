@@ -113,11 +113,11 @@ def _build_lead_with_extension(mw: AgentExtension):
             "After receiving the delegation result, report it to the user verbatim."
         )
 
-        async def handler(state, *, llm, prompt):
+        async def handler(state, *, llm, tools, prompt):
             from langchain_core.messages import SystemMessage
 
             messages = [SystemMessage(content=prompt)] + state["messages"]
-            response = await llm.ainvoke(messages)
+            response = await llm.bind_tools(tools).ainvoke(messages)
             return {"messages": [response], "sender": "lead"}
 
     return lead
@@ -203,11 +203,11 @@ class TestDynamicDelegation:
                 "the topic.'} and pass the user's message."
             )
 
-            async def handler(state, *, llm, prompt):
+            async def handler(state, *, llm, tools, prompt):
                 from langchain_core.messages import SystemMessage
 
                 messages = [SystemMessage(content=prompt)] + state["messages"]
-                response = await llm.ainvoke(messages)
+                response = await llm.bind_tools(tools).ainvoke(messages)
                 return {"messages": [response], "sender": "dynamic_lead"}
 
         graph = dynamic_lead.compile()
