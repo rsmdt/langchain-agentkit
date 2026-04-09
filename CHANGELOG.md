@@ -9,6 +9,11 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.17.0] — 2026-04-09
+
+### Changed
+- **BREAKING**: Handlers now own tool binding. The framework injects the raw `llm` and the composed `tools` list instead of pre-binding, so handlers must call `llm.bind_tools(tools, ...)` themselves before invocation. This unlocks full control over provider-specific kwargs (`strict`, `parallel_tool_calls`, `tool_choice`) and enables dynamic per-step tool filtering. Handlers that relied on a pre-bound `llm` will silently stop seeing tool calls — update them to accept `tools` in the keyword-only parameters and wrap invocation as `await llm.bind_tools(tools).ainvoke(messages)`.
+
 ## [0.16.0] — 2026-04-09
 
 ### Added
