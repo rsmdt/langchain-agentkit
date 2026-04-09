@@ -134,6 +134,19 @@ class ActiveTeam:
     member_types: dict[str, str]
 
 
+def task_status(task: asyncio.Task[str]) -> str:
+    """Classify an ``asyncio.Task`` as running / completed / cancelled / failed."""
+    if not task.done():
+        return "running"
+    try:
+        task.result()
+        return "completed"
+    except asyncio.CancelledError:
+        return "cancelled"
+    except Exception:
+        return "failed"
+
+
 def _is_shutdown_request(content: str) -> bool:
     """Check if a message content is a shutdown request.
 

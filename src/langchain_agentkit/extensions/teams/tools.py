@@ -481,19 +481,6 @@ async def _check_teammates(
     return Command(update=update)
 
 
-def _task_final_status(task: asyncio.Task[str]) -> str:
-    """Determine the final status string for a completed asyncio.Task."""
-    if not task.done():
-        return "cancelled"
-    try:
-        task.result()
-        return "completed"
-    except asyncio.CancelledError:
-        return "cancelled"
-    except Exception:
-        return "failed"
-
-
 async def _shutdown_team_tasks(
     team: Any,
     timeout: float,
@@ -550,17 +537,24 @@ async def _dissolve_team(
     ext: TeamExtension,
 ) -> Command:  # type: ignore[type-arg]
     """Gracefully shut down the team."""
+    from langchain_agentkit.extensions.teams.bus import task_status
+
     # Lock guards against concurrent dissolve/create from parallel ToolNode execution
     async with ext.team_lock:
         team = _require_active_team(ext)
 
         await _shutdown_team_tasks(team, timeout)
 
+        def _final_status(task: asyncio.Task[str]) -> str:
+            # After shutdown + cancel, any still-running task is treated as cancelled.
+            status = task_status(task)
+            return "cancelled" if status == "running" else status
+
         final_members: list[dict[str, Any]] = [
             {
                 "name": name,
                 "agent_type": team.member_types.get(name, "unknown"),
-                "status": _task_final_status(task),
+                "status": _final_status(task),
             }
             for name, task in team.members.items()
         ]

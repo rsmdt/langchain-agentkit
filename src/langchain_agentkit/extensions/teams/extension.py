@@ -108,20 +108,20 @@ class TeamExtension(Extension):
         base_prompt = _team_coordination_template.format(agent_roster=agent_roster)
 
         if self._active_team is not None:
+            from langchain_agentkit.extensions.teams.bus import task_status
+
+            status_icons = {
+                "running": "🔄",
+                "completed": "✅",
+                "cancelled": "🚫",
+                "failed": "❌",
+            }
+
             team = self._active_team
             status_lines = [f"\n### Active Team: {team.name}\n"]
             for name, task in team.members.items():
                 agent_type = team.member_types.get(name, "unknown")
-                if task.done():
-                    try:
-                        task.result()
-                        icon = "✅"
-                    except asyncio.CancelledError:
-                        icon = "🚫"
-                    except Exception:
-                        icon = "❌"
-                else:
-                    icon = "🔄"
+                icon = status_icons[task_status(task)]
                 pending = team.bus.pending_count(name)
                 pending_str = f" ({pending} pending)" if pending > 0 else ""
                 status_lines.append(f"- {icon} **{name}** ({agent_type}){pending_str}")
