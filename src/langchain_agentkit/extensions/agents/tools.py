@@ -31,31 +31,17 @@ from langgraph.prebuilt import InjectedState, ToolNode
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
+from langchain_agentkit.extensions.agents.refs import (
+    Dynamic,
+    Predefined,
+    resolve_agent_by_name,
+)
 from langchain_agentkit.state import AgentKitState
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from langchain_core.tools import BaseTool
-
-
-# ---------------------------------------------------------------------------
-# Agent reference types (discriminated by field shape)
-# ---------------------------------------------------------------------------
-
-
-class Predefined(BaseModel):
-    """Select a pre-defined agent from the roster."""
-
-    id: str = Field(description="Agent name from the available roster.")
-
-
-class Dynamic(BaseModel):
-    """Create an on-the-fly reasoning agent."""
-
-    prompt: str = Field(
-        description="System prompt defining the agent's role and behavior.",
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -100,15 +86,6 @@ class _AgentDynamicInput(_AgentInputBase):
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
-
-
-def _default_resolve_agent(agent_name: str, agents_by_name: dict[str, Any]) -> Any:
-    """Default agent resolver — simple dict lookup with ToolException on miss."""
-    if agent_name not in agents_by_name:
-        raise ToolException(
-            f"Agent '{agent_name}' not found. Check the agent roster for available names."
-        )
-    return agents_by_name[agent_name]
 
 
 def _build_scoped_state(message: str, sender: str = "parent") -> dict[str, Any]:
@@ -267,7 +244,6 @@ async def _agent_tool(
     parent_llm_getter: Callable[[], Any] | None,
     model_resolver: Callable[[str], Any] | None = None,
     skills_resolver: Callable[[list[str]], str] | None = None,
-    resolve_agent_fn: Callable[..., Any] | None = None,
 ) -> Any:
     """Delegate a task to a pre-defined or dynamically created agent."""
     # Normalise to dict — LangChain may pass a Pydantic model or a raw dict
@@ -285,7 +261,6 @@ async def _agent_tool(
             parent_llm_getter=parent_llm_getter,
             model_resolver=model_resolver,
             skills_resolver=skills_resolver,
-            resolve_agent_fn=resolve_agent_fn,
         )
 
     if "prompt" in agent_ref:
@@ -319,7 +294,6 @@ async def _delegate_predefined(
     parent_llm_getter: Callable[[], Any] | None = None,
     model_resolver: Callable[[str], Any] | None = None,
     skills_resolver: Callable[[list[str]], str] | None = None,
-    resolve_agent_fn: Callable[..., Any] | None = None,
 ) -> Any:
     """Delegate a task to a named pre-defined agent.
 
@@ -327,8 +301,7 @@ async def _delegate_predefined(
     Definition-based agents (those with ``_agent_config``) are compiled
     at delegation time with resolved model, tools, skills, and max_turns.
     """
-    _resolve = resolve_agent_fn or _default_resolve_agent
-    target = _resolve(agent_id, agents_by_name)
+    target = resolve_agent_by_name(agent_id, agents_by_name)
 
     # Definition-based agents → resolve and compile at delegation time
     from langchain_agentkit.extensions.agents.types import AgentConfig
@@ -580,7 +553,6 @@ def create_agent_tools(
     parent_llm_getter: Callable[[], Any] | None,
     model_resolver: Callable[[str], Any] | None = None,
     skills_resolver: Callable[[list[str]], str] | None = None,
-    resolve_agent_fn: Callable[..., Any] | None = None,
 ) -> list[BaseTool]:
     """Create the unified Agent tool for agent-to-agent delegation.
 
@@ -613,7 +585,6 @@ def create_agent_tools(
         parent_llm_getter=parent_llm_getter,
         model_resolver=model_resolver,
         skills_resolver=skills_resolver,
-        resolve_agent_fn=resolve_agent_fn,
     )
 
     tool = StructuredTool.from_function(

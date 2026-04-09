@@ -7,9 +7,8 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import ToolException
 from langgraph.types import Command
 
+from langchain_agentkit.extensions.agents.refs import Dynamic, Predefined
 from langchain_agentkit.extensions.agents.tools import (
-    Dynamic,
-    Predefined,
     _agent_tool,
     _AgentDynamicInput,
     _AgentInput,

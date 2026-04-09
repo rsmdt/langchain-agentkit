@@ -41,12 +41,12 @@ class TeamExtension(Extension):
         max_team_size: int = 5,
         router_timeout: float = 30.0,
     ) -> None:
-        from langchain_agentkit.extensions.agents.extension import _validate_agent_list
+        from langchain_agentkit.extensions.agents.refs import validate_agent_list
 
         if max_team_size < 1:
             raise ValueError("max_team_size must be >= 1")
 
-        self._agents_by_name: dict[str, Any] = _validate_agent_list(agents)
+        self._agents_by_name: dict[str, Any] = validate_agent_list(agents)
         self._ephemeral = ephemeral
         self._max_team_size = max_team_size
         self._router_timeout = router_timeout

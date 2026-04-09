@@ -12,6 +12,7 @@ from langchain_agentkit.extensions.agents.discovery import (
     discover_agents_from_backend,
     discover_agents_from_directory,
 )
+from langchain_agentkit.extensions.agents.refs import validate_agent_list
 from langchain_agentkit.extensions.agents.types import (
     _AgentConfigProxy,
     _wrap_agents,
@@ -82,37 +83,6 @@ def _get_tools_description(agent: Any) -> str:
     return ", ".join(effective)
 
 
-def _validate_agent_list(agents: list[Any]) -> dict[str, Any]:
-    """Validate agent list and return agents_by_name dict."""
-    if not agents:
-        raise ValueError("agents list cannot be empty")
-    names = [getattr(g, "name", None) for g in agents]
-    if any(n is None for n in names):
-        raise ValueError("All agents must have a name")
-    if len(set(names)) != len(names):
-        dupes = [n for n in names if names.count(n) > 1]
-        raise ValueError(f"Duplicate agent names: {set(dupes)}")
-    return {name: agent for name, agent in zip(names, agents, strict=True)}  # type: ignore[misc]
-
-
-def _resolve_agent(agent_name: str, agents_by_name: dict[str, Any]) -> Any:
-    """Look up an agent by name."""
-    import logging
-
-    from langchain_core.tools import ToolException
-
-    if agent_name not in agents_by_name:
-        logging.getLogger(__name__).warning(
-            "Agent '%s' not found. Registered: %s",
-            agent_name,
-            sorted(agents_by_name.keys()),
-        )
-        raise ToolException(
-            f"Agent '{agent_name}' not found. Check the agent roster for available names."
-        )
-    return agents_by_name[agent_name]
-
-
 class AgentExtension(Extension):
     """Extension providing blocking subagent delegation via the Agent tool.
 
@@ -144,7 +114,7 @@ class AgentExtension(Extension):
     ) -> None:
         if isinstance(agents, list):
             wrapped = _wrap_agents(agents)
-            self._agents_by_name: dict[str, Any] = _validate_agent_list(wrapped)
+            self._agents_by_name: dict[str, Any] = validate_agent_list(wrapped)
             self._has_config_agents = any(isinstance(a, _AgentConfigProxy) for a in wrapped)
         elif isinstance(agents, (str, Path)):
             if backend is not None:
@@ -153,7 +123,7 @@ class AgentExtension(Extension):
                 defs = discover_agents_from_directory(Path(agents))
             proxies = [_AgentConfigProxy(d) for d in defs]
             if proxies:
-                self._agents_by_name = _validate_agent_list(proxies)
+                self._agents_by_name = validate_agent_list(proxies)
             else:
                 self._agents_by_name = {}
             self._has_config_agents = bool(proxies)
@@ -228,7 +198,6 @@ class AgentExtension(Extension):
             skills_resolver=(
                 lambda names: self._skills_resolver(names) if self._skills_resolver else None  # type: ignore[arg-type, return-value]
             ),
-            resolve_agent_fn=_resolve_agent,
         )
 
     def set_parent_tools_getter(self, getter: Any) -> None:

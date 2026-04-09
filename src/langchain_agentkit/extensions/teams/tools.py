@@ -26,7 +26,7 @@ from langgraph.prebuilt import InjectedState
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from langchain_agentkit.extensions.agents.tools import Dynamic, Predefined
+from langchain_agentkit.extensions.agents.refs import Dynamic, Predefined
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
@@ -239,7 +239,7 @@ async def _agent_team_inner(  # noqa: C901
 
     # Resolve agent references
     registered_agents = ext.agents_by_name
-    from langchain_agentkit.extensions.agents.extension import _resolve_agent as resolve_agent
+    from langchain_agentkit.extensions.agents.refs import resolve_agent_by_name
 
     def _parse_ref(agent_spec: Any) -> tuple[str, str | None, str | None]:
         """Extract (member_name, agent_id, agent_prompt) from a spec."""
@@ -265,7 +265,7 @@ async def _agent_team_inner(  # noqa: C901
                     "Set ephemeral=True on TeamExtension to allow custom agents."
                 )
         elif agent_id is not None:
-            resolve_agent(agent_id, registered_agents)
+            resolve_agent_by_name(agent_id, registered_agents)
 
     # Create message bus and register all agents + lead
     bus = TeamMessageBus()
