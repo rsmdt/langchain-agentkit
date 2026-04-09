@@ -9,6 +9,18 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.16.0] — 2026-04-09
+
+### Added
+- `Extension.setup()` lifecycle hook, called once after dependency resolution and before graph building. Extensions declare only the kwargs they need (`extensions`, `prompt`) and AgentKit dispatches via signature introspection, letting extensions self-wire without leaky AgentKit plumbing.
+- `CHANGELOG.md` with backfilled entries for v0.6.0 through v0.15.0, plus a reusable `scripts/changelog-entry.sh` generator that pipes commits to `claude -p` at release time. Release flow is documented in `CLAUDE.md`.
+- README coverage for `HistoryExtension` and the `setup()` lifecycle hook.
+
+### Changed
+- **BREAKING**: `model_resolver` moved from `AgentKit.__init__` to `AgentExtension`, where it's actually used. `AgentKit.resolve_model()` now scans extensions for any with a `model_resolver` attribute, so string-based model references in the agent metaclass pattern continue to work — but callers passing `AgentKit(model_resolver=...)` must migrate.
+- **BREAKING**: `TasksExtension`, `FilesystemExtension`, and `AgentExtension` now derive team awareness, HITL availability, and skills resolver discovery inside their own `setup()` implementations. The following setters and constructor arguments have been removed: `TasksExtension(team_active=...)`, `AgentExtension.set_model_resolver()`, `AgentExtension.set_skills_resolver()`, and `FilesystemExtension.set_hitl_available()`.
+- `CLAUDE.md` eval test documentation now distinguishes dataset validation (`test_eval_runner.py`, no API calls) from LLM integration evals (`-m eval`, requires `OPENAI_API_KEY`), and warns that `pytest -m eval` skips the dataset validation tests.
+
 ## [0.15.0] — 2026-04-09
 
 ### Added
@@ -155,6 +167,7 @@ Version bump only — no code changes.
 ### Removed
 - Dead code paths eliminated as part of the runtime migration, reducing surface area and simplifying the extension framework internals.
 
+[0.16.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.16.0
 [0.15.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.15.0
 [0.14.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.14.0
 [0.13.1]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.13.1
