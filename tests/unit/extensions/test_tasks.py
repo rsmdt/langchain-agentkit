@@ -1,3 +1,4 @@
+# ruff: noqa: N801, N805
 """Tests for TasksExtension."""
 
 from unittest.mock import MagicMock
@@ -248,16 +249,34 @@ class TestConditionalTeamTips:
         assert "Team tips" not in tool_descriptions[0]
 
     def test_team_active_adds_tips(self):
-        mw = TasksExtension(team_active=True)
+        from langchain_agentkit import AgentKit, TeamExtension, agent
 
-        tool_descriptions = [t.description for t in mw.tools if t.name == "TaskCreate"]
+        class teammate(agent):
+            model = MagicMock()
+
+            async def handler(state, *, llm):
+                return {"messages": [], "sender": "teammate"}
+
+        kit = AgentKit(extensions=[TasksExtension(), TeamExtension(agents=[teammate])])
+        tasks_ext = next(e for e in kit._extensions if isinstance(e, TasksExtension))
+
+        tool_descriptions = [t.description for t in tasks_ext.tools if t.name == "TaskCreate"]
         assert len(tool_descriptions) == 1
         assert "Team tips" in tool_descriptions[0]
 
     def test_team_active_adds_teammate_context_inline(self):
-        mw = TasksExtension(team_active=True)
+        from langchain_agentkit import AgentKit, TeamExtension, agent
 
-        tool_descriptions = [t.description for t in mw.tools if t.name == "TaskCreate"]
+        class teammate(agent):
+            model = MagicMock()
+
+            async def handler(state, *, llm):
+                return {"messages": [], "sender": "teammate"}
+
+        kit = AgentKit(extensions=[TasksExtension(), TeamExtension(agents=[teammate])])
+        tasks_ext = next(e for e in kit._extensions if isinstance(e, TasksExtension))
+
+        tool_descriptions = [t.description for t in tasks_ext.tools if t.name == "TaskCreate"]
         assert "assigned to teammates" in tool_descriptions[0]
 
 

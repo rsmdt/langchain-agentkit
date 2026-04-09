@@ -378,3 +378,104 @@ class TestInjectSystemReminder:
 
         assert len(result["messages"]) == 2
         assert result["messages"][0] is existing
+
+
+class TestSetupLifecycle:
+    """Test the setup() lifecycle hook and introspection-based dispatch."""
+
+    def test_setup_called_with_extensions(self):
+        from langchain_agentkit.extension import Extension
+
+        received: list[object] = []
+
+        class Recorder(Extension):
+            def setup(self, *, extensions, **_):
+                received.extend(extensions)
+
+        ext = Recorder()
+        kit = AgentKit(extensions=[ext])
+
+        assert ext in received
+        assert len(received) == len(kit._extensions)
+
+    def test_setup_receives_prompt(self):
+        from langchain_agentkit.extension import Extension
+
+        captured: dict[str, object] = {}
+
+        class PromptCapture(Extension):
+            def setup(self, *, prompt, **_):
+                captured["prompt"] = prompt
+
+        AgentKit(extensions=[PromptCapture()], prompt="Base prompt.")
+
+        assert captured["prompt"] == "Base prompt."
+
+    def test_setup_only_receives_declared_kwargs(self):
+        """Introspection should pass only what the extension's signature declares."""
+        from langchain_agentkit.extension import Extension
+
+        seen: dict[str, object] = {}
+
+        class MinimalSetup(Extension):
+            def setup(self, *, extensions):
+                seen["extensions"] = extensions
+                # prompt not declared — should not be injected
+
+        AgentKit(extensions=[MinimalSetup()], prompt="Hello")
+
+        assert "extensions" in seen
+        # MinimalSetup's signature only declares `extensions` — no other kwargs
+        # are passed to it (introspection filters them out)
+
+    def test_setup_with_var_keyword_receives_all(self):
+        from langchain_agentkit.extension import Extension
+
+        captured: dict[str, object] = {}
+
+        class VarKwargs(Extension):
+            def setup(self, **kwargs):
+                captured.update(kwargs)
+
+        AgentKit(extensions=[VarKwargs()], prompt="Hello")
+
+        assert "extensions" in captured
+        assert "prompt" in captured
+        assert captured["prompt"] == "Hello"
+
+    def test_setup_default_noop(self):
+        """Extension with no setup() override should not error."""
+        from langchain_agentkit.extension import Extension
+
+        class Plain(Extension):
+            pass
+
+        # Should not raise
+        AgentKit(extensions=[Plain()])
+
+    def test_resolve_model_via_extension(self):
+        """kit.resolve_model() should find a model_resolver on any extension."""
+        from langchain_agentkit.extension import Extension
+
+        class ResolverExt(Extension):
+            model_resolver = staticmethod(lambda name: f"resolved:{name}")
+
+        kit = AgentKit(extensions=[ResolverExt()])
+
+        assert kit.resolve_model("gpt-4o") == "resolved:gpt-4o"
+
+    def test_resolve_model_raises_when_no_resolver(self):
+        import pytest
+
+        kit = AgentKit(extensions=[])
+
+        with pytest.raises(ValueError, match="no extension provides a model_resolver"):
+            kit.resolve_model("gpt-4o")
+
+    def test_resolve_model_passes_through_non_string(self):
+        from unittest.mock import MagicMock
+
+        kit = AgentKit(extensions=[])
+        obj = MagicMock()
+
+        assert kit.resolve_model(obj) is obj

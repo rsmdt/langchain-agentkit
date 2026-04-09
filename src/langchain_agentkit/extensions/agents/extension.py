@@ -18,6 +18,9 @@ from langchain_agentkit.extensions.agents.types import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from langchain_core.language_models import BaseChatModel
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
 
@@ -123,6 +126,10 @@ class AgentExtension(Extension):
         ephemeral: Enable dynamic (on-the-fly) agents.
         default_conciseness: Append conciseness directive.
         delegation_timeout: Max seconds to wait for a subagent response.
+        model_resolver: Optional callable mapping model name strings to
+            ``BaseChatModel`` instances.  Required if any agent definition
+            uses a string model reference.  Also used by ``AgentKit`` to
+            resolve string-based parent model references.
     """
 
     def __init__(
@@ -133,6 +140,7 @@ class AgentExtension(Extension):
         ephemeral: bool = False,
         default_conciseness: bool = True,
         delegation_timeout: float = 300.0,
+        model_resolver: Callable[[str], BaseChatModel] | None = None,
     ) -> None:
         if isinstance(agents, list):
             wrapped = _wrap_agents(agents)
@@ -160,10 +168,48 @@ class AgentExtension(Extension):
 
         self._parent_tools_getter: Any = list
         self._parent_llm_getter: Any = None
-        self._model_resolver: Any = None
+        self._model_resolver: Any = model_resolver
         self._skills_resolver: Any = None
 
         self._tools = tuple(self._create_tools())
+
+    @property
+    def model_resolver(self) -> Callable[[str], BaseChatModel] | None:
+        """Return the configured model resolver, if any.
+
+        Exposed as a public attribute so ``AgentKit.resolve_model()`` can
+        discover it without any cross-extension wiring.
+        """
+        return self._model_resolver  # type: ignore[no-any-return]
+
+    def setup(  # type: ignore[override]
+        self, *, extensions: list[Extension], **_: Any
+    ) -> None:
+        """Discover SkillsExtension sibling to enable skill preloading in subagents."""
+        from langchain_agentkit.extensions.skills import SkillsExtension
+
+        skills_ext = next(
+            (e for e in extensions if isinstance(e, SkillsExtension)),
+            None,
+        )
+        if skills_ext is None:
+            return
+
+        configs = skills_ext.configs
+
+        def _resolve_skills(
+            names: list[str],
+            _configs: list[Any] = configs,
+        ) -> str:
+            index = {c.name: c for c in _configs}
+            parts = []
+            for name in names:
+                config = index.get(name)
+                if config:
+                    parts.append(config.prompt)
+            return "\n\n".join(parts)
+
+        self._skills_resolver = _resolve_skills
 
     def _create_tools(self) -> list[BaseTool]:
         from langchain_agentkit.extensions.agents.tools import create_agent_tools
@@ -190,12 +236,6 @@ class AgentExtension(Extension):
 
     def set_parent_llm_getter(self, getter: Any) -> None:
         self._parent_llm_getter = getter
-
-    def set_model_resolver(self, resolver: Any) -> None:
-        self._model_resolver = resolver
-
-    def set_skills_resolver(self, resolver: Any) -> None:
-        self._skills_resolver = resolver
 
     @property
     def agents_by_name(self) -> dict[str, Any]:

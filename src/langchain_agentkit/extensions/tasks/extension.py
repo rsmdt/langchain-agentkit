@@ -71,16 +71,32 @@ class TasksExtension(Extension):
         *,
         task_tools: list[BaseTool] | None = None,
         formatter: Callable[[list[dict[str, Any]]], str] | None = None,
-        team_active: bool = False,
     ) -> None:
-        self._team_active = team_active
-        if task_tools is not None:
-            self._tools = tuple(task_tools)
-        else:
-            from langchain_agentkit.extensions.tasks.tools import create_task_tools
-
-            self._tools = tuple(create_task_tools(team_active=team_active))
+        self._custom_tools: tuple[BaseTool, ...] | None = (
+            tuple(task_tools) if task_tools is not None else None
+        )
+        self._tools: tuple[BaseTool, ...] = ()
         self._formatter = formatter or format_task_context
+        # Build default tools; setup() may rebuild with team-aware descriptions.
+        self._build_tools(team_active=False)
+
+    def _build_tools(self, *, team_active: bool) -> None:
+        """(Re)build the tool tuple with the given team-awareness flag."""
+        if self._custom_tools is not None:
+            self._tools = self._custom_tools
+            return
+        from langchain_agentkit.extensions.tasks.tools import create_task_tools
+
+        self._tools = tuple(create_task_tools(team_active=team_active))
+
+    def setup(  # type: ignore[override]
+        self, *, extensions: list[Extension], **_: Any
+    ) -> None:
+        """Rebuild tools with team-aware descriptions when TeamExtension is present."""
+        from langchain_agentkit.extensions.teams import TeamExtension
+
+        has_team = any(isinstance(e, TeamExtension) for e in extensions)
+        self._build_tools(team_active=has_team)
 
     @property
     def state_schema(self) -> type:

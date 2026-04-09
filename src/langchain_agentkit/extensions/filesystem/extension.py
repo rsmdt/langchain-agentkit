@@ -102,8 +102,19 @@ class FilesystemExtension(Extension):
     ) -> None:
         self._backend = backend or OSBackend(str(root))
         self._permissions = permissions
-        self._hitl_available = False  # Resolved by AgentKit._wire_extensions
+        self._hitl_available = False  # Resolved by setup()
         self._tools_cache: list[BaseTool] | None = None
+
+    def setup(  # type: ignore[override]
+        self, *, extensions: list[Extension], **_: Any
+    ) -> None:
+        """Detect HITLExtension sibling to enable interrupt-based approval."""
+        from langchain_agentkit.extensions.hitl import HITLExtension
+
+        self._hitl_available = any(isinstance(e, HITLExtension) for e in extensions)
+        # Invalidate cached tools so the next access rebuilds them with
+        # the correct HITL-aware gating.
+        self._tools_cache = None
 
     @property
     def backend(self) -> BackendProtocol:
@@ -114,14 +125,6 @@ class FilesystemExtension(Extension):
     def permissions(self) -> PermissionRuleset | None:
         """The permission ruleset, or None if ungated."""
         return self._permissions
-
-    def set_hitl_available(self, available: bool) -> None:
-        """Set whether HITL (interrupt-based approval) is available.
-
-        Called by AgentKit._wire_extensions when HITLExtension is detected
-        as a sibling extension.
-        """
-        self._hitl_available = available
 
     @property
     def state_schema(self) -> None:

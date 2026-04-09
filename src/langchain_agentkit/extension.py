@@ -94,6 +94,47 @@ class Extension:
         """
         return []
 
+    def setup(self, **kwargs: Any) -> None:
+        """Finalize configuration once the kit is assembled.
+
+        Called once by :class:`AgentKit` after dependency resolution and
+        before the graph is built.  Override to react to other extensions
+        or capture kit-level config.
+
+        The framework calls this method with keyword arguments drawn from
+        the ``AgentKit`` configuration.  Each extension declares only the
+        parameters it needs via its own ``setup()`` signature — the
+        framework inspects the signature and passes only the matching
+        kwargs.  Currently available::
+
+            def setup(self, *, extensions: list[Extension]) -> None: ...
+            def setup(self, *, extensions, prompt) -> None: ...
+
+        ``extensions`` is the full ordered list of extensions in the kit,
+        including ``self``.  ``prompt`` is the base prompt configured on
+        ``AgentKit`` (an empty string if none was provided).
+
+        **Contract — inspect presence, not state:**
+
+        ``setup()`` is called in declaration order, which means another
+        extension's ``setup()`` may not have run yet when yours executes.
+        You MUST only inspect the *presence* of sibling extensions (via
+        ``isinstance()`` checks) — never read mutable state that another
+        extension's ``setup()`` might populate.  Anything that depends on
+        another extension being fully configured should happen lazily,
+        at runtime, not during ``setup()``.
+
+        **Error handling:** Exceptions raised from ``setup()`` propagate
+        out of ``AgentKit.__init__``.  Setup failures are intentionally
+        fatal — a mis-configured extension should block kit construction
+        rather than silently degrade at runtime.
+
+        **Idempotency:** ``setup()`` is called exactly once per kit.  If
+        the same instance is added to multiple kits, it will be called
+        once per kit — keep overrides idempotent (safe to call more than
+        once with the same or different sibling sets).
+        """
+
     # --- Hook discovery ---
 
     @classmethod

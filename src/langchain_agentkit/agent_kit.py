@@ -26,13 +26,11 @@ Prompt templates can be loaded from files or provided as inline strings::
 
 from __future__ import annotations
 
+import inspect
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from langchain_core.language_models import BaseChatModel
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
 
@@ -61,74 +59,43 @@ class AgentKit:
         self,
         extensions: list[Extension] | None = None,
         prompt: str | Path | list[str | Path] | None = None,
-        model_resolver: Callable[[str], BaseChatModel] | None = None,
     ) -> None:
         self._extensions = self._resolve_dependencies(list(extensions or []))
         self._prompt = _load_prompt(prompt)
         self._tools_cache: list[BaseTool] | None = None
-        self._model_resolver = model_resolver
-        self._wire_extensions()
+        self._run_setup()
 
-    def _wire_extensions(self) -> None:  # noqa: C901
-        """Wire cross-extension callbacks after all extensions are resolved.
+    def _run_setup(self) -> None:
+        """Call ``setup()`` on each extension with introspection-based kwargs.
 
-        - Sets model_resolver and skills_resolver on AgentExtension if present.
-        - Detects HITLExtension and notifies FilesystemExtension for permission gating.
+        Each extension declares only the kwargs it needs via its own
+        ``setup()`` signature.  This method inspects the signature and
+        passes only the matching subset from the available kit-level
+        configuration.
         """
-        from langchain_agentkit.extensions.agents import AgentExtension
-        from langchain_agentkit.extensions.filesystem import FilesystemExtension
-        from langchain_agentkit.extensions.hitl import HITLExtension
-        from langchain_agentkit.extensions.skills import SkillsExtension
-        from langchain_agentkit.extensions.tasks import TasksExtension
-        from langchain_agentkit.extensions.teams import TeamExtension
-
-        # Find sibling extensions for cross-wiring
-        skills_ext = None
-        has_hitl = False
-        has_team = False
+        available: dict[str, Any] = {
+            "extensions": self._extensions,
+            "prompt": self._prompt,
+        }
         for ext in self._extensions:
-            if isinstance(ext, SkillsExtension):
-                skills_ext = ext
-            if isinstance(ext, HITLExtension):
-                has_hitl = True
-            if isinstance(ext, TeamExtension):
-                has_team = True
-
-        # Wire team_active flag into TasksExtension when teams are present
-        if has_team:
-            for ext in self._extensions:
-                if isinstance(ext, TasksExtension) and not ext._team_active:
-                    ext._team_active = True
-                    # Rebuild tools with team-aware descriptions
-                    from langchain_agentkit.extensions.tasks.tools import create_task_tools
-
-                    ext._tools = tuple(create_task_tools(team_active=True))
-                    self._tools_cache = None  # invalidate cached tools
-
-        for ext in self._extensions:
-            if isinstance(ext, AgentExtension):
-                if self._model_resolver is not None:
-                    ext.set_model_resolver(self._model_resolver)
-                if skills_ext is not None:
-                    configs = skills_ext.configs
-
-                    def _resolve_skills(
-                        names: list[str],
-                        _configs: list[Any] = configs,
-                    ) -> str:
-                        index = {c.name: c for c in _configs}
-                        parts = []
-                        for name in names:
-                            config = index.get(name)
-                            if config:
-                                parts.append(config.prompt)
-                        return "\n\n".join(parts)
-
-                    ext.set_skills_resolver(_resolve_skills)
-
-            # Wire HITL availability into FilesystemExtension for permission gating
-            if isinstance(ext, FilesystemExtension) and has_hitl:
-                ext.set_hitl_available(True)
+            setup = getattr(ext, "setup", None)
+            if not callable(setup):
+                continue
+            try:
+                sig_params = inspect.signature(setup).parameters
+            except (TypeError, ValueError):
+                continue
+            # If the method accepts **kwargs, pass everything; otherwise filter.
+            accepts_var_keyword = any(
+                p.kind is inspect.Parameter.VAR_KEYWORD for p in sig_params.values()
+            )
+            if accepts_var_keyword:
+                kwargs = dict(available)
+            else:
+                kwargs = {k: v for k, v in available.items() if k in sig_params}
+            setup(**kwargs)
+        # Extensions may have rebuilt their tools during setup — invalidate.
+        self._tools_cache = None
 
     @staticmethod
     def _resolve_dependencies(extensions: list[Any]) -> list[Any]:
@@ -192,28 +159,28 @@ class AgentKit:
             return AgentKitState
         return type("ComposedState", tuple(bases), {})
 
-    @property
-    def model_resolver(self) -> Callable[[str], BaseChatModel] | None:
-        """The model resolver for string-based model references."""
-        return self._model_resolver
-
     def resolve_model(self, model: Any) -> Any:
         """Resolve a model reference to a BaseChatModel instance.
 
-        If *model* is a string, passes it through ``model_resolver``.
-        Otherwise returns it as-is (assumed to be a BaseChatModel already).
+        If *model* is a string, scans extensions for one that exposes a
+        ``model_resolver`` attribute and uses it.  Otherwise returns the
+        input as-is (assumed to be a BaseChatModel already).
 
         Raises:
-            ValueError: If *model* is a string but no ``model_resolver`` is configured.
+            ValueError: If *model* is a string but no extension provides
+                a ``model_resolver``.
         """
-        if isinstance(model, str):
-            if self._model_resolver is None:
-                raise ValueError(
-                    f"model='{model}' is a string but no model_resolver is configured "
-                    f"on AgentKit. Pass model_resolver=<callable> to AgentKit()."
-                )
-            return self._model_resolver(model)
-        return model
+        if not isinstance(model, str):
+            return model
+        for ext in self._extensions:
+            resolver = getattr(ext, "model_resolver", None)
+            if callable(resolver):
+                return resolver(model)
+        raise ValueError(
+            f"model='{model}' is a string but no extension provides a "
+            f"model_resolver. Pass AgentExtension(model_resolver=<callable>) "
+            f"or use a BaseChatModel instance."
+        )
 
     def _collect_contributions(
         self,
