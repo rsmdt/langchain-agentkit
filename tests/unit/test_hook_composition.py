@@ -474,3 +474,148 @@ class TestJumpToRouting:
             runner = HookRunner([JumpExt()])
             updates = await runner.run_before("model", state={}, runtime=None)
             assert updates == [{"jump_to": target}]
+
+
+class TestBeforeModelPersistence:
+    """before_model state updates persist into graph state via the agent node.
+
+    Historical behavior applied before_model updates ephemerally — they
+    affected the LLM call only and never reached the checkpointer.  This
+    was inconsistent with the jump_to path (which DID return a persisted
+    update) and made hook-based message capture impossible.  The agent
+    node now merges before_model returns into the node's output:
+    ``messages`` concatenates with handler/after_model output so both
+    sources reach the ``add_messages`` reducer, and all other keys are
+    filled via ``setdefault`` so late-writer (handler / after_model)
+    wins on collisions.
+    """
+
+    @pytest.mark.asyncio
+    async def test_before_model_messages_persist_to_state(self):
+        """before_model returning {'messages': [...]} lands in state."""
+        from unittest.mock import MagicMock
+
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        from langchain_agentkit import agent
+
+        injected = HumanMessage(content="injected by before_model")
+
+        class InjectExtension(Extension):
+            async def before_model(self, *, state, runtime):
+                return {"messages": [injected]}
+
+        mock_llm = MagicMock()
+        mock_llm.bind_tools = MagicMock(return_value=mock_llm)
+
+        class my_agent(agent):
+            model = mock_llm
+            extensions = [InjectExtension()]
+
+            async def handler(state, *, llm, prompt):
+                return {"messages": [AIMessage(content="handler response")]}
+
+        compiled = my_agent.compile()
+        result = await compiled.ainvoke({"messages": [HumanMessage(content="hello")]})
+
+        contents = [m.content for m in result["messages"]]
+        assert "injected by before_model" in contents
+        assert "handler response" in contents
+        # User message comes first, then the before_model injection, then
+        # the handler response — order matters for conversational sanity.
+        user_idx = contents.index("hello")
+        inject_idx = contents.index("injected by before_model")
+        handler_idx = contents.index("handler response")
+        assert user_idx < inject_idx < handler_idx
+
+    @pytest.mark.asyncio
+    async def test_before_model_non_message_keys_yield_to_handler(self):
+        """Non-message keys from before_model are overridden by handler return."""
+        from unittest.mock import MagicMock
+
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        from langchain_agentkit import agent
+
+        class BeforeExtension(Extension):
+            async def before_model(self, *, state, runtime):
+                return {"sender": "before_model_hook"}
+
+        mock_llm = MagicMock()
+        mock_llm.bind_tools = MagicMock(return_value=mock_llm)
+
+        class my_agent(agent):
+            model = mock_llm
+            extensions = [BeforeExtension()]
+
+            async def handler(state, *, llm, prompt):
+                return {
+                    "messages": [AIMessage(content="ok")],
+                    "sender": "handler",
+                }
+
+        compiled = my_agent.compile()
+        result = await compiled.ainvoke({"messages": [HumanMessage(content="hi")]})
+
+        # Handler's sender wins — before_model only fills unset keys.
+        assert result["sender"] == "handler"
+
+    @pytest.mark.asyncio
+    async def test_before_model_unset_keys_land_in_state(self):
+        """before_model keys that the handler doesn't return DO persist."""
+        from unittest.mock import MagicMock
+
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        from langchain_agentkit import agent
+
+        class BeforeExtension(Extension):
+            async def before_model(self, *, state, runtime):
+                return {"sender": "before_model_only"}
+
+        mock_llm = MagicMock()
+        mock_llm.bind_tools = MagicMock(return_value=mock_llm)
+
+        class my_agent(agent):
+            model = mock_llm
+            extensions = [BeforeExtension()]
+
+            async def handler(state, *, llm, prompt):
+                return {"messages": [AIMessage(content="ok")]}
+
+        compiled = my_agent.compile()
+        result = await compiled.ainvoke({"messages": [HumanMessage(content="hi")]})
+
+        assert result["sender"] == "before_model_only"
+
+    @pytest.mark.asyncio
+    async def test_before_model_jump_to_still_short_circuits(self):
+        """jump_to path is unchanged — still returns early from the node."""
+        from unittest.mock import MagicMock
+
+        from langchain_core.messages import HumanMessage
+
+        from langchain_agentkit import agent
+
+        handler_called = []
+
+        class JumpExtension(Extension):
+            async def before_model(self, *, state, runtime):
+                return {"jump_to": "end"}
+
+        mock_llm = MagicMock()
+        mock_llm.bind_tools = MagicMock(return_value=mock_llm)
+
+        class my_agent(agent):
+            model = mock_llm
+            extensions = [JumpExtension()]
+
+            async def handler(state, *, llm, prompt):
+                handler_called.append(True)
+                return {}
+
+        compiled = my_agent.compile()
+        await compiled.ainvoke({"messages": [HumanMessage(content="hi")]})
+
+        # Jump to end bypasses the handler completely.
+        assert handler_called == []

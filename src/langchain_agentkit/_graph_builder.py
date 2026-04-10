@@ -71,6 +71,51 @@ def _inject_system_reminder(
     }
 
 
+def _merge_before_updates_into_result(
+    result: dict[str, Any],
+    persisted_before: dict[str, Any],
+) -> None:
+    """Merge before_model updates into the node's final state update.
+
+    ``messages`` is concatenated so both sources reach the ``add_messages``
+    reducer (before_model messages first, preserving chronological order).
+    All other keys are filled via ``setdefault`` so existing values in
+    ``result`` (from handler / after_model) take precedence — before_model
+    only fills in unset keys. Mutates ``result`` in place.
+    """
+    if not persisted_before:
+        return
+    before_messages = persisted_before.pop("messages", None)
+    for k, v in persisted_before.items():
+        result.setdefault(k, v)
+    if before_messages:
+        combined = list(before_messages)
+        combined.extend(result.get("messages") or [])
+        result["messages"] = combined
+
+
+def _process_before_updates(
+    before_updates: list[dict[str, Any]],
+    handler_state: dict[str, Any],
+    persisted_before: dict[str, Any],
+) -> dict[str, Any] | None:
+    """Apply before_model updates and track persistence.
+
+    Returns an early-exit state update if any hook requested a ``jump_to``
+    routing directive; otherwise returns ``None`` and mutates
+    ``handler_state`` / ``persisted_before`` in place.
+    """
+    for update in before_updates:
+        if "jump_to" in update:
+            state_update = {k: v for k, v in update.items() if k != "jump_to"}
+            state_update["_agentkit_jump_to"] = update["jump_to"]
+            return state_update
+        handler_state.update(update)
+        for k, v in update.items():
+            persisted_before[k] = v
+    return None
+
+
 def build_graph(  # noqa: C901
     name: str,
     handler: Any,
@@ -109,17 +154,17 @@ def build_graph(  # noqa: C901
         )
 
         # --- before_model hooks ---
+        # before_model updates apply to handler_state (for the current LLM
+        # call) AND persist into graph state at node exit — symmetric with
+        # after_model.  The ``messages`` channel is concatenated with
+        # handler/after_model output so the ``add_messages`` reducer sees
+        # both sources; other keys yield to handler/after_model on collisions.
         before_updates = await hook_runner.run_before("model", state=state, runtime=runtime)
-
-        # Apply before_model updates ephemerally (affects LLM call, not
-        # persisted to graph state).  Check for jump_to routing directive.
         handler_state = dict(state)
-        for update in before_updates:
-            if "jump_to" in update:
-                state_update = {k: v for k, v in update.items() if k != "jump_to"}
-                state_update["_agentkit_jump_to"] = update["jump_to"]
-                return state_update
-            handler_state.update(update)
+        persisted_before: dict[str, Any] = {}
+        jump_update = _process_before_updates(before_updates, handler_state, persisted_before)
+        if jump_update is not None:
+            return jump_update
 
         # --- compose prompt and system reminder (single pass) ---
         # NOTE: called per-step intentionally. Extension prompts are dynamic —
@@ -175,6 +220,8 @@ def build_graph(  # noqa: C901
             if "_agentkit_jump_to" not in result:
                 result["_agentkit_jump_to"] = None
 
+            _merge_before_updates_into_result(result, persisted_before)
+
         return result  # type: ignore[no-any-return]
 
     _agent_node.__name__ = node_name
@@ -229,6 +276,14 @@ def build_graph(  # noqa: C901
     workflow: StateGraph[Any] = StateGraph(state_type)
     workflow.add_node(node_name, _agent_node)  # type: ignore[type-var]
 
+    # Add run lifecycle nodes BEFORE graph_modifier so extensions (e.g.,
+    # the team router) can reference ``_run_exit`` as a terminating
+    # destination instead of jumping straight to END and skipping
+    # after_run cleanup.
+    if has_run_hooks:
+        workflow.add_node("_run_entry", _run_entry_node)  # type: ignore[type-var]
+        workflow.add_node("_run_exit", _run_exit_node)  # type: ignore[type-var]
+
     # Allow extensions to add nodes (e.g., Router Node) before edges are wired
     if extensions_list:
         for ext in extensions_list:
@@ -237,11 +292,6 @@ def build_graph(  # noqa: C901
                 workflow = modifier(workflow, node_name)
 
     has_router = "router" in workflow.nodes
-
-    # Add run lifecycle nodes if any run hooks are registered
-    if has_run_hooks:
-        workflow.add_node("_run_entry", _run_entry_node)  # type: ignore[type-var]
-        workflow.add_node("_run_exit", _run_exit_node)  # type: ignore[type-var]
 
     if all_tools:
         # Build async tool call wrapper that integrates HookRunner + legacy wrap_tool_call
@@ -385,7 +435,12 @@ def build_ephemeral_graph(
         from langchain_core.messages import SystemMessage
 
         msgs = [SystemMessage(content=prompt)] + list(handler_state.get("messages", []))
-        response = await llm.ainvoke(msgs)
+        # Bind tools so the LLM can emit tool calls — required for
+        # ephemeral teammates that ship proxy task tools (and any other
+        # ephemeral agent that wants tool use).  The framework contract
+        # is "handlers bind their own tools"; this is the handler.
+        bound = llm.bind_tools(tools) if tools else llm
+        response = await bound.ainvoke(msgs)
         return {"messages": [response], "sender": name}
 
     kit = AgentKit(extensions=[], prompt=prompt)
