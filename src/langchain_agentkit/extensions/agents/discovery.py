@@ -52,15 +52,6 @@ def _agent_config_from_metadata(
     )
 
 
-def _strip_line_numbers(formatted: str) -> str:
-    """Strip line-number prefixes from BackendProtocol.read() output."""
-    from langchain_agentkit.extensions.skills.discovery import (
-        _strip_line_numbers as _impl,
-    )
-
-    return _impl(formatted)
-
-
 def discover_agents_from_directory(path: Path) -> list[AgentConfig]:
     """Discover agents by scanning a local directory for .md files."""
     from langchain_agentkit.frontmatter import parse_frontmatter
@@ -103,8 +94,7 @@ def discover_agents_from_backend(backend: BackendProtocol, path: str) -> list[Ag
         except (FileNotFoundError, OSError):
             logger.warning("Skipping unreadable agent file: %s", match)
             continue
-        content = _strip_line_numbers(formatted)
-        result = parse_frontmatter_string(content)
+        result = parse_frontmatter_string(formatted)
         if not result.metadata:
             logger.warning("Skipping agent without frontmatter: %s", match)
             continue

@@ -8,7 +8,7 @@ Usage::
     from langchain_agentkit.backends import OSBackend
 
     backend = OSBackend("/path/to/workspace")
-    content = backend.read("/app/main.py")
+    content = backend.read("/app/main.py")  # raw text, no line numbers
     result = backend.execute("python3 -m pytest")
 """
 
@@ -73,10 +73,11 @@ class OSBackend:
             return f.read()
 
     def read(self, path: str, offset: int = 0, limit: int = 2000) -> str:
+        """Read raw text content with offset/limit support."""
         real_path = self._resolve(path)
         with open(real_path, encoding="utf-8") as f:
             selected = list(itertools.islice(itertools.islice(f, offset, None), limit))
-        return "".join(f"{offset + i + 1}\t{line}" for i, line in enumerate(selected))
+        return "".join(selected)
 
     def write(self, path: str, content: str | bytes) -> WriteResult:
         real_path = self._resolve(path)
@@ -150,7 +151,7 @@ class OSBackend:
                     with open(full, encoding="utf-8") as f:
                         for i, line in enumerate(f, 1):
                             if regex.search(line):
-                                matches.append(GrepMatch(path=rel, line=i, text=line.rstrip()))
+                                matches.append(GrepMatch(path=rel, line=i, text=line))
                 except (OSError, UnicodeDecodeError):
                     continue
         return matches

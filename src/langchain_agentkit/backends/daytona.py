@@ -16,7 +16,7 @@ Usage::
     backend = DaytonaBackend(sandbox)
 
     # All BackendProtocol methods work:
-    content = backend.read("/app/main.py")
+    content = backend.read("/app/main.py")  # raw text, no line numbers
     result = backend.execute("python3 -m pytest")
 """
 
@@ -137,7 +137,7 @@ class DaytonaBackend:
         return base64.b64decode(result["output"].strip())
 
     def read(self, path: str, offset: int = 0, limit: int = 2000) -> str:
-        """Read a file with line numbers, offset, and limit."""
+        """Read raw text content with offset/limit support."""
         real_path = self._resolve(path)
         # Check file existence first (pipe masks sed exit code on some shells)
         check = f"test -f {_shell_quote(real_path)}"
@@ -145,15 +145,9 @@ class DaytonaBackend:
             raise FileNotFoundError(f"File not found: {path}")
         start = offset + 1
         end = offset + limit
-        cmd = f"sed -n '{start},{end}p' {_shell_quote(real_path)} | cat -n"
+        cmd = f"sed -n '{start},{end}p' {_shell_quote(real_path)}"
         result = self.execute(cmd)
-        # Reformat: cat -n produces "     1\tline", normalize to "{offset+i}\tline"
-        lines: list[str] = []
-        for raw_line in result["output"].splitlines(keepends=True):
-            stripped = raw_line.lstrip()
-            _, _, content = stripped.partition("\t")
-            lines.append(f"{offset + len(lines) + 1}\t{content}")
-        return "".join(lines)
+        return result["output"]
 
     def write(self, path: str, content: str | bytes) -> WriteResult:
         """Write content to a file, creating parent directories."""

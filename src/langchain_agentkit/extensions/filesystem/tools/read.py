@@ -18,7 +18,6 @@ from langchain_agentkit.extensions.filesystem.tools.common import (
     PDF_EXTENSIONS,
     _format_file_size,
     _ReadInput,
-    _strip_line_prefixes,
 )
 
 if TYPE_CHECKING:
@@ -251,6 +250,12 @@ def _check_file_unchanged(
     return bool(content_hash and content_hash == read_state[cache_key])
 
 
+def _add_line_numbers(text: str, offset: int) -> str:
+    """Add line-number prefixes for LLM display (tool-level presentation)."""
+    lines = text.splitlines(keepends=True)
+    return "".join(f"{offset + i + 1}\t{line}" for i, line in enumerate(lines))
+
+
 def _read_text(
     backend: Any,
     file_path: str,
@@ -267,13 +272,11 @@ def _read_text(
             "filePath": file_path,
         }
 
-    raw = str(backend.read(file_path, offset=offset, limit=limit))
-    text = _strip_line_prefixes(raw)
+    text = backend.read(file_path, offset=offset, limit=limit)
     num_lines = len(text.splitlines()) if text else 0
 
     if not text or offset > 0:
-        total_raw = str(backend.read(file_path, limit=100_000))
-        total_text = _strip_line_prefixes(total_raw)
+        total_text = backend.read(file_path, limit=100_000)
         total_lines = len(total_text.splitlines()) if total_text else 0
     else:
         total_lines = num_lines
@@ -291,7 +294,7 @@ def _read_text(
                 f"The file has {total_lines} lines.</system-reminder>"
             )
     else:
-        content = raw
+        content = _add_line_numbers(text, offset)
 
     cache_key = f"{file_path}:{offset}:{limit}"
     if content_hash:

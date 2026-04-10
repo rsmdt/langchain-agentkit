@@ -145,11 +145,7 @@ def _format_grep_with_context(
         if file_path not in file_lines_cache:
             try:
                 raw = backend.read(file_path, limit=100_000)
-                stripped = []
-                for line in raw.splitlines():
-                    _, _, content = line.partition("\t")
-                    stripped.append(content)
-                file_lines_cache[file_path] = stripped
+                file_lines_cache[file_path] = raw.splitlines()
             except (FileNotFoundError, OSError):
                 file_lines_cache[file_path] = []
 
@@ -234,9 +230,9 @@ def _format_content_results(
             after=after or 0,
         )
     elif line_numbers:
-        lines = [f"{r['path']}:{r['line']}: {r['text']}" for r in results]
+        lines = [f"{r['path']}:{r['line']}: {r['text'].rstrip()}" for r in results]
     else:
-        lines = [f"{r['path']}: {r['text']}" for r in results]
+        lines = [f"{r['path']}: {r['text'].rstrip()}" for r in results]
     total_lines = len(lines)
     truncated = head_limit > 0 and total_lines > head_limit
     if head_limit:

@@ -41,15 +41,6 @@ def validate_skill_config(config: SkillConfig) -> list[str]:
     return errors
 
 
-def _strip_line_numbers(formatted: str) -> str:
-    """Strip line-number prefixes from BackendProtocol.read() output."""
-    lines = []
-    for line in formatted.splitlines(keepends=True):
-        _, _, content = line.partition("\t")
-        lines.append(content)
-    return "".join(lines)
-
-
 def _parse_frontmatter(path: Path) -> tuple[dict[str, Any], str]:
     """Parse a markdown file with YAML frontmatter. Returns (metadata, content)."""
     from langchain_agentkit.frontmatter import parse_frontmatter
@@ -105,8 +96,7 @@ def discover_skills_from_backend(backend: BackendProtocol, path: str) -> list[Sk
         except (FileNotFoundError, OSError):
             logger.warning("Skipping unreadable skill file: %s", match)
             continue
-        content = _strip_line_numbers(formatted)
-        metadata, body = _parse_frontmatter_string(content)
+        metadata, body = _parse_frontmatter_string(formatted)
         if not metadata:
             logger.warning("Skipping skill without frontmatter: %s", match)
             continue

@@ -1,6 +1,7 @@
 """Backend protocol — the interface for agent environments.
 
-Mirrors the Claude Code tool surface: Read, Write, Edit, Glob, Grep, Bash.
+Pure data-access layer. Returns raw content — presentation concerns
+(line numbers, formatting) belong in the tool layer above.
 
 Two implementations are provided:
 

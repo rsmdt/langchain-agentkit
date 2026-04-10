@@ -295,15 +295,6 @@ def _format_file_size(size_bytes: int) -> str:
     return f"{size_bytes / (1024 * 1024):.1f} MB"
 
 
-def _strip_line_prefixes(raw: str) -> str:
-    """Strip line-number prefixes from backend.read() output."""
-    parts: list[str] = []
-    for line in raw.splitlines(keepends=True):
-        _, _, text = line.partition("\t")
-        parts.append(text)
-    return "".join(parts)
-
-
 def _compute_structured_patch(  # noqa: C901
     old_content: str,
     new_content: str,
@@ -353,6 +344,5 @@ def _compute_structured_patch(  # noqa: C901
 
 
 def _read_full_text(backend: Any, file_path: str) -> str:
-    """Read full file content as text, stripping line-number prefixes."""
-    raw = backend.read(file_path, limit=100_000)
-    return _strip_line_prefixes(raw)
+    """Read full file content as raw text."""
+    return str(backend.read(file_path, limit=100_000))

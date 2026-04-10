@@ -154,11 +154,9 @@ def _handle_empty_old_string(
     new_string: str,
 ) -> tuple[str, dict[str, Any]]:
     """Handle edit with empty old_string — file creation or filling empty file."""
-    from langchain_agentkit.extensions.filesystem.tools.common import _strip_line_prefixes
-
     try:
         content = backend.read(file_path, limit=1)
-        if _strip_line_prefixes(content).strip():
+        if content.strip():
             raise ToolException(
                 f"File {file_path} is not empty. Cannot use empty old_string on a non-empty file."
             )

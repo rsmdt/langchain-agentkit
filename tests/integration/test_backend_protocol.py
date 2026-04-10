@@ -118,18 +118,16 @@ class TestRead:
         content = backend.read("/test.txt")
         assert "hello world" in content
 
-    def test_line_number_format(self, backend):
+    def test_returns_raw_text(self, backend):
         backend.write("/test.txt", "alpha\nbeta\ngamma\n")
         content = backend.read("/test.txt")
-        assert "1\talpha" in content
-        assert "2\tbeta" in content
-        assert "3\tgamma" in content
+        assert content == "alpha\nbeta\ngamma\n"
 
     def test_offset_and_limit(self, backend):
         backend.write("/test.txt", "line1\nline2\nline3\nline4\nline5\n")
         content = backend.read("/test.txt", offset=1, limit=2)
-        assert "2\tline2" in content
-        assert "3\tline3" in content
+        assert "line2" in content
+        assert "line3" in content
         assert "line1" not in content
         assert "line4" not in content
 
