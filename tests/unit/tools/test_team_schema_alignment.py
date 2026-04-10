@@ -62,7 +62,9 @@ class TestTeamCreateNewSchema:
         )
 
         assert isinstance(result, Command)
-        assert result.update["team_name"] == "dev-team"
+        assert result.update["team"]["name"] == "dev-team"
+        assert result.update["team"]["members"][0]["member_name"] == "alice"
+        assert result.update["team"]["members"][0]["kind"] == "predefined"
         assert ext._active_team is not None
 
         for task in ext._active_team.members.values():

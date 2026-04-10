@@ -138,10 +138,11 @@ if __name__ == "__main__":
         )
 
         print("=== Team Members (final) ===")
-        for member in result.get("team_members", []):
-            print(
-                f"  {member['name']} ({member.get('agent_type', '?')}): {member.get('status', '?')}"
-            )
+        team = result.get("team") or {}
+        for member in team.get("members", []):
+            kind = member.get("kind", "?")
+            descriptor = member.get("agent_id") or member.get("system_prompt", "?")[:40]
+            print(f"  {member['member_name']} ({kind}): {descriptor}")
 
         print("\n=== Tasks ===")
         for task in result.get("tasks", []):

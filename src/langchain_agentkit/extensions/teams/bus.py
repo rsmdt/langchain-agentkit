@@ -4,12 +4,20 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import time
 import uuid
 from dataclasses import dataclass
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
-from langchain_core.messages import HumanMessage
+from langchain_core.messages import AIMessage, HumanMessage
+
+from langchain_agentkit.extensions.teams.filter import tag_message
+
+if TYPE_CHECKING:
+    from langchain_core.messages import BaseMessage
+
+_logger = logging.getLogger("langchain_agentkit.extensions.teams")
 
 # Sentinel content string used to signal teammate shutdown via the message bus.
 SHUTDOWN_SIGNAL = "__shutdown__"
@@ -162,14 +170,35 @@ def _is_shutdown_request(content: str) -> bool:
         return False
 
 
-async def _teammate_loop(
+async def _teammate_loop(  # noqa: C901
     member_name: str,
     compiled_graph: Any,
     message_bus: TeamMessageBus,
-    thread_id: str | None = None,
+    initial_history: list[BaseMessage] | None = None,
+    capture_buffer: list[BaseMessage] | None = None,
 ) -> str:
-    """Event loop for a single teammate."""
-    config = {"configurable": {"thread_id": thread_id}} if thread_id else {}
+    """Event loop for a single teammate, with message capture.
+
+    The loop keeps a local ``history`` list that starts from
+    ``initial_history`` (the filtered slice from state at rehydration
+    time, or ``[]`` for a fresh team) and grows across bus messages in
+    one turn.  Each new message the teammate graph produces is tagged
+    with ``additional_kwargs["team"]["member"]=<member_name>`` and appended to ``capture_buffer``
+    so the lead's hook can flush them into persisted ``state["messages"]``.
+
+    PRECONDITION: the teammate's compiled graph must use an append-style
+    reducer on ``messages`` (e.g. ``add_messages``).  Graphs built via
+    ``build_ephemeral_graph`` / ``_compile_with_proxy_tasks`` satisfy
+    this.  A non-append reducer would break the ``result[len(history):]``
+    slice used to isolate newly-produced messages; the assertion below
+    fires immediately with a clear error in that case.
+
+    ``capture_buffer`` and ``initial_history`` default to ``None`` only
+    so legacy call sites do not have to be updated in one atomic change;
+    in practice they should always be passed.
+    """
+    history: list[BaseMessage] = list(initial_history or [])
+    buffer: list[BaseMessage] | None = capture_buffer
 
     while True:
         msg = await message_bus.receive(member_name, timeout=30.0)
@@ -181,16 +210,54 @@ async def _teammate_loop(
             await message_bus.send(member_name, msg.sender, response)
             return "shutdown"
 
+        # Construct the teammate's view of the incoming instruction and
+        # append it to both the local history and the shared capture
+        # buffer (so it lands in persisted state after the next flush).
+        incoming = HumanMessage(content=msg.content)
+        tag_message(incoming, member_name)
+        history.append(incoming)
+        if buffer is not None:
+            buffer.append(incoming)
+
+        # Invoke the teammate's graph with the full local history.
+        # No checkpointer config — teammates are stateless across
+        # invocations; history persistence lives in state["messages"].
         try:
             result = await compiled_graph.ainvoke(
-                {
-                    "messages": [HumanMessage(content=msg.content)],
-                    "sender": member_name,
-                },
-                config=config,
+                {"messages": history, "sender": member_name},
             )
-            final = result["messages"][-1].content if result.get("messages") else "No response"
-        except Exception as exc:
-            final = f"Error during execution: {exc}"
+        except Exception as exc:  # noqa: BLE001
+            _logger.exception(
+                "Teammate %r invocation raised; capturing error message.",
+                member_name,
+            )
+            error_msg = AIMessage(content=f"Error during execution: {exc}")
+            tag_message(error_msg, member_name)
+            history.append(error_msg)
+            if buffer is not None:
+                buffer.append(error_msg)
+            await message_bus.send(member_name, msg.sender, str(error_msg.content))
+            continue
 
-        await message_bus.send(member_name, msg.sender, final)
+        result_messages: list[BaseMessage] = list(result.get("messages") or [])
+        if len(result_messages) < len(history):
+            raise AssertionError(  # noqa: TRY003
+                f"Teammate {member_name!r} graph returned fewer messages "
+                f"({len(result_messages)}) than input ({len(history)}). "
+                "This indicates a non-append reducer on the messages "
+                "channel — see _teammate_loop precondition."
+            )
+
+        new_messages = result_messages[len(history) :]
+        for m in new_messages:
+            tag_message(m, member_name)
+        history.extend(new_messages)
+        if buffer is not None:
+            buffer.extend(new_messages)
+
+        # Send the final reply on the bus back to the caller.
+        if new_messages and hasattr(new_messages[-1], "content"):
+            final_content = str(new_messages[-1].content)
+        else:
+            final_content = "(no response)"
+        await message_bus.send(member_name, msg.sender, final_content)

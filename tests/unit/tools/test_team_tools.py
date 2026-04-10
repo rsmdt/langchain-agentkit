@@ -128,7 +128,11 @@ class TestTeamCreate:
         )
 
         assert isinstance(result, Command)
-        assert result.update["team_name"] == "dev-team"
+        assert result.update["team"]["name"] == "dev-team"
+        assert {m["member_name"] for m in result.update["team"]["members"]} == {
+            "alice",
+            "bob",
+        }
         assert mw._active_team is not None
         assert mw._active_team.name == "dev-team"
 

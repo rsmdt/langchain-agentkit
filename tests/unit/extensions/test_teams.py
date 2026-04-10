@@ -1,3 +1,4 @@
+# ruff: noqa: N801, N805
 """Tests for TeamExtension and TeamMessageBus."""
 
 from unittest.mock import MagicMock
@@ -353,7 +354,7 @@ class TestTeamExtensionDependencies:
         annotations = schema.__annotations__
 
         # Both TeamState and TasksState keys present via composition
-        assert "team_members" in annotations
+        assert "team" in annotations
         assert "tasks" in annotations
 
 
@@ -626,12 +627,169 @@ class TestRouterNodeTaskOps:
         _, router_cond = _extract_router_node(mw)
         state = {
             "messages": [
-                HumanMessage(
-                    content="result",
-                    additional_kwargs={"type": "teammate_message"},
-                ),
+                HumanMessage(content="result"),
             ],
         }
         result = router_cond(state)
 
         assert result == "agent"  # routes back to the agent node
+
+
+# ---------------------------------------------------------------------------
+# Router ↔ run-lifecycle wiring
+# ---------------------------------------------------------------------------
+
+
+def _extract_router_mapping(
+    mw: TeamExtension,
+    workflow_nodes: dict | None = None,
+) -> tuple:
+    """Call graph_modifier with a mock workflow carrying ``nodes``.
+
+    Returns ``(condition_fn, destination_mapping)``.
+    """
+    registered_nodes: dict = {}
+    registered_edges: dict = {}
+
+    class _MockWorkflow:
+        def __init__(self) -> None:
+            self.nodes = dict(workflow_nodes or {})
+
+        def add_node(self, name: str, func):
+            registered_nodes[name] = func
+            self.nodes[name] = func
+
+        def add_conditional_edges(self, source, condition, mapping):
+            registered_edges[source] = {"condition": condition, "mapping": mapping}
+
+    mock_wf = _MockWorkflow()
+    mw.graph_modifier(mock_wf, "agent")
+    cond = registered_edges.get("router", {}).get("condition")
+    mapping = registered_edges.get("router", {}).get("mapping")
+    return cond, mapping
+
+
+class TestRouterRunExitWiring:
+    """Router routes terminating edges to ``_run_exit`` when run hooks are wired.
+
+    Without this, the team router jumps straight to ``END`` and bypasses
+    ``_run_exit``, which means ``after_run`` hooks never fire and any
+    runtime cleanup registered there (teammate tasks, bus, capture buffer)
+    is silently skipped.
+    """
+
+    def test_router_targets_run_exit_when_present(self):
+        """If _run_exit is in the workflow, router destinations reference it."""
+        from langgraph.graph import END
+
+        agent_a = _make_mock_agent("researcher")
+        mw = TeamExtension(agents=[agent_a])
+
+        cond, mapping = _extract_router_mapping(
+            mw,
+            workflow_nodes={"_run_exit": lambda s: s},
+        )
+
+        assert "_run_exit" in mapping
+        assert mapping["_run_exit"] == "_run_exit"
+        assert END not in mapping
+
+    def test_router_falls_back_to_end_without_run_exit(self):
+        """If _run_exit is absent, router destinations use END."""
+        from langgraph.graph import END
+
+        agent_a = _make_mock_agent("researcher")
+        mw = TeamExtension(agents=[agent_a])
+
+        cond, mapping = _extract_router_mapping(mw, workflow_nodes={})
+
+        assert END in mapping
+        assert "_run_exit" not in mapping
+
+    def test_router_should_continue_returns_run_exit_when_wired(self):
+        """When _run_exit is wired, _router_should_continue returns that label."""
+        from langchain_agentkit.extensions.teams import ActiveTeam
+
+        agent_a = _make_mock_agent("researcher")
+        mw = TeamExtension(agents=[agent_a])
+
+        bus = TeamMessageBus()
+        bus.register("lead")
+        bus.register("a")
+        done_task = MagicMock()
+        done_task.done.return_value = True
+        done_task.cancelled.return_value = False
+        done_task.exception.return_value = None
+
+        mw._active_team = ActiveTeam(
+            name="t",
+            bus=bus,
+            members={"a": done_task},
+            member_types={"a": "r"},
+        )
+
+        cond, _ = _extract_router_mapping(
+            mw,
+            workflow_nodes={"_run_exit": lambda s: s},
+        )
+
+        # No teammate message, no active members — should terminate via
+        # _run_exit, not END.
+        result = cond({"messages": []})
+        assert result == "_run_exit"
+
+    def test_after_run_fires_on_router_termination_path(self):
+        """End-to-end: a TeamExtension + after_run hook sees after_run invoked.
+
+        Build a real agent with both TeamExtension and an extension that
+        defines ``after_run``.  With no active team and no tool calls, the
+        agent node's own ``_should_continue`` handles termination and
+        ``after_run`` fires.  The critical property is that the router's
+        graph-modifier step did not break the build by referencing a
+        missing ``_run_exit`` node.
+        """
+        from unittest.mock import AsyncMock, MagicMock
+
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        from langchain_agentkit import agent
+        from langchain_agentkit.extension import Extension
+
+        after_run_calls: list[str] = []
+
+        class LifecycleExtension(Extension):
+            async def after_run(self, *, state, runtime):
+                after_run_calls.append("after_run")
+                return None
+
+        agent_a = _make_mock_agent("researcher")
+
+        bound_llm = MagicMock()
+        bound_llm.ainvoke = AsyncMock(return_value=AIMessage(content="done"))
+        mock_llm = MagicMock()
+        mock_llm.bind_tools = MagicMock(return_value=bound_llm)
+
+        class my_agent(agent):
+            model = mock_llm
+            extensions = [
+                TeamExtension(agents=[agent_a]),
+                LifecycleExtension(),
+            ]
+
+            async def handler(state, *, llm, tools, prompt):
+                bound = llm.bind_tools(tools)
+                response = await bound.ainvoke(state["messages"])
+                return {"messages": [response]}
+
+        compiled = my_agent.compile()
+
+        # Both lifecycle nodes and router should be present in the graph.
+        assert "_run_exit" in my_agent.nodes
+        assert "_run_entry" in my_agent.nodes
+        assert "router" in my_agent.nodes
+
+        import asyncio
+
+        asyncio.run(compiled.ainvoke({"messages": [HumanMessage(content="hi")]}))
+
+        assert after_run_calls == ["after_run"]

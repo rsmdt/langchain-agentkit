@@ -90,15 +90,7 @@ async def classify_and_process(
             if parsed.get("op") == "update":
                 await _notify_assignment(bus, result, old_owner, m.sender, m.timestamp)
         else:
-            human_messages.append(
-                HumanMessage(
-                    content=f"[Message from teammate '{m.sender}']: {m.content}",
-                    additional_kwargs={
-                        "sender": m.sender,
-                        "type": "teammate_message",
-                    },
-                )
-            )
+            human_messages.append(HumanMessage(content=m.content))
 
     update: dict[str, Any] = {}
     if human_messages:

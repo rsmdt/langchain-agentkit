@@ -154,17 +154,20 @@ def _compile_with_proxy_tasks(
     If the graph was built by the ``agent`` metaclass, it carries
     ``_agentkit_*`` metadata that allows rebuilding with modified tools.
     If not, falls back to compiling as-is.
-    """
-    from langgraph.checkpoint.memory import InMemorySaver
 
+    No checkpointer is attached: the new teammate loop passes full
+    history as input on each ``ainvoke`` call, so per-teammate
+    ``InMemorySaver`` is unnecessary (and would require a
+    ``thread_id`` config the loop no longer provides).
+    """
     handler = getattr(agent_graph, "_agentkit_handler", None)
     llm = getattr(agent_graph, "_agentkit_llm", None)
     kit = getattr(agent_graph, "_agentkit_kit", None)
     original_tools = getattr(agent_graph, "_agentkit_user_tools", None)
 
     if handler is None or llm is None or kit is None:
-        # Not an agentkit-built graph — compile as-is
-        return agent_graph.compile(checkpointer=InMemorySaver())
+        # Not an agentkit-built graph — compile as-is, no checkpointer
+        return agent_graph.compile()
 
     from langchain_agentkit._graph_builder import build_graph
     from langchain_agentkit.extensions.teams.task_proxy import create_task_proxy_tools
@@ -188,7 +191,7 @@ def _compile_with_proxy_tasks(
         user_tools=new_user_tools,
         kit=new_kit,
     )
-    return rebuilt.compile(checkpointer=InMemorySaver())
+    return rebuilt.compile()
 
 
 # ---------------------------------------------------------------------------
@@ -205,12 +208,84 @@ async def _agent_team(
     ext: TeamExtension,
 ) -> Command:  # type: ignore[type-arg]
     """Create a team with named agents running as asyncio.Tasks."""
+    # Rehydrate first in case a previous-turn team was checkpointed.
+    await ext.rehydrate_if_needed(state)
     # Lock guards against concurrent TeamCreate calls from parallel ToolNode execution
     async with ext.team_lock:
         return await _agent_team_inner(name, agents, state, tool_call_id, ext=ext)
 
 
-async def _agent_team_inner(  # noqa: C901
+def _parse_agent_ref(agent_spec: Any) -> tuple[str, str | None, str | None]:
+    """Extract (member_name, agent_id, agent_prompt) from an LLM-supplied spec."""
+    member_name = agent_spec["name"] if isinstance(agent_spec, dict) else agent_spec.name
+    ref = agent_spec["agent"] if isinstance(agent_spec, dict) else agent_spec.agent
+    if isinstance(ref, Dynamic):
+        return member_name, None, ref.prompt
+    if isinstance(ref, Predefined):
+        return member_name, ref.id, None
+    if isinstance(ref, dict):
+        return member_name, ref.get("id"), ref.get("prompt")
+    return member_name, getattr(ref, "id", None), getattr(ref, "prompt", None)
+
+
+def _validate_team_creation(
+    name: str,
+    agents: list[dict[str, Any]],
+    ext: TeamExtension,
+) -> None:
+    """Run pre-creation invariants; raise ``ToolException`` on violation."""
+    from langchain_agentkit.extensions.agents.refs import resolve_agent_by_name
+
+    if ext.active_team is not None:
+        raise ToolException("Team already active. Dissolve first.")
+    if not agents:
+        raise ToolException("Agents list cannot be empty.")
+
+    agent_names = [a["name"] if isinstance(a, dict) else a.name for a in agents]
+    if len(set(agent_names)) != len(agent_names):
+        dupes = [n for n in agent_names if agent_names.count(n) > 1]
+        raise ToolException(f"Duplicate agent names: {set(dupes)}")
+    if len(agents) > ext.max_team_size:
+        raise ToolException(f"Team size {len(agents)} exceeds maximum of {ext.max_team_size}.")
+
+    registered_agents = ext.agents_by_name
+    for agent_spec in agents:
+        _, agent_id, agent_prompt = _parse_agent_ref(agent_spec)
+        if agent_prompt is not None:
+            if not ext.ephemeral:
+                raise ToolException(
+                    "Dynamic/ephemeral agents are not enabled. "
+                    "Set ephemeral=True on TeamExtension to allow custom agents."
+                )
+        elif agent_id is not None:
+            resolve_agent_by_name(agent_id, registered_agents)
+
+
+def _build_teammate_specs(agents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Convert LLM-supplied agent specs into persistable ``TeammateSpec``s."""
+    specs: list[dict[str, Any]] = []
+    for agent_spec in agents:
+        member_name, agent_id, agent_prompt = _parse_agent_ref(agent_spec)
+        if agent_prompt is not None:
+            specs.append(
+                {
+                    "member_name": member_name,
+                    "kind": "dynamic",
+                    "system_prompt": agent_prompt,
+                },
+            )
+        else:
+            specs.append(
+                {
+                    "member_name": member_name,
+                    "kind": "predefined",
+                    "agent_id": agent_id,
+                },
+            )
+    return specs
+
+
+async def _agent_team_inner(
     name: str,
     agents: list[dict[str, Any]],
     state: dict[str, Any],
@@ -219,124 +294,62 @@ async def _agent_team_inner(  # noqa: C901
     ext: TeamExtension,
 ) -> Command:  # type: ignore[type-arg]
     """Inner implementation of _agent_team, called under _team_lock."""
-    from langchain_agentkit.extensions.teams.bus import ActiveTeam, TeamMessageBus, _teammate_loop
+    from datetime import UTC, datetime
 
-    if ext.active_team is not None:
-        raise ToolException("Team already active. Dissolve first.")
+    from langchain_agentkit.extensions.teams.bus import (
+        ActiveTeam,
+        TeamMessageBus,
+        _teammate_loop,
+    )
 
-    if not agents:
-        raise ToolException("Agents list cannot be empty.")
+    _validate_team_creation(name, agents, ext)
 
-    # Validate no duplicate agent names
-    agent_names = [a["name"] if isinstance(a, dict) else a.name for a in agents]
-    if len(set(agent_names)) != len(agent_names):
-        dupes = [n for n in agent_names if agent_names.count(n) > 1]
-        raise ToolException(f"Duplicate agent names: {set(dupes)}")
+    specs = _build_teammate_specs(agents)
 
-    # Validate max team size
-    if len(agents) > ext.max_team_size:
-        raise ToolException(f"Team size {len(agents)} exceeds maximum of {ext.max_team_size}.")
-
-    # Resolve agent references
-    registered_agents = ext.agents_by_name
-    from langchain_agentkit.extensions.agents.refs import resolve_agent_by_name
-
-    def _parse_ref(agent_spec: Any) -> tuple[str, str | None, str | None]:
-        """Extract (member_name, agent_id, agent_prompt) from a spec."""
-        member_name = agent_spec["name"] if isinstance(agent_spec, dict) else agent_spec.name
-        ref = agent_spec["agent"] if isinstance(agent_spec, dict) else agent_spec.agent
-        if isinstance(ref, Dynamic):
-            return member_name, None, ref.prompt
-        if isinstance(ref, Predefined):
-            return member_name, ref.id, None
-        # Dict from LLM tool call
-        if isinstance(ref, dict):
-            return member_name, ref.get("id"), ref.get("prompt")
-        return member_name, getattr(ref, "id", None), getattr(ref, "prompt", None)
-
-    for agent_spec in agents:
-        _, agent_id, agent_prompt = _parse_ref(agent_spec)
-
-        if agent_prompt is not None:
-            ephemeral_enabled = ext.ephemeral
-            if not ephemeral_enabled:
-                raise ToolException(
-                    "Dynamic/ephemeral agents are not enabled. "
-                    "Set ephemeral=True on TeamExtension to allow custom agents."
-                )
-        elif agent_id is not None:
-            resolve_agent_by_name(agent_id, registered_agents)
-
-    # Create message bus and register all agents + lead
+    # Create message bus and fresh capture buffer for this turn.
     bus = TeamMessageBus()
     bus.register("lead")
+    ext._capture_buffer = []
 
     member_tasks: dict[str, asyncio.Task[str]] = {}
     member_types: dict[str, str] = {}
-    team_agents_state: list[dict[str, Any]] = []
 
-    for agent_spec in agents:
-        member_name, agent_id, agent_prompt = _parse_ref(agent_spec)
-
-        bus.register(member_name)
-
-        if agent_prompt is not None:
-            # Ephemeral agent — build on-the-fly graph with teammate addendum
-            from langgraph.checkpoint.memory import InMemorySaver
-
-            from langchain_agentkit._graph_builder import build_ephemeral_graph
-            from langchain_agentkit.extensions.teams.task_proxy import create_task_proxy_tools
-
-            parent_llm_getter = ext.parent_llm_getter
-            if parent_llm_getter is not None:
-                ephemeral_llm = parent_llm_getter()
-            else:
-                raise ToolException("No parent LLM available for ephemeral agent.")
-
-            full_prompt = _TEAMMATE_ADDENDUM + agent_prompt
-            teammate_tools: list[Any] = create_task_proxy_tools(bus, member_name)
-
-            compiled = build_ephemeral_graph(
-                name=member_name,
-                llm=ephemeral_llm,
-                prompt=full_prompt,
-                user_tools=teammate_tools,
-                checkpointer=InMemorySaver(),
-            )
-            agent_type_label = f"ephemeral:{member_name}"
-        else:
-            # Predefined agent — resolve and compile with proxy task tools
-            agent_target = registered_agents[agent_id]  # type: ignore[index]
-            from langchain_agentkit.composability import AgentLike
-
-            if isinstance(agent_target, AgentLike):
-                compiled = agent_target
-            else:
-                compiled = _compile_with_proxy_tasks(
-                    agent_target,
-                    bus,
+    try:
+        for spec in specs:
+            member_name = spec["member_name"]
+            bus.register(member_name)
+            compiled = ext.build_teammate_graph(spec, bus)  # type: ignore[arg-type]
+            task = asyncio.create_task(
+                _teammate_loop(
                     member_name,
-                )
-            agent_type_label = agent_id  # type: ignore[assignment]
+                    compiled,
+                    bus,
+                    initial_history=[],
+                    capture_buffer=ext._capture_buffer,
+                ),
+                name=f"team-{name}-{member_name}",
+            )
+            member_tasks[member_name] = task
+            if spec["kind"] == "dynamic":
+                member_types[member_name] = f"ephemeral:{member_name}"
+            else:
+                member_types[member_name] = spec["agent_id"]
+    except Exception as exc:
+        # Partial-failure cleanup: cancel spawned tasks, unregister bus,
+        # leave extension state untouched so the LLM can retry cleanly.
+        for partial_task in member_tasks.values():
+            partial_task.cancel()
+        if member_tasks:
+            with contextlib.suppress(Exception):
+                await asyncio.wait(list(member_tasks.values()), timeout=2.0)
+        for member in list(member_tasks.keys()):
+            with contextlib.suppress(Exception):
+                bus.unregister(member)
+        with contextlib.suppress(Exception):
+            bus.unregister("lead")
+        ext._capture_buffer = []
+        raise ToolException(f"Failed to build team: {exc}") from exc
 
-        thread_id = f"team-{name}-{member_name}"
-
-        task = asyncio.create_task(
-            _teammate_loop(member_name, compiled, bus, thread_id=thread_id),
-            name=thread_id,
-        )
-        member_tasks[member_name] = task
-        member_types[member_name] = agent_type_label
-
-        team_agents_state.append(
-            {
-                "name": member_name,
-                "agent": {"id": agent_id} if agent_id else {"prompt": agent_prompt},
-                "status": "idle",
-            }
-        )
-
-    # Store active team on extension
     ext.active_team = ActiveTeam(
         name=name,
         bus=bus,
@@ -346,16 +359,28 @@ async def _agent_team_inner(  # noqa: C901
 
     result = {
         "team_name": name,
-        "agents": [{"name": a["name"], "agent": a["agent"]} for a in team_agents_state],
+        "agents": [
+            {
+                "name": spec["member_name"],
+                "agent": (
+                    {"id": spec["agent_id"]}
+                    if spec["kind"] == "predefined"
+                    else {"prompt": spec["system_prompt"]}
+                ),
+            }
+            for spec in specs
+        ],
+    }
+
+    team_metadata: dict[str, Any] = {
+        "name": name,
+        "members": specs,
+        "created_at": datetime.now(UTC).isoformat(),
     }
 
     return Command(
         update={
-            "team_members": [
-                {"name": a["name"], "agent_type": member_types.get(a["name"], ""), "status": "idle"}
-                for a in team_agents_state
-            ],
-            "team_name": name,
+            "team": team_metadata,
             "messages": [ToolMessage(content=json.dumps(result), tool_call_id=tool_call_id)],
         }
     )
@@ -371,6 +396,7 @@ async def _send_message(
     ext: TeamExtension,
 ) -> Command:  # type: ignore[type-arg]
     """Send a message to a teammate or broadcast to all teammates."""
+    await ext.rehydrate_if_needed(state)
     team = _require_active_team(ext)
 
     if to == "*":
@@ -397,6 +423,7 @@ async def _check_teammates(
     ext: TeamExtension,
 ) -> Command:  # type: ignore[type-arg]
     """Check team member statuses and drain pending messages for lead."""
+    await ext.rehydrate_if_needed(state)
     team = _require_active_team(ext)
 
     # Derive task-based work status per agent
@@ -466,19 +493,11 @@ async def _check_teammates(
         "tasks": task_summary,
     }
 
-    # Build state update: inject lead messages as HumanMessages
-    update: dict[str, Any] = {
-        "messages": [ToolMessage(content=json.dumps(report), tool_call_id=tool_call_id)],
-    }
-
-    # Update team_members state with latest statuses
-    team_members_state = [
-        {"name": ms["name"], "agent_type": ms["agent_type"], "status": ms["status"]}
-        for ms in member_statuses
-    ]
-    update["team_members"] = team_members_state
-
-    return Command(update=update)
+    return Command(
+        update={
+            "messages": [ToolMessage(content=json.dumps(report), tool_call_id=tool_call_id)],
+        }
+    )
 
 
 async def _shutdown_team_tasks(
@@ -536,8 +555,11 @@ async def _dissolve_team(
     *,
     ext: TeamExtension,
 ) -> Command:  # type: ignore[type-arg]
-    """Gracefully shut down the team."""
+    """Gracefully shut down the team and clear cross-turn metadata."""
     from langchain_agentkit.extensions.teams.bus import task_status
+
+    # Rehydrate any checkpointed team so we can dissolve it cleanly.
+    await ext.rehydrate_if_needed(state)
 
     # Lock guards against concurrent dissolve/create from parallel ToolNode execution
     async with ext.team_lock:
@@ -559,8 +581,12 @@ async def _dissolve_team(
             for name, task in team.members.items()
         ]
 
+        team_name = team.name
         _cleanup_bus(team)
         ext.active_team = None
+        # Clear the per-turn capture buffer — anything produced before
+        # dissolve has already been persisted via before_model flushes.
+        ext._capture_buffer = []
 
     # Unassign tasks owned by dissolved teammates
     member_names = [m["name"] for m in final_members]
@@ -569,13 +595,12 @@ async def _dissolve_team(
 
     result = {
         "dissolved": True,
-        "team_name": team.name,
+        "team_name": team_name,
         "final_statuses": final_members,
     }
 
     update: dict[str, Any] = {
-        "team_members": final_members,
-        "team_name": None,
+        "team": None,
         "messages": [ToolMessage(content=json.dumps(result), tool_call_id=tool_call_id)],
     }
     if updated_tasks:
