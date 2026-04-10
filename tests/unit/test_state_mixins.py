@@ -3,114 +3,86 @@
 from typing import get_type_hints
 
 from langchain_agentkit.extensions.teams.state import (
+    TeamMetadata,
     TeamState,
-    _merge_team_members,
+    _team_reducer,
 )
 
 
-class TestMergeTeamMembers:
-    def test_merges_by_name_latest_wins(self):
-        left = [{"name": "alice", "status": "idle"}]
-        right = [{"name": "alice", "status": "working"}]
+class TestTeamReducer:
+    def test_right_wins_when_both_present(self):
+        left: TeamMetadata = {"name": "old", "members": []}
+        right: TeamMetadata = {"name": "new", "members": []}
 
-        result = _merge_team_members(left, right)
+        result = _team_reducer(left, right)
 
-        assert len(result) == 1
-        assert result[0]["status"] == "working"
+        assert result == right
 
-    def test_new_members_appended(self):
-        left = [{"name": "alice", "status": "idle"}]
-        right = [{"name": "bob", "status": "idle"}]
+    def test_explicit_none_clears_existing_team(self):
+        """``TeamDissolve`` returns ``{"team": None}`` — must actually clear.
 
-        result = _merge_team_members(left, right)
+        LangGraph only invokes the reducer when a node returned an
+        update for this channel.  So if we see ``right=None`` here, the
+        node explicitly cleared the team — it must NOT fall back to
+        ``left`` or dissolve becomes a no-op.
+        """
+        left: TeamMetadata = {"name": "existing", "members": []}
 
-        assert len(result) == 2
-        assert result[0]["name"] == "alice"
-        assert result[1]["name"] == "bob"
+        result = _team_reducer(left, None)
 
-    def test_preserves_insertion_order(self):
-        left = [
-            {"name": "alice", "status": "idle"},
-            {"name": "bob", "status": "idle"},
-        ]
-        right = [{"name": "charlie", "status": "idle"}]
+        assert result is None
 
-        result = _merge_team_members(left, right)
+    def test_replacement_wins_over_left_even_if_empty(self):
+        left: TeamMetadata = {
+            "name": "existing",
+            "members": [{"member_name": "a", "kind": "predefined", "agent_id": "r"}],
+        }
+        right: TeamMetadata = {"name": "replacement", "members": []}
 
-        assert [m["name"] for m in result] == ["alice", "bob", "charlie"]
+        result = _team_reducer(left, right)
 
-    def test_update_preserves_original_order(self):
-        left = [
-            {"name": "alice", "status": "idle"},
-            {"name": "bob", "status": "idle"},
-        ]
-        right = [{"name": "alice", "status": "done"}]
+        assert result == right
+        assert result["members"] == []
 
-        result = _merge_team_members(left, right)
+    def test_initial_write_from_none(self):
+        """First TeamCreate transitions ``None → metadata``."""
+        right: TeamMetadata = {"name": "fresh", "members": []}
 
-        assert [m["name"] for m in result] == ["alice", "bob"]
-        assert result[0]["status"] == "done"
+        result = _team_reducer(None, right)
 
-    def test_empty_left(self):
-        result = _merge_team_members([], [{"name": "alice", "status": "idle"}])
+        assert result == right
 
-        assert len(result) == 1
-
-    def test_empty_right(self):
-        result = _merge_team_members([{"name": "alice", "status": "idle"}], [])
-
-        assert len(result) == 1
-
-    def test_both_empty(self):
-        assert _merge_team_members([], []) == []
-
-    def test_none_left(self):
-        result = _merge_team_members(None, [{"name": "alice"}])
-
-        assert len(result) == 1
-
-    def test_none_right(self):
-        result = _merge_team_members([{"name": "alice"}], None)
-
-        assert len(result) == 1
-
-    def test_skips_members_without_name(self):
-        left = [{"status": "idle"}]
-        right = [{"name": "bob", "status": "idle"}]
-
-        result = _merge_team_members(left, right)
-
-        assert len(result) == 1
-        assert result[0]["name"] == "bob"
-
-    def test_merge_adds_new_fields_from_right(self):
-        left = [{"name": "alice", "status": "idle"}]
-        right = [{"name": "alice", "agent_type": "researcher"}]
-
-        result = _merge_team_members(left, right)
-
-        assert result[0]["status"] == "idle"
-        assert result[0]["agent_type"] == "researcher"
+    def test_both_none(self):
+        assert _team_reducer(None, None) is None
 
 
 class TestTeamStateStructure:
-    def test_has_team_members_key(self):
+    def test_has_team_key(self):
         hints = get_type_hints(TeamState, include_extras=True)
 
-        assert "team_members" in hints
-
-    def test_has_team_name_key(self):
-        hints = get_type_hints(TeamState, include_extras=True)
-
-        assert "team_name" in hints
+        assert "team" in hints
 
     def test_is_total_false(self):
         assert TeamState.__total__ is False
 
-    def test_can_instantiate_as_typed_dict(self):
+    def test_can_instantiate_with_team_metadata(self):
         state: TeamState = {
-            "team_members": [],
-            "team_name": "test-team",
+            "team": {
+                "name": "test-team",
+                "members": [
+                    {
+                        "member_name": "alice",
+                        "kind": "predefined",
+                        "agent_id": "researcher",
+                    },
+                ],
+            },
         }
 
-        assert state["team_name"] == "test-team"
+        assert state["team"]["name"] == "test-team"
+        assert state["team"]["members"][0]["member_name"] == "alice"
+
+    def test_can_instantiate_with_none_team(self):
+        state: TeamState = {"team": None}
+
+        assert state["team"] is None
