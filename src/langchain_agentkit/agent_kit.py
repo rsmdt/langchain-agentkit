@@ -1,109 +1,93 @@
-"""AgentKit — composition engine for Extension instances.
+"""AgentKit — sync composition engine for Extension instances.
 
-``AgentKit`` merges tools and prompts from an ordered list of extensions into
-a single, unified surface that any LangGraph node can consume.
+``AgentKit`` is a self-contained composition engine with a clean public API.
+It merges tools, prompts, model, and hooks from extensions into a unified
+surface. ``compile(handler)`` builds a complete ReAct graph with hooks wired.
 
-Use ``AgentKit`` when you need full control over graph topology — multi-node
-graphs, a shared ``ToolNode``, custom routing, or any setup where the
-higher-level ``agent`` metaclass is too opinionated.
+**Managed graph** — ``compile(handler)`` builds the full ReAct loop::
 
-Example::
+    kit = AgentKit(
+        extensions=[SkillsExtension(skills="skills/"), TasksExtension()],
+        tools=[web_search],
+        model=ChatOpenAI(model="gpt-4o"),
+        prompt="You are a research assistant.",
+    )
+    graph = kit.compile(handler)      # uncompiled StateGraph
+    app = graph.compile()             # compiled, ready to invoke
 
-    kit = AgentKit(extensions=[
-        SkillsExtension(skills="skills/"),
-        TasksExtension(),
-    ])
+**Manual wiring** — access components directly for custom graphs::
 
-    # In any graph node:
-    all_tools = my_tools + kit.tools
-    system_prompt = my_template + "\\n\\n" + kit.prompt(state, runtime)
-
-Prompt templates can be loaded from files or provided as inline strings::
-
-    kit = AgentKit(extensions=exts, prompt="You are a helpful assistant.")
-    kit = AgentKit(extensions=exts, prompt=Path("prompts/system.txt"))
+    kit = AgentKit(extensions=exts)
+    kit.tools          # merged user + extension tools
+    kit.prompt(state)  # composed system prompt
+    kit.model          # resolved BaseChatModel
+    kit.state_schema   # composed TypedDict from extensions
+    kit.hooks          # HookRunner for manual lifecycle wiring
 """
 
 from __future__ import annotations
 
 import inspect
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from langchain_core.language_models import BaseChatModel
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
 
     from langchain_agentkit.extension import Extension
 
+_logger = logging.getLogger(__name__)
+
 
 class AgentKit:
-    """Composes extensions into unified tools + prompt.
+    """Sync composition engine — merges extensions, tools, model, and prompt.
 
-    Use directly when you need full control over graph topology
-    (multi-node graphs, shared ToolNode, custom routing).
+    Use ``compile(handler)`` to build a managed ReAct graph, or access
+    ``tools``, ``prompt()``, ``model``, ``state_schema``, and ``hooks``
+    directly for manual graph wiring.
+
+    Args:
+        extensions: Ordered list of Extension instances.
+        prompt: System prompt — inline string, file path, or list.
+        tools: User-provided tools (merged with extension tools).
+        model: ``BaseChatModel`` instance or string (resolved via
+            ``model_resolver``).
+        model_resolver: Callable resolving model name strings to
+            ``BaseChatModel`` instances.
+        name: Graph node name (default ``"agent"``).
 
     Example::
 
-        kit = AgentKit(extensions=[
-            SkillsExtension(skills="skills/"),
-            TasksExtension(),
-        ])
-
-        # In any graph node:
-        all_tools = my_tools + kit.tools
-        prompt = my_template + "\\n\\n" + kit.prompt(state, runtime)
+        kit = AgentKit(
+            extensions=[SkillsExtension(skills="skills/"), TasksExtension()],
+            model=ChatOpenAI(model="gpt-4o"),
+            prompt="You are a research assistant.",
+        )
+        graph = kit.compile(handler)
     """
 
     def __init__(
         self,
+        *,
         extensions: list[Extension] | None = None,
         prompt: str | Path | list[str | Path] | None = None,
+        tools: list[BaseTool] | None = None,
+        model: BaseChatModel | str | None = None,
+        model_resolver: Callable[[str], BaseChatModel] | None = None,
+        name: str = "agent",
     ) -> None:
         self._extensions = self._resolve_dependencies(list(extensions or []))
         self._prompt = _load_prompt(prompt)
+        self._user_tools: list[BaseTool] = list(tools or [])
+        self._model_raw = model
+        self._model_resolver = model_resolver
+        self._name = name
         self._tools_cache: list[BaseTool] | None = None
-        self._setup_done = False
-
-    async def asetup(self) -> None:
-        """Run async setup on all extensions. Must be called before use."""
-        if self._setup_done:
-            return
-        await self._run_setup()
-        self._setup_done = True
-
-    async def _run_setup(self) -> None:
-        """Call ``setup()`` on each extension with introspection-based kwargs.
-
-        Supports both sync and async setup methods. Each extension declares
-        only the kwargs it needs via its own ``setup()`` signature.
-        """
-        available: dict[str, Any] = {
-            "extensions": self._extensions,
-            "prompt": self._prompt,
-        }
-        for ext in self._extensions:
-            setup = getattr(ext, "setup", None)
-            if not callable(setup):
-                continue
-            try:
-                sig_params = inspect.signature(setup).parameters
-            except (TypeError, ValueError):
-                continue
-            # If the method accepts **kwargs, pass everything; otherwise filter.
-            accepts_var_keyword = any(
-                p.kind is inspect.Parameter.VAR_KEYWORD for p in sig_params.values()
-            )
-            if accepts_var_keyword:
-                kwargs = dict(available)
-            else:
-                kwargs = {k: v for k, v in available.items() if k in sig_params}
-            result = setup(**kwargs)
-            # Await if setup returned a coroutine
-            if inspect.isawaitable(result):
-                await result
-        # Extensions may have rebuilt their tools during setup — invalidate.
-        self._tools_cache = None
 
     @staticmethod
     def _resolve_dependencies(extensions: list[Any]) -> list[Any]:
@@ -129,14 +113,19 @@ class AgentKit:
 
     @property
     def tools(self) -> list[BaseTool]:
-        """All tools from all extensions, deduplicated by name.
+        """Merged user + extension tools, deduplicated by name.
 
-        Collected once on first access, then cached. First extension wins
-        on name collisions.
+        User tools appear first, then extension tools in stack order.
+        First tool wins on name collisions.
+        Collected once on first access, then cached.
         """
         if self._tools_cache is None:
             seen: set[str] = set()
             tools: list[BaseTool] = []
+            for tool in self._user_tools:
+                if tool.name not in seen:
+                    seen.add(tool.name)
+                    tools.append(tool)
             for ext in self._extensions:
                 for tool in ext.tools:
                     if tool.name not in seen:
@@ -167,27 +156,112 @@ class AgentKit:
             return AgentKitState
         return type("ComposedState", tuple(bases), {})
 
-    def resolve_model(self, model: Any) -> Any:
-        """Resolve a model reference to a BaseChatModel instance.
+    @property
+    def hooks(self) -> Any:
+        """Collected HookRunner for manual hook wiring.
 
-        If *model* is a string, scans extensions for one that exposes a
-        ``model_resolver`` attribute and uses it.  Otherwise returns the
-        input as-is (assumed to be a BaseChatModel already).
+        Returns a ``HookRunner`` built from all extensions. Use for
+        manual graph construction when ``compile(handler)`` is too
+        opinionated.
+        """
+        from langchain_agentkit.hook_runner import HookRunner
+
+        return HookRunner(self._extensions)
+
+    @property
+    def model(self) -> Any:
+        """Resolved BaseChatModel instance.
+
+        Applies the fallback chain:
+        1. ``model_resolver(name)`` if model is a string and resolver exists
+        2. Falls back to ``self._model_raw`` as-is for non-string models
+        3. Raises if model is a string and no resolver is available
 
         Raises:
-            ValueError: If *model* is a string but no extension provides
-                a ``model_resolver``.
+            ValueError: If model is a string but no resolver is configured
+                and no extension provides one.
+        """
+        return self._resolve_model_internal(self._model_raw)
+
+    def _resolve_model_internal(self, model: Any) -> Any:
+        """Apply the model resolver fallback chain.
+
+        1. model_resolver(name) succeeds → use the result
+        2. model_resolver(name) raises or returns None → warn, fall back to self._model_raw
+        3. No model_resolver → scan extensions, fall back to self._model_raw
+        4. No model at all → error
         """
         if not isinstance(model, str):
             return model
+
+        # Try kit-level resolver first
+        if self._model_resolver is not None:
+            try:
+                result = self._model_resolver(model)
+                if result is not None:
+                    return result
+            except Exception:
+                _logger.warning(
+                    "model_resolver raised for '%s', no fallback model available",
+                    model,
+                )
+                raise
+
+        # Fallback: scan extensions for a model_resolver attribute
         for ext in self._extensions:
             resolver = getattr(ext, "model_resolver", None)
             if callable(resolver):
                 return resolver(model)
+
         raise ValueError(
-            f"model='{model}' is a string but no extension provides a "
-            f"model_resolver. Pass AgentExtension(model_resolver=<callable>) "
-            f"or use a BaseChatModel instance."
+            f"model='{model}' is a string but no model_resolver is configured "
+            f"and no extension provides one. Pass model_resolver=<callable> to "
+            f"AgentKit or use a BaseChatModel instance."
+        )
+
+    def resolve_model(self, model: Any) -> Any:
+        """Resolve a model reference to a BaseChatModel instance.
+
+        If *model* is a string, uses the configured ``model_resolver`` or
+        scans extensions for one that exposes a ``model_resolver`` attribute.
+        Otherwise returns the input as-is (assumed to be a BaseChatModel).
+
+        Raises:
+            ValueError: If *model* is a string but no resolver is available.
+        """
+        return self._resolve_model_internal(model)
+
+    def compile(self, handler: Any) -> Any:
+        """Build the full ReAct graph with hooks wired.
+
+        Absorbs all logic from ``build_graph()``. Returns an uncompiled
+        ``StateGraph``. Call ``.compile()`` on the result to get a runnable
+        graph, optionally passing a checkpointer for ``interrupt()`` support.
+
+        Args:
+            handler: The agent handler function. Accepts ``state`` as first
+                positional arg, plus keyword-only injectables (llm, tools,
+                prompt, runtime).
+
+        Returns:
+            An uncompiled ``StateGraph``.
+        """
+        from langchain_agentkit._graph_builder import _find_wrap_tool_call, build_graph
+
+        llm = self._resolve_model_internal(self._model_raw) if self._model_raw is not None else None
+        wrap_tool_call = _find_wrap_tool_call(self._extensions, self._name)
+
+        # Pass user_tools=[] because self.tools already merges user + extension tools.
+        # build_graph does `all_tools = user_tools + kit.tools`, so passing []
+        # avoids duplicating the user tools that are already in self.tools.
+        return build_graph(
+            name=self._name,
+            handler=handler,
+            llm=llm,  # type: ignore[arg-type]
+            user_tools=[],
+            kit=self,
+            state_type=self.state_schema,
+            wrap_tool_call=wrap_tool_call,
         )
 
     def _collect_contributions(
@@ -253,6 +327,44 @@ class AgentKit:
         """
         _, reminder_parts = self._collect_contributions(state, runtime)
         return "\n\n".join(reminder_parts) if reminder_parts else ""
+
+
+async def run_extension_setup(kit: AgentKit) -> None:
+    """Run setup() on all extensions in a kit.
+
+    Call this before using the kit when extensions have async setup
+    (backend discovery, cross-extension wiring). This is the only
+    async operation in the AgentKit lifecycle — it lives outside
+    the class to keep AgentKit purely sync.
+
+    Supports both sync and async setup methods. Each extension declares
+    only the kwargs it needs via its own ``setup()`` signature.
+    """
+    available: dict[str, Any] = {
+        "extensions": kit._extensions,
+        "prompt": kit._prompt,
+        "model_resolver": kit._model_resolver,
+    }
+    for ext in kit._extensions:
+        setup = getattr(ext, "setup", None)
+        if not callable(setup):
+            continue
+        try:
+            sig_params = inspect.signature(setup).parameters
+        except (TypeError, ValueError):
+            continue
+        accepts_var_keyword = any(
+            p.kind is inspect.Parameter.VAR_KEYWORD for p in sig_params.values()
+        )
+        if accepts_var_keyword:
+            kwargs = dict(available)
+        else:
+            kwargs = {k: v for k, v in available.items() if k in sig_params}
+        result = setup(**kwargs)
+        if inspect.isawaitable(result):
+            await result
+    # Extensions may have rebuilt their tools during setup — invalidate.
+    kit._tools_cache = None
 
 
 def _load_prompt_source(source: str | Path) -> str:
