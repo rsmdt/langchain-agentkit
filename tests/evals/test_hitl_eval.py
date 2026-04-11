@@ -145,8 +145,8 @@ def _build_ask_user_agent():
 def _build_tool_approval_agent():
     """Build agent with HITL tool approval for interrupt/resume evals.
 
-    Uses the ``agent`` metaclass so wrap_tool_call is properly wired
-    into the ToolNode.
+    Uses the ``agent`` metaclass so the wrap_tool hook is properly wired
+    into the ToolNode via the HookRunner.
     """
     from langchain_core.tools import tool
 

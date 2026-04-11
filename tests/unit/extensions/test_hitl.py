@@ -1,6 +1,6 @@
 """Tests for HITLExtension with unified Question-based interrupt protocol."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 from langchain_core.messages import ToolMessage
@@ -228,19 +228,27 @@ class TestExtensionProtocol:
 
         assert ext.state_schema is None
 
-    def test_has_wrap_tool_call_method(self):
+    def test_has_wrap_tool_hook(self):
         ext = HITLExtension(interrupt_on={"send_email": True})
 
-        assert callable(getattr(ext, "wrap_tool_call", None))
+        hooks = ext.get_all_hooks()
+        assert ("wrap", "tool") in hooks
+
+    def test_wrap_tool_discovered_as_named_hook(self):
+        """wrap_tool is auto-discovered as a named hook, not legacy wrap_tool_call."""
+        assert not hasattr(HITLExtension, "wrap_tool_call")
+        hooks = HITLExtension._get_named_hooks()
+        assert ("wrap", "tool") in hooks
 
 
 # ------------------------------------------------------------------
-# wrap_tool_call — auto-approved tools
+# wrap_tool — auto-approved tools
 # ------------------------------------------------------------------
 
 
-class TestWrapToolCallAutoApproved:
-    def test_unconfigured_tool_executes_normally(self):
+class TestWrapToolAutoApproved:
+    @pytest.mark.asyncio
+    async def test_unconfigured_tool_executes_normally(self):
         ext = HITLExtension(interrupt_on={"send_email": True})
         mock_request = MagicMock()
         mock_request.tool_call = {
@@ -249,14 +257,17 @@ class TestWrapToolCallAutoApproved:
             "id": "call_1",
         }
         expected = ToolMessage(content="result", tool_call_id="call_1")
-        mock_execute = MagicMock(return_value=expected)
+        mock_handler = AsyncMock(return_value=expected)
 
-        result = ext.wrap_tool_call(mock_request, mock_execute)
+        result = await ext.wrap_tool(
+            state=mock_request, handler=mock_handler, runtime=_TEST_RUNTIME
+        )
 
-        mock_execute.assert_called_once_with(mock_request)
+        mock_handler.assert_called_once_with(mock_request)
         assert result == expected
 
-    def test_single_approve_decision_auto_executes(self):
+    @pytest.mark.asyncio
+    async def test_single_approve_decision_auto_executes(self):
         """Only one allowed decision (approve) — no point in asking."""
         ext = HITLExtension(
             interrupt_on={
@@ -270,20 +281,22 @@ class TestWrapToolCallAutoApproved:
             "id": "call_1",
         }
         expected = ToolMessage(content="result", tool_call_id="call_1")
-        mock_execute = MagicMock(return_value=expected)
+        mock_handler = AsyncMock(return_value=expected)
 
-        result = ext.wrap_tool_call(mock_request, mock_execute)
+        result = await ext.wrap_tool(
+            state=mock_request, handler=mock_handler, runtime=_TEST_RUNTIME
+        )
 
-        mock_execute.assert_called_once_with(mock_request)
+        mock_handler.assert_called_once_with(mock_request)
         assert result == expected
 
 
 # ------------------------------------------------------------------
-# wrap_tool_call — interrupt flow
+# wrap_tool — interrupt flow
 # ------------------------------------------------------------------
 
 
-class TestWrapToolCallInterrupt:
+class TestWrapToolInterrupt:
     def _make_request(self, tool_name="send_email", args=None):
         mock = MagicMock()
         mock.tool_call = {
@@ -293,15 +306,16 @@ class TestWrapToolCallInterrupt:
         }
         return mock
 
+    @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
-    def test_interrupt_payload_uses_question_format(self, mock_interrupt):
+    async def test_interrupt_payload_uses_question_format(self, mock_interrupt):
         mock_interrupt.return_value = {
             "answers": {"Tool: send_email\nArgs: {'to': 'a@b.com'}": "Approve"},
         }
         ext = HITLExtension(interrupt_on={"send_email": True})
         request = self._make_request()
 
-        ext.wrap_tool_call(request, MagicMock())
+        await ext.wrap_tool(state=request, handler=AsyncMock(), runtime=_TEST_RUNTIME)
 
         payload = mock_interrupt.call_args[0][0]
         assert payload["type"] == "question"
@@ -313,8 +327,9 @@ class TestWrapToolCallInterrupt:
         assert q["context"]["tool"] == "send_email"
         assert q["context"]["args"] == {"to": "a@b.com"}
 
+    @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
-    def test_options_match_options(self, mock_interrupt):
+    async def test_options_match_options(self, mock_interrupt):
         mock_interrupt.return_value = {
             "answers": {"Tool: send_email\nArgs: {'to': 'a@b.com'}": "Approve"},
         }
@@ -325,28 +340,30 @@ class TestWrapToolCallInterrupt:
         )
         request = self._make_request()
 
-        ext.wrap_tool_call(request, MagicMock())
+        await ext.wrap_tool(state=request, handler=AsyncMock(), runtime=_TEST_RUNTIME)
 
         q = mock_interrupt.call_args[0][0]["questions"][0]
         labels = [o["label"] for o in q["options"]]
         assert labels == ["Approve", "Reject"]
 
+    @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
-    def test_approve_executes_tool(self, mock_interrupt):
+    async def test_approve_executes_tool(self, mock_interrupt):
         description = "Tool: send_email\nArgs: {'to': 'a@b.com'}"
         mock_interrupt.return_value = {"answers": {description: "Approve"}}
         ext = HITLExtension(interrupt_on={"send_email": True})
         request = self._make_request()
         expected = ToolMessage(content="sent", tool_call_id="call_1")
-        mock_execute = MagicMock(return_value=expected)
+        mock_handler = AsyncMock(return_value=expected)
 
-        result = ext.wrap_tool_call(request, mock_execute)
+        result = await ext.wrap_tool(state=request, handler=mock_handler, runtime=_TEST_RUNTIME)
 
-        mock_execute.assert_called_once_with(request)
+        mock_handler.assert_called_once_with(request)
         assert result == expected
 
+    @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
-    def test_reject_returns_error(self, mock_interrupt):
+    async def test_reject_returns_error(self, mock_interrupt):
         description = "Tool: send_email\nArgs: {'to': 'a@b.com'}"
         mock_interrupt.return_value = {
             "answers": {description: "Reject"},
@@ -354,28 +371,30 @@ class TestWrapToolCallInterrupt:
         }
         ext = HITLExtension(interrupt_on={"send_email": True})
         request = self._make_request()
-        mock_execute = MagicMock()
+        mock_handler = AsyncMock()
 
-        result = ext.wrap_tool_call(request, mock_execute)
+        result = await ext.wrap_tool(state=request, handler=mock_handler, runtime=_TEST_RUNTIME)
 
-        mock_execute.assert_not_called()
+        mock_handler.assert_not_called()
         assert isinstance(result, ToolMessage)
         assert result.status == "error"
         assert "Not appropriate" in result.content
 
+    @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
-    def test_reject_default_message(self, mock_interrupt):
+    async def test_reject_default_message(self, mock_interrupt):
         description = "Tool: send_email\nArgs: {'to': 'a@b.com'}"
         mock_interrupt.return_value = {"answers": {description: "Reject"}}
         ext = HITLExtension(interrupt_on={"send_email": True})
         request = self._make_request()
 
-        result = ext.wrap_tool_call(request, MagicMock())
+        result = await ext.wrap_tool(state=request, handler=AsyncMock(), runtime=_TEST_RUNTIME)
 
         assert "User rejected send_email" in result.content
 
+    @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
-    def test_edit_modifies_args_and_executes(self, mock_interrupt):
+    async def test_edit_modifies_args_and_executes(self, mock_interrupt):
         description = "Tool: send_email\nArgs: {'to': 'a@b.com'}"
         mock_interrupt.return_value = {
             "answers": {description: "Edit"},
@@ -384,68 +403,72 @@ class TestWrapToolCallInterrupt:
         ext = HITLExtension(interrupt_on={"send_email": True})
         request = self._make_request()
         expected = ToolMessage(content="sent", tool_call_id="call_1")
-        mock_execute = MagicMock(return_value=expected)
+        mock_handler = AsyncMock(return_value=expected)
 
-        result = ext.wrap_tool_call(request, mock_execute)
+        result = await ext.wrap_tool(state=request, handler=mock_handler, runtime=_TEST_RUNTIME)
 
-        mock_execute.assert_called_once()
+        mock_handler.assert_called_once()
         request.override.assert_called_once()
         override_kwargs = request.override.call_args[1]
         assert override_kwargs["tool_call"]["args"] == {"to": "new@b.com"}
         assert result == expected
 
+    @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
-    def test_edit_without_edited_args_uses_original(self, mock_interrupt):
+    async def test_edit_without_edited_args_uses_original(self, mock_interrupt):
         description = "Tool: send_email\nArgs: {'to': 'a@b.com'}"
         mock_interrupt.return_value = {"answers": {description: "Edit"}}
         ext = HITLExtension(interrupt_on={"send_email": True})
         request = self._make_request()
-        mock_execute = MagicMock()
 
-        ext.wrap_tool_call(request, mock_execute)
+        await ext.wrap_tool(state=request, handler=AsyncMock(), runtime=_TEST_RUNTIME)
 
         override_kwargs = request.override.call_args[1]
         assert override_kwargs["tool_call"]["args"] == {"to": "a@b.com"}
 
+    @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
-    def test_invalid_answer_returns_error(self, mock_interrupt):
+    async def test_invalid_answer_returns_error(self, mock_interrupt):
         description = "Tool: send_email\nArgs: {'to': 'a@b.com'}"
         mock_interrupt.return_value = {"answers": {description: "InvalidChoice"}}
         ext = HITLExtension(interrupt_on={"send_email": True})
         request = self._make_request()
-        mock_execute = MagicMock()
+        mock_handler = AsyncMock()
 
-        result = ext.wrap_tool_call(request, mock_execute)
+        result = await ext.wrap_tool(state=request, handler=mock_handler, runtime=_TEST_RUNTIME)
 
-        mock_execute.assert_not_called()
+        mock_handler.assert_not_called()
         assert isinstance(result, ToolMessage)
         assert result.status == "error"
         assert "Invalid answer" in result.content
 
+    @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
-    def test_empty_response_returns_error(self, mock_interrupt):
+    async def test_empty_response_returns_error(self, mock_interrupt):
         mock_interrupt.return_value = {}
         ext = HITLExtension(interrupt_on={"send_email": True})
         request = self._make_request()
 
-        result = ext.wrap_tool_call(request, MagicMock())
+        result = await ext.wrap_tool(state=request, handler=AsyncMock(), runtime=_TEST_RUNTIME)
 
         assert isinstance(result, ToolMessage)
         assert result.status == "error"
 
+    @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
-    def test_non_dict_response_returns_error(self, mock_interrupt):
+    async def test_non_dict_response_returns_error(self, mock_interrupt):
         mock_interrupt.return_value = "unexpected string"
         ext = HITLExtension(interrupt_on={"send_email": True})
         request = self._make_request()
 
-        result = ext.wrap_tool_call(request, MagicMock())
+        result = await ext.wrap_tool(state=request, handler=AsyncMock(), runtime=_TEST_RUNTIME)
 
         assert isinstance(result, ToolMessage)
         assert result.status == "error"
 
+    @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
-    def test_custom_description_string(self, mock_interrupt):
+    async def test_custom_description_string(self, mock_interrupt):
         mock_interrupt.return_value = {
             "answers": {"Send email to user?": "Approve"},
         }
@@ -459,13 +482,14 @@ class TestWrapToolCallInterrupt:
         )
         request = self._make_request()
 
-        ext.wrap_tool_call(request, MagicMock())
+        await ext.wrap_tool(state=request, handler=AsyncMock(), runtime=_TEST_RUNTIME)
 
         q = mock_interrupt.call_args[0][0]["questions"][0]
         assert q["question"] == "Send email to user?"
 
+    @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
-    def test_custom_question_callable(self, mock_interrupt):
+    async def test_custom_question_callable(self, mock_interrupt):
         mock_interrupt.return_value = {
             "answers": {"Email a@b.com?": "Approve"},
         }
@@ -479,13 +503,14 @@ class TestWrapToolCallInterrupt:
         )
         request = self._make_request()
 
-        ext.wrap_tool_call(request, MagicMock())
+        await ext.wrap_tool(state=request, handler=AsyncMock(), runtime=_TEST_RUNTIME)
 
         q = mock_interrupt.call_args[0][0]["questions"][0]
         assert q["question"] == "Email a@b.com?"
 
+    @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
-    def test_header_truncated_to_12_chars(self, mock_interrupt):
+    async def test_header_truncated_to_12_chars(self, mock_interrupt):
         mock_interrupt.return_value = {"answers": {}}
         ext = HITLExtension(
             interrupt_on={"long_tool_name_here": True},
@@ -497,7 +522,7 @@ class TestWrapToolCallInterrupt:
             "id": "call_1",
         }
 
-        ext.wrap_tool_call(request, MagicMock())
+        await ext.wrap_tool(state=request, handler=AsyncMock(), runtime=_TEST_RUNTIME)
 
         q = mock_interrupt.call_args[0][0]["questions"][0]
         assert len(q["header"]) <= 12

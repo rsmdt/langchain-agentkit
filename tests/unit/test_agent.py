@@ -364,8 +364,8 @@ class TestAgentInvocation:
 
         assert result["messages"][-1].content == "sync done"
 
-    def test_hitl_extensions_wrap_tool_call_passed_to_tool_node(self):
-        """Verify agent detects wrap_tool_call from HITLExtension."""
+    def test_hitl_extension_wrap_tool_hook_wired(self):
+        """Verify agent wires HITLExtension's wrap_tool hook into the graph."""
         from langchain_agentkit.extensions.hitl import HITLExtension
 
         mock_llm = MagicMock()
@@ -394,8 +394,8 @@ class TestAgentInvocation:
 
         assert isinstance(hitl_agent, StateGraph)
 
-    def test_multiple_wrap_tool_call_raises(self):
-        """Only one extensions can provide wrap_tool_call."""
+    def test_multiple_hitl_extensions_compose(self):
+        """Multiple HITLExtensions compose via wrap_tool onion — no conflict."""
         from langchain_agentkit.extensions.hitl import HITLExtension
 
         mock_llm = MagicMock()
@@ -406,18 +406,21 @@ class TestAgentInvocation:
             """Do something."""
             return x
 
-        with pytest.raises(ValueError, match="multiple extensions provide wrap_tool_call"):
+        # Two HITLExtensions should compose without error
+        class multi_hitl_agent(agent):
+            model = mock_llm
+            tools = [action]
+            extensions = [
+                HITLExtension(interrupt_on={"action": True}),
+                HITLExtension(interrupt_on={"other_tool": True}),
+            ]
 
-            class bad_agent(agent):
-                model = mock_llm
-                tools = [action]
-                extensions = [
-                    HITLExtension(interrupt_on={"action": True}),
-                    HITLExtension(interrupt_on={"action": True}),
-                ]
+            async def handler(state, *, llm):
+                return {"messages": [], "sender": "multi"}
 
-                async def handler(state, *, llm):
-                    return {"messages": [], "sender": "bad"}
+        from langgraph.graph import StateGraph
+
+        assert isinstance(multi_hitl_agent, StateGraph)
 
 
 class TestAgentClass:

@@ -181,6 +181,56 @@ def _args_match(
     return True
 
 
+async def _run_single_eval(
+    agent: Any,
+    entry: dict[str, Any],
+    *,
+    trajectory_mode: TrajectoryMode,
+    tool_args_mode: Literal["exact", "ignore", "subset"],
+    state_factory: Any | None,
+) -> EvalResult:
+    """Run a single eval entry against the agent."""
+    description = entry["description"]
+    user_input = entry["inputs"]
+    reference = entry["reference_trajectory"]
+
+    if state_factory:
+        state = state_factory()
+    else:
+        state = {"messages": [{"role": "user", "content": user_input}]}
+    if "messages" not in state:
+        state["messages"] = [{"role": "user", "content": user_input}]
+
+    try:
+        final_state = await agent.ainvoke(state)
+        actual_messages = final_state.get("messages", [])
+        actual_calls = extract_tool_calls_from_messages(actual_messages)
+    except Exception as exc:
+        return EvalResult(
+            description=description,
+            score=False,
+            actual_tool_calls=[],
+            expected_tool_calls=extract_tool_calls_from_openai_trajectory(reference),
+            comment=f"Agent error: {exc}",
+        )
+
+    expected_calls = extract_tool_calls_from_openai_trajectory(reference)
+    passed, comment = match_tool_calls(
+        actual_calls,
+        expected_calls,
+        trajectory_mode,
+        tool_args_mode,
+    )
+
+    return EvalResult(
+        description=description,
+        score=passed,
+        actual_tool_calls=actual_calls,
+        expected_tool_calls=expected_calls,
+        comment=comment,
+    )
+
+
 def run_eval(
     agent: Any,
     dataset: list[dict[str, Any]],
@@ -190,6 +240,8 @@ def run_eval(
     state_factory: Any | None = None,
 ) -> list[EvalResult]:
     """Run evaluation dataset against a compiled LangGraph agent.
+
+    Scenarios within a dataset run concurrently via ``asyncio.gather``.
 
     Args:
         agent: Compiled LangGraph ``StateGraph`` with ``.invoke()``.
@@ -201,63 +253,22 @@ def run_eval(
     Returns:
         List of ``EvalResult`` dicts with scores and diagnostics.
     """
-    results: list[EvalResult] = []
+    import asyncio
 
-    for entry in dataset:
-        description = entry["description"]
-        user_input = entry["inputs"]
-        reference = entry["reference_trajectory"]
-
-        # Build initial state
-        if state_factory:
-            state = state_factory()
-        else:
-            state = {"messages": [{"role": "user", "content": user_input}]}
-        # Ensure messages always contains the user input
-        if "messages" not in state:
-            state["messages"] = [{"role": "user", "content": user_input}]
-
-        # Run agent (async tools require ainvoke)
-        try:
-            import asyncio
-
-            final_state = asyncio.run(agent.ainvoke(state))
-            actual_messages = final_state.get("messages", [])
-            actual_calls = extract_tool_calls_from_messages(actual_messages)
-        except Exception as exc:
-            results.append(
-                EvalResult(
-                    description=description,
-                    score=False,
-                    actual_tool_calls=[],
-                    expected_tool_calls=extract_tool_calls_from_openai_trajectory(
-                        reference,
-                    ),
-                    comment=f"Agent error: {exc}",
-                )
+    async def _run_all() -> list[EvalResult]:
+        tasks = [
+            _run_single_eval(
+                agent,
+                entry,
+                trajectory_mode=trajectory_mode,
+                tool_args_mode=tool_args_mode,
+                state_factory=state_factory,
             )
-            continue
+            for entry in dataset
+        ]
+        return list(await asyncio.gather(*tasks))
 
-        expected_calls = extract_tool_calls_from_openai_trajectory(reference)
-
-        passed, comment = match_tool_calls(
-            actual_calls,
-            expected_calls,
-            trajectory_mode,
-            tool_args_mode,
-        )
-
-        results.append(
-            EvalResult(
-                description=description,
-                score=passed,
-                actual_tool_calls=actual_calls,
-                expected_tool_calls=expected_calls,
-                comment=comment,
-            )
-        )
-
-    return results
+    return asyncio.run(_run_all())
 
 
 def print_eval_results(results: list[EvalResult]) -> None:
