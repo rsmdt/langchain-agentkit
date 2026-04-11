@@ -41,34 +41,6 @@ from typing import TYPE_CHECKING, Any
 from langchain_agentkit.agent_kit import AgentKit, run_extension_setup
 from langchain_agentkit.state import AgentKitState
 
-
-def _run_async_setup(kit: AgentKit) -> None:
-    """Run extension setup synchronously, handling running event loops."""
-    try:
-        asyncio.get_running_loop()
-        has_loop = True
-    except RuntimeError:
-        has_loop = False
-
-    if has_loop:
-        exc: BaseException | None = None
-
-        def _run() -> None:
-            nonlocal exc
-            try:
-                asyncio.run(run_extension_setup(kit))
-            except BaseException as e:
-                exc = e
-
-        t = threading.Thread(target=_run)
-        t.start()
-        t.join()
-        if exc is not None:
-            raise exc
-    else:
-        asyncio.run(run_extension_setup(kit))
-
-
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -218,31 +190,20 @@ class _AgentMeta(type):
         skills: list[str] = namespace.get("skills", [])
         max_turns: int | None = namespace.get("max_turns")
 
-        kit = AgentKit(
-            extensions=list(extensions),
-            prompt=prompt_source,
-            tools=list(user_tools),
+        graph = _build_agent_graph(
+            handler=handler,
             model=model_raw,
+            extensions=list(extensions),
+            tools=list(user_tools),
+            prompt=prompt_source,
             name=name,
         )
 
-        # Run async setup (discovery, cross-extension wiring)
-        _run_async_setup(kit)
-
-        graph = kit.compile(handler)
-
-        # Attach metadata (delegation, rebuild ingredients)
-        graph.name = name
+        # Attach metaclass-specific metadata
         graph.description = description
         graph.tools_inherit = tools_inherit
         graph.skills = skills
         graph.max_turns = max_turns
-
-        # Store rebuild ingredients for team proxy tool injection
-        graph._agentkit_handler = handler
-        graph._agentkit_llm = kit.model
-        graph._agentkit_user_tools = list(user_tools)
-        graph._agentkit_kit = kit
 
         return graph
 
@@ -260,10 +221,53 @@ class agent(metaclass=_AgentMeta):  # noqa: N801
 _NO_CALL = frozenset({"handler", "model_resolver"})
 
 
+def _build_agent_graph(
+    *,
+    handler: Any,
+    model: Any,
+    extensions: list[Extension],
+    tools: list[BaseTool],
+    prompt: str | Path | list[str | Path] | None = None,
+    model_resolver: Any = None,
+    name: str = "agent",
+) -> Any:
+    """Shared graph-building pipeline for both Agent and legacy metaclass.
+
+    Creates an AgentKit, runs async setup, compiles the graph, and
+    attaches rebuild metadata.
+    """
+    kit = AgentKit(
+        extensions=extensions,
+        prompt=prompt,
+        tools=tools,
+        model=model,
+        model_resolver=model_resolver,
+        name=name,
+    )
+
+    _run_coroutine(run_extension_setup(kit))
+
+    # Resolve model string → BaseChatModel once, store back so
+    # kit.compile() doesn't re-resolve through model_resolver.
+    resolved_model = kit.model
+    kit._model_raw = resolved_model
+
+    state_graph = kit.compile(handler)
+
+    # Attach metadata for delegation and team proxy rebuilds
+    state_graph.name = name
+    state_graph._agentkit_handler = handler
+    state_graph._agentkit_llm = resolved_model
+    state_graph._agentkit_user_tools = list(tools)
+    state_graph._agentkit_kit = kit
+
+    return state_graph
+
+
 def _run_coroutine(coro: Any) -> Any:
     """Run an awaitable synchronously, handling running event loops.
 
-    Uses the same threading bridge as ``_run_async_setup``.
+    Bridges sync and async contexts, spawning a thread when needed.
     """
     if not inspect.isawaitable(coro):
         return coro
@@ -385,25 +389,6 @@ class Agent:
         tools = _run_coroutine(self._resolve("tools"))
         model_resolver = _run_coroutine(self._resolve("model_resolver"))
 
-        resolved_extensions = list(extensions) if extensions else []
-        resolved_tools = list(tools) if tools else []
-
-        kit = AgentKit(
-            model=model,
-            model_resolver=model_resolver,
-            prompt=prompt,
-            extensions=resolved_extensions,
-            tools=resolved_tools,
-        )
-
-        # Run extension setup (async discovery, cross-extension wiring)
-        _run_coroutine(run_extension_setup(kit))
-
-        # Resolve model string → BaseChatModel once, store back so
-        # kit.compile() doesn't re-resolve through model_resolver.
-        resolved_model = kit.model
-        kit._model_raw = resolved_model
-
         # Get handler as raw function, not bound method. When defined
         # in a class body as `async def handler(state, *, llm): ...`,
         # `self.handler` would be a bound method injecting `self` as
@@ -414,21 +399,22 @@ class Agent:
         if handler is None:
             raise ValueError(f"{type(self).__name__} must define a handler function")
 
-        state_graph = kit.compile(handler)
-
-        # Attach metadata for delegation and team proxy rebuilds
         cls = type(self)
-        state_graph.name = getattr(self, "name", cls.__name__)
+        state_graph = _build_agent_graph(
+            handler=handler,
+            model=model,
+            model_resolver=model_resolver,
+            extensions=list(extensions) if extensions else [],
+            tools=list(tools) if tools else [],
+            prompt=prompt,
+            name=getattr(self, "name", cls.__name__),
+        )
+
+        # Attach Agent-specific metadata
         state_graph.description = getattr(self, "description", "")
         state_graph.tools_inherit = getattr(self, "tools_inherit", False)
         state_graph.skills = getattr(self, "skills", [])
         state_graph.max_turns = getattr(self, "max_turns", None)
-
-        # Store rebuild ingredients for team proxy tool injection
-        state_graph._agentkit_handler = handler
-        state_graph._agentkit_llm = resolved_model
-        state_graph._agentkit_user_tools = resolved_tools
-        state_graph._agentkit_kit = kit
 
         return state_graph
 
