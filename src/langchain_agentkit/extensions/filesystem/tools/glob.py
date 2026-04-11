@@ -17,10 +17,10 @@ if TYPE_CHECKING:
 
 
 def _build_glob(backend: Any) -> BaseTool:
-    def glob(pattern: str, path: str | None = None) -> tuple[str, dict[str, Any]]:
+    async def glob(pattern: str, path: str | None = None) -> tuple[str, dict[str, Any]]:
         """Find files matching a glob pattern."""
         start = time.monotonic()
-        all_matches = backend.glob(pattern, path=path or "/")
+        all_matches = await backend.glob(pattern, path=path or "/")
         duration_ms = round((time.monotonic() - start) * 1000)
 
         if not all_matches:
@@ -45,7 +45,7 @@ def _build_glob(backend: Any) -> BaseTool:
         return content, artifact
 
     return StructuredTool.from_function(
-        func=glob,
+        coroutine=glob,
         name="Glob",
         description=(
             "Fast file pattern matching. "

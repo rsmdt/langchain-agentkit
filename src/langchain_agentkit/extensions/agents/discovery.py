@@ -81,16 +81,16 @@ def discover_agents_from_directory(path: Path) -> list[AgentConfig]:
     return agents
 
 
-def discover_agents_from_backend(backend: BackendProtocol, path: str) -> list[AgentConfig]:
+async def discover_agents_from_backend(backend: BackendProtocol, path: str) -> list[AgentConfig]:
     """Discover agents via a BackendProtocol by globbing for .md files."""
     from langchain_agentkit.frontmatter import parse_frontmatter_string
 
-    matches = backend.glob("**/*.md", path=path)
+    matches = await backend.glob("**/*.md", path=path)
     agents: list[AgentConfig] = []
     seen_names: set[str] = set()
     for match in sorted(matches):
         try:
-            formatted = backend.read(match, limit=100_000)
+            formatted = await backend.read(match, limit=100_000)
         except (FileNotFoundError, OSError):
             logger.warning("Skipping unreadable agent file: %s", match)
             continue

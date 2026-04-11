@@ -224,9 +224,9 @@ class TestDirectoryMode:
 
 
 class TestBackendMode:
-    """Mode C: skills discovered via BackendProtocol."""
+    """Mode C: skills discovered via BackendProtocol (async setup)."""
 
-    def test_discovers_skills_from_backend(self):
+    async def test_discovers_skills_from_backend(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             from langchain_agentkit.backends import OSBackend
 
@@ -234,11 +234,12 @@ class TestBackendMode:
             backend = OSBackend(tmpdir)
 
             mw = SkillsExtension(skills="/", backend=backend)
+            await mw.setup()
 
             assert len(mw.configs) == 1
             assert mw.configs[0].name == "market-sizing"
 
-    def test_skill_tool_works_from_backend(self):
+    async def test_skill_tool_works_from_backend(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             from langchain_agentkit.backends import OSBackend
 
@@ -246,21 +247,23 @@ class TestBackendMode:
             backend = OSBackend(tmpdir)
 
             mw = SkillsExtension(skills="/", backend=backend)
+            await mw.setup()
             result = mw.tools[0].invoke({"skill_name": "market-sizing"})
 
             assert "Market Sizing Methodology" in result
 
-    def test_empty_backend_returns_no_configs(self):
+    async def test_empty_backend_returns_no_configs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             from langchain_agentkit.backends import OSBackend
 
             backend = OSBackend(tmpdir)
 
             mw = SkillsExtension(skills="/", backend=backend)
+            await mw.setup()
 
             assert mw.configs == []
 
-    def test_deduplicates_by_name_via_backend(self):
+    async def test_deduplicates_by_name_via_backend(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             from langchain_agentkit.backends import OSBackend
 
@@ -269,6 +272,7 @@ class TestBackendMode:
             backend = OSBackend(tmpdir)
 
             mw = SkillsExtension(skills="/", backend=backend)
+            await mw.setup()
 
             assert len(mw.configs) == 1
 

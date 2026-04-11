@@ -87,22 +87,22 @@ class TestTools:
 
         assert names == ["Read", "Write", "Edit", "Glob", "Grep", "Bash"]
 
-    def test_read_tool_works(self):
+    async def test_read_tool_works(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             # Write a file to the temp directory
             (Path(tmpdir) / "hello.txt").write_text("world")
 
             ext = FilesystemExtension(root=tmpdir)
             read_tool = ext.tools[0]
-            result = read_tool.invoke({"file_path": "/hello.txt"})
+            result = await read_tool.ainvoke({"file_path": "/hello.txt"})
 
             assert "world" in result
 
-    def test_write_tool_works(self):
+    async def test_write_tool_works(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             ext = FilesystemExtension(root=tmpdir)
             write_tool = ext.tools[1]
-            result = write_tool.invoke({"file_path": "/new.txt", "content": "hello"})
+            result = await write_tool.ainvoke({"file_path": "/new.txt", "content": "hello"})
 
             assert "created successfully" in result
             assert (Path(tmpdir) / "new.txt").read_text() == "hello"
@@ -200,33 +200,33 @@ class TestPermissionGate1:
 class TestPermissionGate2:
     """Gate 2 checks permissions on each tool invocation."""
 
-    def test_permissive_allows_write(self):
+    async def test_permissive_allows_write(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             ext = FilesystemExtension(root=tmpdir, permissions=PERMISSIVE_RULESET)
             write_tool = next(t for t in ext.tools if t.name == "Write")
-            result = write_tool.invoke({"file_path": "/test.txt", "content": "hello"})
+            result = await write_tool.ainvoke({"file_path": "/test.txt", "content": "hello"})
             assert "successfully" in result
 
-    def test_permissive_denies_secrets_read(self):
+    async def test_permissive_denies_secrets_read(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             ext = FilesystemExtension(root=tmpdir, permissions=PERMISSIVE_RULESET)
             read_tool = next(t for t in ext.tools if t.name == "Read")
-            result = read_tool.invoke({"file_path": "/project/.env"})
+            result = await read_tool.ainvoke({"file_path": "/project/.env"})
             assert "Permission denied" in result
 
-    def test_permissive_denies_secrets_write(self):
+    async def test_permissive_denies_secrets_write(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             ext = FilesystemExtension(root=tmpdir, permissions=PERMISSIVE_RULESET)
             write_tool = next(t for t in ext.tools if t.name == "Write")
-            result = write_tool.invoke({"file_path": "/project/.env", "content": "x"})
+            result = await write_tool.ainvoke({"file_path": "/project/.env", "content": "x"})
             assert "Permission denied" in result
 
-    def test_strict_asks_without_hitl_denies(self):
+    async def test_strict_asks_without_hitl_denies(self):
         """STRICT asks for everything. Without HITL, ask degrades to deny."""
         with tempfile.TemporaryDirectory() as tmpdir:
             ext = FilesystemExtension(root=tmpdir, permissions=STRICT_RULESET)
             read_tool = next(t for t in ext.tools if t.name == "Read")
-            result = read_tool.invoke({"file_path": "/file.txt"})
+            result = await read_tool.ainvoke({"file_path": "/file.txt"})
             assert "Permission required" in result or "approval" in result.lower()
 
 

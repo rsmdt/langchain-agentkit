@@ -23,7 +23,6 @@ from langchain_core.prompts import PromptTemplate
 
 from langchain_agentkit.extension import Extension
 from langchain_agentkit.extensions.skills.discovery import (
-    discover_skills_from_backend,
     discover_skills_from_directory,
 )
 from langchain_agentkit.extensions.skills.tools import build_skill_tool
@@ -46,6 +45,7 @@ class SkillsExtension(Extension):
         skills: Either a list of SkillConfig objects, or a string/Path
             pointing to a directory to scan for skills.
         backend: Optional BackendProtocol for remote filesystem discovery.
+            When provided with a path, discovery is deferred to ``setup()``.
     """
 
     def __init__(
@@ -57,11 +57,16 @@ class SkillsExtension(Extension):
         max_description_chars: int | None = None,
         context_window: int | None = None,
     ) -> None:
+        self._backend = backend
+        self._deferred_path: str | None = None
+
         if isinstance(skills, list):
-            self._configs = list(skills)
+            self._configs: list[SkillConfig] = list(skills)
         elif isinstance(skills, (str, Path)):
             if backend is not None:
-                self._configs = discover_skills_from_backend(backend, str(skills))
+                # Defer async discovery to setup()
+                self._deferred_path = str(skills)
+                self._configs = []
             else:
                 self._configs = discover_skills_from_directory(Path(skills))
         else:
@@ -71,6 +76,17 @@ class SkillsExtension(Extension):
         self._max_description_chars = max_description_chars
         self._context_window = context_window
         self._tools_cache: list[BaseTool] | None = None
+
+    async def setup(self, **_: Any) -> None:  # type: ignore[override]
+        """Run deferred async discovery if a backend path was provided."""
+        if self._deferred_path is not None and self._backend is not None:
+            from langchain_agentkit.extensions.skills.discovery import (
+                discover_skills_from_backend,
+            )
+
+            self._configs = await discover_skills_from_backend(self._backend, self._deferred_path)
+            self._deferred_path = None
+            self._tools_cache = None  # Rebuild tools with discovered configs
 
     @property
     def configs(self) -> list[SkillConfig]:

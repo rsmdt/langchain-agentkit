@@ -25,12 +25,42 @@ a string. Strings are resolved at build time via ``AgentKit.model_resolver``.
 
 from __future__ import annotations
 
+import asyncio
 import inspect
+import threading
 from typing import TYPE_CHECKING, Any
 
 from langchain_agentkit._graph_builder import _find_wrap_tool_call, build_graph
 from langchain_agentkit.agent_kit import AgentKit
 from langchain_agentkit.state import AgentKitState
+
+
+def _run_async_setup(kit: AgentKit) -> None:
+    """Run kit.asetup() synchronously, handling running event loops."""
+    try:
+        asyncio.get_running_loop()
+        has_loop = True
+    except RuntimeError:
+        has_loop = False
+
+    if has_loop:
+        exc: BaseException | None = None
+
+        def _run() -> None:
+            nonlocal exc
+            try:
+                asyncio.run(kit.asetup())
+            except BaseException as e:
+                exc = e
+
+        t = threading.Thread(target=_run)
+        t.start()
+        t.join()
+        if exc is not None:
+            raise exc
+    else:
+        asyncio.run(kit.asetup())
+
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -182,6 +212,9 @@ class _AgentMeta(type):
         max_turns: int | None = namespace.get("max_turns")
 
         kit = AgentKit(extensions=list(extensions), prompt=prompt_source)
+
+        # Run async setup (discovery, cross-extension wiring)
+        _run_async_setup(kit)
 
         # Resolve model — string goes through model_resolver, object used as-is
         llm = kit.resolve_model(model_raw)

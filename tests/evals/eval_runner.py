@@ -217,9 +217,11 @@ def run_eval(
         if "messages" not in state:
             state["messages"] = [{"role": "user", "content": user_input}]
 
-        # Run agent
+        # Run agent (async tools require ainvoke)
         try:
-            final_state = agent.invoke(state)
+            import asyncio
+
+            final_state = asyncio.run(agent.ainvoke(state))
             actual_messages = final_state.get("messages", [])
             actual_calls = extract_tool_calls_from_messages(actual_messages)
         except Exception as exc:

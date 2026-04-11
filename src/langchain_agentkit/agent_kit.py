@@ -63,15 +63,20 @@ class AgentKit:
         self._extensions = self._resolve_dependencies(list(extensions or []))
         self._prompt = _load_prompt(prompt)
         self._tools_cache: list[BaseTool] | None = None
-        self._run_setup()
+        self._setup_done = False
 
-    def _run_setup(self) -> None:
+    async def asetup(self) -> None:
+        """Run async setup on all extensions. Must be called before use."""
+        if self._setup_done:
+            return
+        await self._run_setup()
+        self._setup_done = True
+
+    async def _run_setup(self) -> None:
         """Call ``setup()`` on each extension with introspection-based kwargs.
 
-        Each extension declares only the kwargs it needs via its own
-        ``setup()`` signature.  This method inspects the signature and
-        passes only the matching subset from the available kit-level
-        configuration.
+        Supports both sync and async setup methods. Each extension declares
+        only the kwargs it needs via its own ``setup()`` signature.
         """
         available: dict[str, Any] = {
             "extensions": self._extensions,
@@ -93,7 +98,10 @@ class AgentKit:
                 kwargs = dict(available)
             else:
                 kwargs = {k: v for k, v in available.items() if k in sig_params}
-            setup(**kwargs)
+            result = setup(**kwargs)
+            # Await if setup returned a coroutine
+            if inspect.isawaitable(result):
+                await result
         # Extensions may have rebuilt their tools during setup — invalidate.
         self._tools_cache = None
 

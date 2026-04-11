@@ -248,7 +248,7 @@ class TestConditionalTeamTips:
         assert len(tool_descriptions) == 1
         assert "Team tips" not in tool_descriptions[0]
 
-    def test_team_active_adds_tips(self):
+    async def test_team_active_adds_tips(self):
         from langchain_agentkit import AgentKit, TeamExtension, agent
 
         class teammate(agent):
@@ -258,13 +258,14 @@ class TestConditionalTeamTips:
                 return {"messages": [], "sender": "teammate"}
 
         kit = AgentKit(extensions=[TasksExtension(), TeamExtension(agents=[teammate])])
+        await kit.asetup()
         tasks_ext = next(e for e in kit._extensions if isinstance(e, TasksExtension))
 
         tool_descriptions = [t.description for t in tasks_ext.tools if t.name == "TaskCreate"]
         assert len(tool_descriptions) == 1
         assert "Team tips" in tool_descriptions[0]
 
-    def test_team_active_adds_teammate_context_inline(self):
+    async def test_team_active_adds_teammate_context_inline(self):
         from langchain_agentkit import AgentKit, TeamExtension, agent
 
         class teammate(agent):
@@ -274,6 +275,7 @@ class TestConditionalTeamTips:
                 return {"messages": [], "sender": "teammate"}
 
         kit = AgentKit(extensions=[TasksExtension(), TeamExtension(agents=[teammate])])
+        await kit.asetup()
         tasks_ext = next(e for e in kit._extensions if isinstance(e, TasksExtension))
 
         tool_descriptions = [t.description for t in tasks_ext.tools if t.name == "TaskCreate"]

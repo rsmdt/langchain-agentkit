@@ -9,7 +9,6 @@ from langchain_core.prompts import PromptTemplate
 
 from langchain_agentkit.extension import Extension
 from langchain_agentkit.extensions.agents.discovery import (
-    discover_agents_from_backend,
     discover_agents_from_directory,
 )
 from langchain_agentkit.extensions.agents.refs import validate_agent_list
@@ -112,21 +111,27 @@ class AgentExtension(Extension):
         delegation_timeout: float = 300.0,
         model_resolver: Callable[[str], BaseChatModel] | None = None,
     ) -> None:
+        self._backend = backend
+        self._deferred_path: str | None = None
+
         if isinstance(agents, list):
             wrapped = _wrap_agents(agents)
             self._agents_by_name: dict[str, Any] = validate_agent_list(wrapped)
             self._has_config_agents = any(isinstance(a, _AgentConfigProxy) for a in wrapped)
         elif isinstance(agents, (str, Path)):
             if backend is not None:
-                defs = discover_agents_from_backend(backend, str(agents))
+                # Defer async discovery to setup()
+                self._deferred_path = str(agents)
+                self._agents_by_name = {}
+                self._has_config_agents = False
             else:
                 defs = discover_agents_from_directory(Path(agents))
-            proxies = [_AgentConfigProxy(d) for d in defs]
-            if proxies:
-                self._agents_by_name = validate_agent_list(proxies)
-            else:
-                self._agents_by_name = {}
-            self._has_config_agents = bool(proxies)
+                proxies = [_AgentConfigProxy(d) for d in defs]
+                if proxies:
+                    self._agents_by_name = validate_agent_list(proxies)
+                else:
+                    self._agents_by_name = {}
+                self._has_config_agents = bool(proxies)
         else:
             msg = f"agents must be list, str, or Path, got {type(agents).__name__}"
             raise TypeError(msg)
@@ -152,10 +157,28 @@ class AgentExtension(Extension):
         """
         return self._model_resolver  # type: ignore[no-any-return]
 
-    def setup(  # type: ignore[override]
+    async def setup(  # type: ignore[override]
         self, *, extensions: list[Extension], **_: Any
     ) -> None:
-        """Discover SkillsExtension sibling to enable skill preloading in subagents."""
+        """Run deferred async discovery and discover SkillsExtension sibling."""
+        # --- Deferred backend discovery ---
+        if self._deferred_path is not None and self._backend is not None:
+            from langchain_agentkit.extensions.agents.discovery import (
+                discover_agents_from_backend,
+            )
+
+            defs = await discover_agents_from_backend(self._backend, self._deferred_path)
+            proxies = [_AgentConfigProxy(d) for d in defs]
+            if proxies:
+                self._agents_by_name = validate_agent_list(proxies)
+            else:
+                self._agents_by_name = {}
+            self._has_config_agents = bool(proxies)
+            self._deferred_path = None
+            # Rebuild tools with discovered agents
+            self._tools = tuple(self._create_tools())
+
+        # --- Discover SkillsExtension sibling for skill preloading ---
         from langchain_agentkit.extensions.skills import SkillsExtension
 
         skills_ext = next(

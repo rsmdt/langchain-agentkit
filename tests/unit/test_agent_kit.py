@@ -383,7 +383,7 @@ class TestInjectSystemReminder:
 class TestSetupLifecycle:
     """Test the setup() lifecycle hook and introspection-based dispatch."""
 
-    def test_setup_called_with_extensions(self):
+    async def test_setup_called_with_extensions(self):
         from langchain_agentkit.extension import Extension
 
         received: list[object] = []
@@ -394,11 +394,12 @@ class TestSetupLifecycle:
 
         ext = Recorder()
         kit = AgentKit(extensions=[ext])
+        await kit.asetup()
 
         assert ext in received
         assert len(received) == len(kit._extensions)
 
-    def test_setup_receives_prompt(self):
+    async def test_setup_receives_prompt(self):
         from langchain_agentkit.extension import Extension
 
         captured: dict[str, object] = {}
@@ -407,11 +408,12 @@ class TestSetupLifecycle:
             def setup(self, *, prompt, **_):
                 captured["prompt"] = prompt
 
-        AgentKit(extensions=[PromptCapture()], prompt="Base prompt.")
+        kit = AgentKit(extensions=[PromptCapture()], prompt="Base prompt.")
+        await kit.asetup()
 
         assert captured["prompt"] == "Base prompt."
 
-    def test_setup_only_receives_declared_kwargs(self):
+    async def test_setup_only_receives_declared_kwargs(self):
         """Introspection should pass only what the extension's signature declares."""
         from langchain_agentkit.extension import Extension
 
@@ -422,13 +424,14 @@ class TestSetupLifecycle:
                 seen["extensions"] = extensions
                 # prompt not declared — should not be injected
 
-        AgentKit(extensions=[MinimalSetup()], prompt="Hello")
+        kit = AgentKit(extensions=[MinimalSetup()], prompt="Hello")
+        await kit.asetup()
 
         assert "extensions" in seen
         # MinimalSetup's signature only declares `extensions` — no other kwargs
         # are passed to it (introspection filters them out)
 
-    def test_setup_with_var_keyword_receives_all(self):
+    async def test_setup_with_var_keyword_receives_all(self):
         from langchain_agentkit.extension import Extension
 
         captured: dict[str, object] = {}
@@ -437,13 +440,14 @@ class TestSetupLifecycle:
             def setup(self, **kwargs):
                 captured.update(kwargs)
 
-        AgentKit(extensions=[VarKwargs()], prompt="Hello")
+        kit = AgentKit(extensions=[VarKwargs()], prompt="Hello")
+        await kit.asetup()
 
         assert "extensions" in captured
         assert "prompt" in captured
         assert captured["prompt"] == "Hello"
 
-    def test_setup_default_noop(self):
+    async def test_setup_default_noop(self):
         """Extension with no setup() override should not error."""
         from langchain_agentkit.extension import Extension
 
@@ -451,7 +455,8 @@ class TestSetupLifecycle:
             pass
 
         # Should not raise
-        AgentKit(extensions=[Plain()])
+        kit = AgentKit(extensions=[Plain()])
+        await kit.asetup()
 
     def test_resolve_model_via_extension(self):
         """kit.resolve_model() should find a model_resolver on any extension."""

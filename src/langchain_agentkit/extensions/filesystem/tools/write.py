@@ -17,16 +17,16 @@ if TYPE_CHECKING:
 
 
 def _build_write(backend: Any) -> BaseTool:
-    def write(file_path: str, content: str) -> tuple[str, dict[str, Any]]:
+    async def write(file_path: str, content: str) -> tuple[str, dict[str, Any]]:
         """Write content to a file."""
         is_new = False
         original_file: str | None = None
         try:
-            original_file = _read_full_text(backend, file_path)
+            original_file = await _read_full_text(backend, file_path)
         except (FileNotFoundError, OSError):
             is_new = True
 
-        backend.write(file_path, content)
+        await backend.write(file_path, content)
         op_type = "create" if is_new else "update"
 
         if is_new:
@@ -47,7 +47,7 @@ def _build_write(backend: Any) -> BaseTool:
         return message, artifact
 
     return StructuredTool.from_function(
-        func=write,
+        coroutine=write,
         name="Write",
         description=(
             "Write content to a file, creating or overwriting it. Prefer Edit for modifications."

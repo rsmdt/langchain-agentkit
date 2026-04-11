@@ -227,12 +227,12 @@ class _BashInput(BaseModel):
 def _build_bash_tool(backend: BackendProtocol) -> BaseTool:
     """Build the Bash tool for shell command execution."""
 
-    def _bash(
+    async def _bash(
         command: str,
         timeout: int | None = None,
         description: str | None = None,
     ) -> tuple[str, dict[str, Any]]:
-        result = backend.execute(command, timeout=timeout)
+        result = await backend.execute(command, timeout=timeout)
         stdout = result.get("output", "")
         stderr = result.get("stderr", "")
         exit_code = result.get("exit_code", -1)
@@ -252,7 +252,7 @@ def _build_bash_tool(backend: BackendProtocol) -> BaseTool:
         return stdout, artifact
 
     return StructuredTool.from_function(
-        func=_bash,
+        coroutine=_bash,
         name="Bash",
         description=(
             "Execute a shell command and return its output. "
@@ -280,16 +280,16 @@ def _wrap_with_permission_check(
     """Wrap a tool with per-call permission checking.
 
     Returns a new StructuredTool that checks permissions before
-    delegating to the original tool.
+    delegating to the original async tool.
     """
-    original_func = tool.func  # type: ignore[attr-defined]
+    original_coro = tool.coroutine  # type: ignore[attr-defined]
 
-    def _checked(**kwargs: Any) -> Any:
+    async def _checked(**kwargs: Any) -> Any:
         target = kwargs.get(target_arg, "*")
         action = check_permission(permissions, operation, str(target))
 
         if action == "allow":
-            return original_func(**kwargs)
+            return await original_coro(**kwargs)
 
         if action == "deny":
             raise ToolException(
@@ -316,7 +316,7 @@ def _wrap_with_permission_check(
             )
 
             if decision_type == "approve":
-                return original_func(**kwargs)
+                return await original_coro(**kwargs)
 
             reason = (
                 decision.get("message", "User rejected the operation")
@@ -336,13 +336,13 @@ def _wrap_with_permission_check(
     # Preserve response_format from the original tool so that
     # content_and_artifact tools continue returning (content, artifact).
     fmt = getattr(tool, "response_format", None)
-    kwargs: dict[str, Any] = {
-        "func": _checked,
+    build_kwargs: dict[str, Any] = {
+        "coroutine": _checked,
         "name": tool.name,
         "description": tool.description,
         "args_schema": tool.args_schema,
         "handle_tool_error": True,
     }
     if fmt:
-        kwargs["response_format"] = fmt
-    return StructuredTool.from_function(**kwargs)
+        build_kwargs["response_format"] = fmt
+    return StructuredTool.from_function(**build_kwargs)

@@ -88,12 +88,15 @@ def _build_ask_user_agent():
     (workspace / "config.json").write_text('{"debug": true, "port": 3000}')
     (workspace / "app.py").write_text("print('hello')")
 
+    import asyncio
+
     kit = AgentKit(
         [
             HITLExtension(tools=True),
             FilesystemExtension(backend=OSBackend(root=tmpdir)),
         ]
     )
+    asyncio.run(kit.asetup())
 
     llm = _get_llm()
 
@@ -111,11 +114,11 @@ def _build_ask_user_agent():
         "a question string, and 2-4 options with labels and descriptions.\n"
     )
 
-    def agent_node(state: dict) -> dict:
+    async def agent_node(state: dict) -> dict:
         bound = llm.bind_tools(kit.tools)
         system = SystemMessage(content=prompt_text + (kit.prompt(state) or ""))
         msgs = [system] + state["messages"]
-        return {"messages": [bound.invoke(msgs)]}
+        return {"messages": [await bound.ainvoke(msgs)]}
 
     def should_continue(state: dict) -> str:
         last = state["messages"][-1]

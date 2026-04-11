@@ -97,7 +97,7 @@ def _apply_offset_to_results(
     return results[offset:]
 
 
-def _grep_multiline(
+async def _grep_multiline(
     backend: Any,
     pattern: str,
     path: str | None = None,
@@ -107,11 +107,11 @@ def _grep_multiline(
     """Full-file regex search with re.DOTALL for cross-line patterns."""
     flags = re.DOTALL | (re.IGNORECASE if ignore_case else 0)
     regex = re.compile(pattern, flags)
-    file_paths = backend.glob(glob or "**/*", path=path or "/")
+    file_paths = await backend.glob(glob or "**/*", path=path or "/")
     results: list[dict[str, Any]] = []
     for file_path in file_paths:
         try:
-            content = _read_full_text(backend, file_path)
+            content = await _read_full_text(backend, file_path)
             for match in regex.finditer(content):
                 line_num = content[: match.start()].count("\n") + 1
                 matched_text = match.group()
@@ -128,7 +128,7 @@ def _grep_multiline(
     return results
 
 
-def _format_grep_with_context(
+async def _format_grep_with_context(
     backend: Any,
     results: list[dict[str, Any]],
     before: int = 0,
@@ -144,7 +144,7 @@ def _format_grep_with_context(
 
         if file_path not in file_lines_cache:
             try:
-                raw = backend.read(file_path, limit=100_000)
+                raw = await backend.read(file_path, limit=100_000)
                 file_lines_cache[file_path] = raw.splitlines()
             except (FileNotFoundError, OSError):
                 file_lines_cache[file_path] = []
@@ -211,7 +211,7 @@ def _grep_count(
     return content, artifact
 
 
-def _format_content_results(
+async def _format_content_results(
     backend: Any,
     results: list[dict[str, Any]],
     before: int | None,
@@ -223,7 +223,7 @@ def _format_content_results(
     """Format grep results in content mode."""
     has_context = (before and before > 0) or (after and after > 0)
     if has_context:
-        lines = _format_grep_with_context(
+        lines = await _format_grep_with_context(
             backend,
             results,
             before=before or 0,
@@ -259,7 +259,7 @@ def _format_content_results(
 
 
 def _build_grep(backend: Any) -> BaseTool:
-    def grep(  # noqa: PLR0913
+    async def grep(  # noqa: PLR0913
         pattern: str,
         path: str | None = None,
         glob: str | None = None,
@@ -285,7 +285,7 @@ def _build_grep(backend: Any) -> BaseTool:
         effective_glob = _resolve_grep_glob(glob, type)
 
         if multiline:
-            results = _grep_multiline(
+            results = await _grep_multiline(
                 backend,
                 pattern,
                 path=path,
@@ -293,7 +293,7 @@ def _build_grep(backend: Any) -> BaseTool:
                 ignore_case=ignore_case,
             )
         else:
-            results = backend.grep(
+            results = await backend.grep(
                 pattern,
                 path=path,
                 glob=effective_glob,
@@ -312,7 +312,7 @@ def _build_grep(backend: Any) -> BaseTool:
             return _grep_files_with_matches(results, head_limit, offset)
         if output_mode == "count":
             return _grep_count(results, head_limit, offset)
-        return _format_content_results(
+        return await _format_content_results(
             backend,
             results,
             effective_before,
@@ -323,7 +323,7 @@ def _build_grep(backend: Any) -> BaseTool:
         )
 
     return StructuredTool.from_function(
-        func=grep,
+        coroutine=grep,
         name="Grep",
         description=(
             "Search file contents for a regex pattern. "

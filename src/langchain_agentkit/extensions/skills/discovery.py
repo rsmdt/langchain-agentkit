@@ -85,14 +85,14 @@ def discover_skills_from_directory(path: Path) -> list[SkillConfig]:
     return configs
 
 
-def discover_skills_from_backend(backend: BackendProtocol, path: str) -> list[SkillConfig]:
+async def discover_skills_from_backend(backend: BackendProtocol, path: str) -> list[SkillConfig]:
     """Discover skills via a BackendProtocol by globbing for SKILL.md files."""
-    matches = backend.glob("**/SKILL.md", path=path)
+    matches = await backend.glob("**/SKILL.md", path=path)
     configs: list[SkillConfig] = []
     seen_names: set[str] = set()
     for match in sorted(matches):
         try:
-            formatted = backend.read(match, limit=100_000)
+            formatted = await backend.read(match, limit=100_000)
         except (FileNotFoundError, OSError):
             logger.warning("Skipping unreadable skill file: %s", match)
             continue

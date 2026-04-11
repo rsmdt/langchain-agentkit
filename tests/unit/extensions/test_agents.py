@@ -181,9 +181,9 @@ class TestDirectoryMode:
 
 
 class TestBackendMode:
-    """Mode C: agents discovered via BackendProtocol."""
+    """Mode C: agents discovered via BackendProtocol (async setup)."""
 
-    def test_discovers_agents_from_backend(self):
+    async def test_discovers_agents_from_backend(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             from langchain_agentkit.backends import OSBackend
 
@@ -191,10 +191,11 @@ class TestBackendMode:
             backend = OSBackend(tmpdir)
 
             mw = AgentExtension(agents="/", backend=backend)
+            await mw.setup(extensions=[mw])
 
             assert "researcher" in mw._agents_by_name
 
-    def test_discovered_agent_has_description_via_backend(self):
+    async def test_discovered_agent_has_description_via_backend(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             from langchain_agentkit.backends import OSBackend
 
@@ -202,21 +203,23 @@ class TestBackendMode:
             backend = OSBackend(tmpdir)
 
             mw = AgentExtension(agents="/", backend=backend)
+            await mw.setup(extensions=[mw])
 
             agent = mw._agents_by_name["researcher"]
             assert agent.description == "Research specialist that gathers factual information"
 
-    def test_empty_backend_returns_empty_roster(self):
+    async def test_empty_backend_returns_empty_roster(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             from langchain_agentkit.backends import OSBackend
 
             backend = OSBackend(tmpdir)
 
             mw = AgentExtension(agents="/", backend=backend)
+            await mw.setup(extensions=[mw])
 
             assert mw._agents_by_name == {}
 
-    def test_deduplicates_by_name_via_backend(self):
+    async def test_deduplicates_by_name_via_backend(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             from langchain_agentkit.backends import OSBackend
 
@@ -225,6 +228,7 @@ class TestBackendMode:
             backend = OSBackend(tmpdir)
 
             mw = AgentExtension(agents="/", backend=backend)
+            await mw.setup(extensions=[mw])
 
             assert len(mw._agents_by_name) == 1
 

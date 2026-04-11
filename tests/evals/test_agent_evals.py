@@ -13,6 +13,7 @@ Skip with::
     pytest tests/evals/ -v -m "not eval"
 """
 
+import asyncio
 import os
 import tempfile
 from pathlib import Path
@@ -66,15 +67,16 @@ def _build_agent(extensions_list):
     from langchain_agentkit import AgentKit
 
     kit = AgentKit(extensions_list)
+    asyncio.run(kit.asetup())
     state_schema = kit.state_schema
 
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
     bound_llm = llm.bind_tools(kit.tools)
 
-    def agent_node(state: dict) -> dict:
+    async def agent_node(state: dict) -> dict:
         system = SystemMessage(content=kit.prompt(state))
         messages = [system] + state["messages"]
-        return {"messages": [bound_llm.invoke(messages)]}
+        return {"messages": [await bound_llm.ainvoke(messages)]}
 
     def should_continue(state: dict) -> str:
         last = state["messages"][-1]

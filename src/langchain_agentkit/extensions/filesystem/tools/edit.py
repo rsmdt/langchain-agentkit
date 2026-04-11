@@ -148,21 +148,21 @@ def _strip_trailing_whitespace(text: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def _handle_empty_old_string(
+async def _handle_empty_old_string(
     backend: Any,
     file_path: str,
     new_string: str,
 ) -> tuple[str, dict[str, Any]]:
     """Handle edit with empty old_string — file creation or filling empty file."""
     try:
-        content = backend.read(file_path, limit=1)
+        content = await backend.read(file_path, limit=1)
         if content.strip():
             raise ToolException(
                 f"File {file_path} is not empty. Cannot use empty old_string on a non-empty file."
             )
     except FileNotFoundError:
         pass  # File doesn't exist — will create
-    backend.write(file_path, new_string)
+    await backend.write(file_path, new_string)
     message = f"The file {file_path} has been updated successfully."
     artifact: dict[str, Any] = {
         "filePath": file_path,
@@ -180,7 +180,7 @@ def _handle_empty_old_string(
 
 
 def _build_edit(backend: Any) -> BaseTool:  # noqa: C901
-    def edit(
+    async def edit(
         file_path: str,
         old_string: str,
         new_string: str,
@@ -188,11 +188,11 @@ def _build_edit(backend: Any) -> BaseTool:  # noqa: C901
     ) -> tuple[str, dict[str, Any]]:
         """Perform exact string replacement in a file."""
         if old_string == "":
-            return _handle_empty_old_string(backend, file_path, new_string)
+            return await _handle_empty_old_string(backend, file_path, new_string)
 
         # Read original file for quote normalization and artifact
         try:
-            original_file = _read_full_text(backend, file_path)
+            original_file = await _read_full_text(backend, file_path)
         except FileNotFoundError as exc:
             raise ToolException(str(exc)) from exc
 
@@ -220,7 +220,7 @@ def _build_edit(backend: Any) -> BaseTool:  # noqa: C901
             effective_old = actual_old + "\n"
 
         try:
-            result = backend.edit(
+            result = await backend.edit(
                 file_path,
                 effective_old,
                 effective_new,
@@ -258,7 +258,7 @@ def _build_edit(backend: Any) -> BaseTool:  # noqa: C901
         return message, artifact
 
     return StructuredTool.from_function(
-        func=edit,
+        coroutine=edit,
         name="Edit",
         description=(
             "Perform exact string replacements in a file. "

@@ -29,9 +29,9 @@ if TYPE_CHECKING:
 # ---------------------------------------------------------------------------
 
 
-def _read_notebook(backend: Any, file_path: str) -> tuple[str, dict[str, Any]]:
+async def _read_notebook(backend: Any, file_path: str) -> tuple[str, dict[str, Any]]:
     """Read a Jupyter notebook and return formatted cell contents."""
-    data = backend.read_bytes(file_path)
+    data = await backend.read_bytes(file_path)
     notebook = json.loads(data.decode("utf-8"))
     cells = notebook.get("cells", [])
     parts: list[str] = []
@@ -104,9 +104,9 @@ def _detect_image_dimensions(data: bytes) -> dict[str, int] | None:
         return None
 
 
-def _read_image(backend: Any, file_path: str, ext: str) -> tuple[str, dict[str, Any]]:
+async def _read_image(backend: Any, file_path: str, ext: str) -> tuple[str, dict[str, Any]]:
     """Read an image file and return as multimodal content block."""
-    data = backend.read_bytes(file_path)
+    data = await backend.read_bytes(file_path)
     mime_type = _IMAGE_MIME_MAP.get(ext, "application/octet-stream")
     encoded = base64.b64encode(data).decode("ascii")
 
@@ -154,13 +154,13 @@ def _parse_page_range(pages: str) -> tuple[int, int]:
     return max(0, start), end
 
 
-def _read_pdf(
+async def _read_pdf(
     backend: Any,
     file_path: str,
     pages: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Read a PDF file and return base64 content, optionally extracting pages."""
-    data = backend.read_bytes(file_path)
+    data = await backend.read_bytes(file_path)
 
     if pages is not None:
         return _read_pdf_pages(data, file_path, pages)
@@ -225,12 +225,12 @@ def _read_pdf_pages(
 # ---------------------------------------------------------------------------
 
 
-def _get_content_hash(backend: Any, file_path: str) -> str:
+async def _get_content_hash(backend: Any, file_path: str) -> str:
     """Get a content hash for dedup. Uses file content since mtime isn't in protocol."""
     import hashlib
 
     try:
-        data = backend.read_bytes(file_path)
+        data = await backend.read_bytes(file_path)
         return hashlib.md5(data).hexdigest()  # noqa: S324
     except (FileNotFoundError, OSError):
         return ""
@@ -256,7 +256,7 @@ def _add_line_numbers(text: str, offset: int) -> str:
     return "".join(f"{offset + i + 1}\t{line}" for i, line in enumerate(lines))
 
 
-def _read_text(
+async def _read_text(
     backend: Any,
     file_path: str,
     offset: int,
@@ -264,7 +264,7 @@ def _read_text(
     read_state: dict[str, str],
 ) -> tuple[str, dict[str, Any]]:
     """Read a text file with line numbers."""
-    content_hash = _get_content_hash(backend, file_path)
+    content_hash = await _get_content_hash(backend, file_path)
 
     if _check_file_unchanged(read_state, file_path, offset, limit, content_hash):
         return FILE_UNCHANGED_STUB, {
@@ -272,11 +272,11 @@ def _read_text(
             "filePath": file_path,
         }
 
-    text = backend.read(file_path, offset=offset, limit=limit)
+    text = await backend.read(file_path, offset=offset, limit=limit)
     num_lines = len(text.splitlines()) if text else 0
 
     if not text or offset > 0:
-        total_text = backend.read(file_path, limit=100_000)
+        total_text = await backend.read(file_path, limit=100_000)
         total_lines = len(total_text.splitlines()) if total_text else 0
     else:
         total_lines = num_lines
@@ -317,7 +317,7 @@ def _read_text(
 
 
 def _build_read(backend: Any, read_state: dict[str, str]) -> BaseTool:
-    def read(
+    async def read(
         file_path: str,
         offset: int = 0,
         limit: int = 2000,
@@ -327,21 +327,21 @@ def _build_read(backend: Any, read_state: dict[str, str]) -> BaseTool:
         ext = os.path.splitext(file_path)[1].lower()
 
         if ext in NOTEBOOK_EXTENSIONS:
-            return _read_notebook(backend, file_path)
+            return await _read_notebook(backend, file_path)
 
         if ext in BINARY_EXTENSIONS:
             if ext in IMAGE_EXTENSIONS:
-                return _read_image(backend, file_path, ext)
+                return await _read_image(backend, file_path, ext)
             if ext in PDF_EXTENSIONS:
-                return _read_pdf(backend, file_path, pages=pages)
+                return await _read_pdf(backend, file_path, pages=pages)
             raise ToolException(
                 f"Cannot read binary {ext} file. Use appropriate tools for binary file analysis."
             )
 
-        return _read_text(backend, file_path, offset, limit, read_state)
+        return await _read_text(backend, file_path, offset, limit, read_state)
 
     return StructuredTool.from_function(
-        func=read,
+        coroutine=read,
         name="Read",
         description=(
             "Read a file. Results returned with line numbers. "
