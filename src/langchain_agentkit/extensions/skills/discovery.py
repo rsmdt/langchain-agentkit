@@ -5,6 +5,10 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from langchain_agentkit.extensions.discovery import (
+    discover_from_backend,
+    discover_from_directory,
+)
 from langchain_agentkit.extensions.skills.types import SkillConfig
 
 if TYPE_CHECKING:
@@ -41,73 +45,34 @@ def validate_skill_config(config: SkillConfig) -> list[str]:
     return errors
 
 
-def _parse_frontmatter(path: Path) -> tuple[dict[str, Any], str]:
-    """Parse a markdown file with YAML frontmatter. Returns (metadata, content)."""
-    from langchain_agentkit.frontmatter import parse_frontmatter
-
-    result = parse_frontmatter(path)
-    return result.metadata, result.content
-
-
-def _parse_frontmatter_string(text: str) -> tuple[dict[str, Any], str]:
-    """Parse a string with YAML frontmatter. Returns (metadata, content)."""
-    from langchain_agentkit.frontmatter import parse_frontmatter_string
-
-    result = parse_frontmatter_string(text)
-    return result.metadata, result.content
+def _parse_skill(metadata: dict[str, Any], content: str) -> SkillConfig | None:
+    """Parse and validate a SkillConfig from frontmatter."""
+    config = SkillConfig.from_frontmatter(metadata, content)
+    errors = validate_skill_config(config)
+    if errors:
+        logger.warning("Invalid skill '%s': %s", config.name, "; ".join(errors))
+        return None
+    return config
 
 
 def discover_skills_from_directory(path: Path) -> list[SkillConfig]:
     """Discover skills by scanning a local directory for SKILL.md files."""
-    if not path.is_dir():
-        return []
-    configs: list[SkillConfig] = []
-    seen_names: set[str] = set()
-    for skill_file in sorted(path.rglob("SKILL.md")):
-        try:
-            metadata, content = _parse_frontmatter(skill_file)
-        except (OSError, UnicodeDecodeError):
-            logger.warning("Skipping unreadable skill file: %s", skill_file)
-            continue
-        if not metadata:
-            logger.warning("Skipping skill without frontmatter: %s", skill_file)
-            continue
-        config = SkillConfig.from_frontmatter(metadata, content)
-        errors = validate_skill_config(config)
-        if errors:
-            logger.warning("Skipping invalid skill %s: %s", skill_file, "; ".join(errors))
-            continue
-        if config.name in seen_names:
-            logger.warning("Skipping duplicate skill name '%s': %s", config.name, skill_file)
-            continue
-        seen_names.add(config.name)
-        configs.append(config)
-    return configs
+    return discover_from_directory(
+        path,
+        file_pattern="SKILL.md",
+        parser=_parse_skill,
+        namer=lambda c: c.name,
+        label="skill",
+    )
 
 
 async def discover_skills_from_backend(backend: BackendProtocol, path: str) -> list[SkillConfig]:
     """Discover skills via a BackendProtocol by globbing for SKILL.md files."""
-    matches = await backend.glob("**/SKILL.md", path=path)
-    configs: list[SkillConfig] = []
-    seen_names: set[str] = set()
-    for match in sorted(matches):
-        try:
-            formatted = await backend.read(match, limit=100_000)
-        except (FileNotFoundError, OSError):
-            logger.warning("Skipping unreadable skill file: %s", match)
-            continue
-        metadata, body = _parse_frontmatter_string(formatted)
-        if not metadata:
-            logger.warning("Skipping skill without frontmatter: %s", match)
-            continue
-        config = SkillConfig.from_frontmatter(metadata, body)
-        errors = validate_skill_config(config)
-        if errors:
-            logger.warning("Skipping invalid skill %s: %s", match, "; ".join(errors))
-            continue
-        if config.name in seen_names:
-            logger.warning("Skipping duplicate skill name '%s': %s", config.name, match)
-            continue
-        seen_names.add(config.name)
-        configs.append(config)
-    return configs
+    return await discover_from_backend(
+        backend,
+        path,
+        file_pattern="**/SKILL.md",
+        parser=_parse_skill,
+        namer=lambda c: c.name,
+        label="skill",
+    )

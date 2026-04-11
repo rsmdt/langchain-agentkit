@@ -18,10 +18,10 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_core.messages import HumanMessage
 
-from langchain_agentkit.extensions.tasks.tools import (
-    _cascade_delete,
-    _filter_resolved_blockers,
-    _unresolved_blockers,
+from langchain_agentkit.extensions.tasks.core import (
+    cascade_delete,
+    filter_resolved_blockers,
+    unresolved_blockers,
 )
 from langchain_agentkit.extensions.teams.task_proxy import TASK_OP_TYPE
 
@@ -222,7 +222,7 @@ def _op_update(
 
     # Dependency enforcement: block in_progress when blockers unresolved
     if new_status == "in_progress":
-        unresolved = _unresolved_blockers(task, tasks)
+        unresolved = unresolved_blockers(task, tasks)
         if unresolved:
             ids = ", ".join(unresolved)
             msg = f"Task '{task_id}' is blocked by unresolved tasks: {ids}."
@@ -241,7 +241,7 @@ def _op_update(
 
     # Deletion cascade: remove references from other tasks
     if new_status == "deleted":
-        _cascade_delete(task_id, tasks)
+        cascade_delete(task_id, tasks)
 
     # Auto-owner: when teammate sets in_progress without explicit owner
     if new_status == "in_progress" and not new_owner and not task.get("owner") and sender:
@@ -281,7 +281,7 @@ def _op_list(
             "owner": t.get("owner", ""),
             "blocked_by": t.get("blocked_by", []),
         }
-        _filter_resolved_blockers(entry, completed_ids)
+        filter_resolved_blockers(entry, completed_ids)
         summary.append(entry)
     return _ack(request_id, tasks=summary), tasks
 
