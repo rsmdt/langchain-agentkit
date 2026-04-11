@@ -113,63 +113,63 @@ class TestProtocolConformance:
 
 
 class TestRead:
-    def test_write_and_read_roundtrip(self, backend):
-        backend.write("/test.txt", "hello world")
-        content = backend.read("/test.txt")
+    async def test_write_and_read_roundtrip(self, backend):
+        await backend.write("/test.txt", "hello world")
+        content = await backend.read("/test.txt")
         assert "hello world" in content
 
-    def test_returns_raw_text(self, backend):
-        backend.write("/test.txt", "alpha\nbeta\ngamma\n")
-        content = backend.read("/test.txt")
+    async def test_returns_raw_text(self, backend):
+        await backend.write("/test.txt", "alpha\nbeta\ngamma\n")
+        content = await backend.read("/test.txt")
         assert content == "alpha\nbeta\ngamma\n"
 
-    def test_offset_and_limit(self, backend):
-        backend.write("/test.txt", "line1\nline2\nline3\nline4\nline5\n")
-        content = backend.read("/test.txt", offset=1, limit=2)
+    async def test_offset_and_limit(self, backend):
+        await backend.write("/test.txt", "line1\nline2\nline3\nline4\nline5\n")
+        content = await backend.read("/test.txt", offset=1, limit=2)
         assert "line2" in content
         assert "line3" in content
         assert "line1" not in content
         assert "line4" not in content
 
-    def test_offset_beyond_file(self, backend):
-        backend.write("/short.txt", "one\ntwo\n")
-        content = backend.read("/short.txt", offset=100)
+    async def test_offset_beyond_file(self, backend):
+        await backend.write("/short.txt", "one\ntwo\n")
+        content = await backend.read("/short.txt", offset=100)
         assert content == ""
 
-    def test_empty_file(self, backend):
-        backend.write("/empty.txt", "")
-        content = backend.read("/empty.txt")
+    async def test_empty_file(self, backend):
+        await backend.write("/empty.txt", "")
+        content = await backend.read("/empty.txt")
         assert content == ""
 
-    def test_missing_file_raises(self, backend):
+    async def test_missing_file_raises(self, backend):
         with pytest.raises(FileNotFoundError):
-            backend.read("/nonexistent.txt")
+            await backend.read("/nonexistent.txt")
 
-    def test_unicode_roundtrip(self, backend):
-        backend.write("/uni.txt", "日本語\n中文\nعربي\n")
-        content = backend.read("/uni.txt")
+    async def test_unicode_roundtrip(self, backend):
+        await backend.write("/uni.txt", "日本語\n中文\nعربي\n")
+        content = await backend.read("/uni.txt")
         assert "日本語" in content
         assert "中文" in content
         assert "عربي" in content
 
 
 class TestReadBytes:
-    def test_returns_raw_content(self, backend):
+    async def test_returns_raw_content(self, backend):
         data = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
-        backend.write("/image.png", data)
-        assert backend.read_bytes("/image.png") == data
+        await backend.write("/image.png", data)
+        assert await backend.read_bytes("/image.png") == data
 
-    def test_text_file(self, backend):
-        backend.write("/hello.txt", "hello world")
-        assert backend.read_bytes("/hello.txt") == b"hello world"
+    async def test_text_file(self, backend):
+        await backend.write("/hello.txt", "hello world")
+        assert await backend.read_bytes("/hello.txt") == b"hello world"
 
-    def test_missing_file_raises(self, backend):
+    async def test_missing_file_raises(self, backend):
         with pytest.raises(FileNotFoundError):
-            backend.read_bytes("/nonexistent.bin")
+            await backend.read_bytes("/nonexistent.bin")
 
-    def test_path_traversal_blocked(self, backend):
+    async def test_path_traversal_blocked(self, backend):
         with pytest.raises(PermissionError, match="Path traversal"):
-            backend.read_bytes("/../../etc/passwd")
+            await backend.read_bytes("/../../etc/passwd")
 
 
 # ---------------------------------------------------------------------------
@@ -178,19 +178,19 @@ class TestReadBytes:
 
 
 class TestWrite:
-    def test_returns_bytes_written(self, backend):
-        result = backend.write("/test.txt", "hello")
+    async def test_returns_bytes_written(self, backend):
+        result = await backend.write("/test.txt", "hello")
         assert result["path"] == "/test.txt"
         assert result["bytes_written"] == 5
 
-    def test_creates_parent_dirs(self, backend):
-        backend.write("/a/b/c/deep.txt", "deep")
-        content = backend.read("/a/b/c/deep.txt")
+    async def test_creates_parent_dirs(self, backend):
+        await backend.write("/a/b/c/deep.txt", "deep")
+        content = await backend.read("/a/b/c/deep.txt")
         assert "deep" in content
 
-    def test_binary_content(self, backend):
+    async def test_binary_content(self, backend):
         data = b"\x89PNG\r\n\x1a\n\x00\x00"
-        result = backend.write("/image.bin", data)
+        result = await backend.write("/image.bin", data)
         assert result["bytes_written"] == len(data)
 
 
@@ -200,33 +200,33 @@ class TestWrite:
 
 
 class TestEdit:
-    def test_single_replacement(self, backend):
-        backend.write("/test.txt", "hello world")
-        result = backend.edit("/test.txt", "hello", "goodbye")
+    async def test_single_replacement(self, backend):
+        await backend.write("/test.txt", "hello world")
+        result = await backend.edit("/test.txt", "hello", "goodbye")
         assert result["replacements"] == 1
-        content = backend.read("/test.txt")
+        content = await backend.read("/test.txt")
         assert "goodbye world" in content
 
-    def test_replace_all(self, backend):
-        backend.write("/test.txt", "foo bar foo baz foo")
-        result = backend.edit("/test.txt", "foo", "qux", replace_all=True)
+    async def test_replace_all(self, backend):
+        await backend.write("/test.txt", "foo bar foo baz foo")
+        result = await backend.edit("/test.txt", "foo", "qux", replace_all=True)
         assert result["replacements"] == 3
-        content = backend.read("/test.txt")
+        content = await backend.read("/test.txt")
         assert "qux bar qux baz qux" in content
 
-    def test_ambiguous_raises(self, backend):
-        backend.write("/test.txt", "foo bar foo")
+    async def test_ambiguous_raises(self, backend):
+        await backend.write("/test.txt", "foo bar foo")
         with pytest.raises(ValueError, match="Ambiguous"):
-            backend.edit("/test.txt", "foo", "baz")
+            await backend.edit("/test.txt", "foo", "baz")
 
-    def test_not_found_returns_zero(self, backend):
-        backend.write("/f.txt", "hello")
-        result = backend.edit("/f.txt", "missing", "x")
+    async def test_not_found_returns_zero(self, backend):
+        await backend.write("/f.txt", "hello")
+        result = await backend.edit("/f.txt", "missing", "x")
         assert result["replacements"] == 0
 
-    def test_missing_file_raises(self, backend):
+    async def test_missing_file_raises(self, backend):
         with pytest.raises((FileNotFoundError, ValueError)):
-            backend.edit("/nonexistent.txt", "a", "b")
+            await backend.edit("/nonexistent.txt", "a", "b")
 
 
 # ---------------------------------------------------------------------------
@@ -235,16 +235,16 @@ class TestEdit:
 
 
 class TestGlob:
-    def test_finds_files(self, backend):
-        backend.write("/src/a.py", "a")
-        backend.write("/src/b.py", "b")
-        backend.write("/src/c.txt", "c")
-        matches = backend.glob("**/*.py")
+    async def test_finds_files(self, backend):
+        await backend.write("/src/a.py", "a")
+        await backend.write("/src/b.py", "b")
+        await backend.write("/src/c.txt", "c")
+        matches = await backend.glob("**/*.py")
         py_files = [m for m in matches if m.endswith(".py")]
         assert len(py_files) >= 2
 
-    def test_no_matches(self, backend):
-        matches = backend.glob("*.xyz")
+    async def test_no_matches(self, backend):
+        matches = await backend.glob("*.xyz")
         assert matches == []
 
 
@@ -254,25 +254,25 @@ class TestGlob:
 
 
 class TestGrep:
-    def test_finds_pattern(self, backend):
-        backend.write("/test.txt", "line one\nline two\nline three")
-        matches = backend.grep("two", path="/")
+    async def test_finds_pattern(self, backend):
+        await backend.write("/test.txt", "line one\nline two\nline three")
+        matches = await backend.grep("two", path="/")
         assert len(matches) >= 1
 
-    def test_ignore_case(self, backend):
-        backend.write("/f.txt", "Hello World\ngoodbye")
-        matches = backend.grep("hello", ignore_case=True)
+    async def test_ignore_case(self, backend):
+        await backend.write("/f.txt", "Hello World\ngoodbye")
+        matches = await backend.grep("hello", ignore_case=True)
         assert len(matches) == 1
         assert "Hello World" in matches[0]["text"]
 
-    def test_case_sensitive_by_default(self, backend):
-        backend.write("/f.txt", "Hello World")
-        matches = backend.grep("hello")
+    async def test_case_sensitive_by_default(self, backend):
+        await backend.write("/f.txt", "Hello World")
+        matches = await backend.grep("hello")
         assert len(matches) == 0
 
-    def test_no_matches(self, backend):
-        backend.write("/f.txt", "nothing here")
-        matches = backend.grep("missing")
+    async def test_no_matches(self, backend):
+        await backend.write("/f.txt", "nothing here")
+        matches = await backend.grep("missing")
         assert len(matches) == 0
 
 
@@ -282,13 +282,13 @@ class TestGrep:
 
 
 class TestExecute:
-    def test_echo(self, backend):
-        result = backend.execute("echo hello")
+    async def test_echo(self, backend):
+        result = await backend.execute("echo hello")
         assert result["exit_code"] == 0
         assert "hello" in result["output"]
 
-    def test_nonzero_exit(self, backend):
-        result = backend.execute("exit 1")
+    async def test_nonzero_exit(self, backend):
+        result = await backend.execute("exit 1")
         assert result["exit_code"] == 1
 
 
@@ -298,6 +298,6 @@ class TestExecute:
 
 
 class TestSecurity:
-    def test_path_traversal_blocked(self, backend):
+    async def test_path_traversal_blocked(self, backend):
         with pytest.raises(PermissionError):
-            backend.read("/../../etc/passwd")
+            await backend.read("/../../etc/passwd")

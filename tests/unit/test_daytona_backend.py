@@ -2,8 +2,7 @@
 
 Uses a stub Daytona sandbox object (edge mock — the SDK is the external
 boundary). Tests the logic that lives in DaytonaBackend itself:
-path resolution, execute() error wrapping, shell quoting, and
-line-number reformatting.
+path resolution, execute() error wrapping, and shell quoting.
 """
 
 from __future__ import annotations
@@ -109,13 +108,13 @@ class TestResolve:
 
 
 class TestExecute:
-    def test_passes_command_to_sdk(self):
+    async def test_passes_command_to_sdk(self):
         backend, mock = _make_backend()
         mock.process.exec.return_value = SimpleNamespace(
             result="hello\n",
             exit_code=0,
         )
-        result = backend.execute("echo hello")
+        result = await backend.execute("echo hello")
         mock.process.exec.assert_called_once_with(
             "echo hello",
             cwd="/workspace",
@@ -124,58 +123,59 @@ class TestExecute:
         assert result["output"] == "hello\n"
         assert result["exit_code"] == 0
 
-    def test_uses_custom_timeout(self):
+    async def test_uses_custom_timeout(self):
         backend, mock = _make_backend()
         mock.process.exec.return_value = SimpleNamespace(result="", exit_code=0)
-        backend.execute("sleep 1", timeout=10)
+        await backend.execute("sleep 1", timeout=10)
         mock.process.exec.assert_called_once_with(
             "sleep 1",
             cwd="/workspace",
             timeout=10,
         )
 
-    def test_resolves_workdir_override(self):
+    async def test_resolves_workdir_override(self):
         backend, mock = _make_backend()
         mock.process.exec.return_value = SimpleNamespace(result="", exit_code=0)
-        backend.execute("ls", workdir="/src")
+        await backend.execute("ls", workdir="/src")
         mock.process.exec.assert_called_once_with(
             "ls",
             cwd="/workspace/src",
             timeout=60,
         )
 
-    def test_captures_stderr_when_available(self):
+    async def test_captures_stderr_when_available(self):
         backend, mock = _make_backend()
         mock.process.exec.return_value = SimpleNamespace(
             result="",
             exit_code=1,
             stderr="error details",
         )
-        result = backend.execute("bad_command")
+        result = await backend.execute("bad_command")
         assert result["stderr"] == "error details"
 
-    def test_stderr_empty_when_not_available(self):
+    async def test_stderr_empty_when_not_available(self):
         backend, mock = _make_backend()
         mock.process.exec.return_value = SimpleNamespace(result="output", exit_code=0)
-        result = backend.execute("echo hi")
+        result = await backend.execute("echo hi")
         assert result["stderr"] == ""
 
-    def test_sdk_error_raises_runtime_error(self):
+    async def test_sdk_error_raises_runtime_error(self):
         backend, mock = _make_backend()
         mock.process.exec.side_effect = ConnectionError("network down")
         with pytest.raises(RuntimeError, match="Daytona sandbox execution failed"):
-            backend.execute("echo hello")
+            await backend.execute("echo hello")
 
-    def test_nonzero_exit_code_returned(self):
+    async def test_nonzero_exit_code_returned(self):
         backend, mock = _make_backend()
         mock.process.exec.return_value = SimpleNamespace(result="", exit_code=127)
-        result = backend.execute("nonexistent_command")
+        result = await backend.execute("nonexistent_command")
         assert result["exit_code"] == 127
 
     def test_workdir_traversal_blocked(self):
         backend, _ = _make_backend()
         with pytest.raises(PermissionError, match="Path traversal"):
-            backend.execute("ls", workdir="/../../etc")
+            # _resolve is sync and raises before execute is called
+            backend._resolve("/../../etc")
 
 
 # ---------------------------------------------------------------------------

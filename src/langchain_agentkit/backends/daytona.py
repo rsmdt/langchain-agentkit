@@ -15,9 +15,9 @@ Usage::
     sandbox = Daytona(config).create()
     backend = DaytonaBackend(sandbox)
 
-    # All BackendProtocol methods work:
-    content = backend.read("/app/main.py")  # raw text, no line numbers
-    result = backend.execute("python3 -m pytest")
+    # All BackendProtocol methods are async:
+    content = await backend.read("/app/main.py")  # raw text, no line numbers
+    result = await backend.execute("python3 -m pytest")
 """
 
 from __future__ import annotations
@@ -90,7 +90,7 @@ class DaytonaBackend:
 
     # --- execute() — the Daytona SDK bridge ---
 
-    def execute(
+    async def execute(
         self,
         command: str,
         timeout: int | None = None,
@@ -122,34 +122,34 @@ class DaytonaBackend:
 
     # --- File operations via shell ---
 
-    def read_bytes(self, path: str) -> bytes:
+    async def read_bytes(self, path: str) -> bytes:
         """Read a file as raw bytes."""
         real_path = self._resolve(path)
         # Check file existence first (pipe masks cat exit code on some shells)
         check = f"test -f {_shell_quote(real_path)}"
-        if self.execute(check)["exit_code"] != 0:
+        if (await self.execute(check))["exit_code"] != 0:
             raise FileNotFoundError(f"File not found: {path}")
         # Use cat | base64 for portability (macOS base64 requires -i flag)
         cmd = f"cat {_shell_quote(real_path)} | base64"
-        result = self.execute(cmd)
+        result = await self.execute(cmd)
         if result["exit_code"] != 0:
             raise FileNotFoundError(f"File not found: {path}")
         return base64.b64decode(result["output"].strip())
 
-    def read(self, path: str, offset: int = 0, limit: int = 2000) -> str:
+    async def read(self, path: str, offset: int = 0, limit: int = 2000) -> str:
         """Read raw text content with offset/limit support."""
         real_path = self._resolve(path)
         # Check file existence first (pipe masks sed exit code on some shells)
         check = f"test -f {_shell_quote(real_path)}"
-        if self.execute(check)["exit_code"] != 0:
+        if (await self.execute(check))["exit_code"] != 0:
             raise FileNotFoundError(f"File not found: {path}")
         start = offset + 1
         end = offset + limit
         cmd = f"sed -n '{start},{end}p' {_shell_quote(real_path)}"
-        result = self.execute(cmd)
+        result = await self.execute(cmd)
         return result["output"]
 
-    def write(self, path: str, content: str | bytes) -> WriteResult:
+    async def write(self, path: str, content: str | bytes) -> WriteResult:
         """Write content to a file, creating parent directories."""
         real_path = self._resolve(path)
         raw = content.encode("utf-8") if isinstance(content, str) else content
@@ -158,12 +158,12 @@ class DaytonaBackend:
             f"mkdir -p $(dirname {_shell_quote(real_path)}) && "
             f"echo {_shell_quote(encoded)} | base64 -d > {_shell_quote(real_path)}"
         )
-        result = self.execute(cmd)
+        result = await self.execute(cmd)
         if result["exit_code"] != 0:
             raise OSError(f"Write failed: {result['output']}")
         return WriteResult(path=path, bytes_written=len(raw))
 
-    def edit(
+    async def edit(
         self,
         path: str,
         old_string: str,
@@ -199,7 +199,7 @@ class DaytonaBackend:
             "); "
             "print(r)"
         )
-        result = self.execute(f"python3 -c {_shell_quote(script)} {_shell_quote(encoded)}")
+        result = await self.execute(f"python3 -c {_shell_quote(script)} {_shell_quote(encoded)}")
         if result["exit_code"] != 0:
             raise ValueError(f"Edit failed: {result['output']}")
         data = json.loads(result["output"].strip())
@@ -209,7 +209,7 @@ class DaytonaBackend:
             )
         return EditResult(path=path, replacements=data["replacements"])
 
-    def glob(self, pattern: str, path: str = "/") -> list[str]:
+    async def glob(self, pattern: str, path: str = "/") -> list[str]:
         """Find files matching a glob pattern.
 
         Supports recursive patterns like ``**/*.py`` by translating them
@@ -230,7 +230,7 @@ class DaytonaBackend:
                 f" -name {_shell_quote(pattern)}"
                 f" -type f 2>/dev/null | sort"
             )
-        result = self.execute(cmd)
+        result = await self.execute(cmd)
         if result["exit_code"] != 0 or not result["output"].strip():
             return []
         matches = []
@@ -241,7 +241,7 @@ class DaytonaBackend:
             matches.append(rel)
         return matches
 
-    def grep(
+    async def grep(
         self,
         pattern: str,
         path: str | None = None,
@@ -257,7 +257,7 @@ class DaytonaBackend:
         if glob:
             cmd += f" --include={_shell_quote(glob)}"
         cmd += " 2>/dev/null || true"
-        result = self.execute(cmd)
+        result = await self.execute(cmd)
         if not result["output"].strip():
             return []
         matches: list[GrepMatch] = []

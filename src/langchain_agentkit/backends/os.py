@@ -1,24 +1,25 @@
 """OSBackend — local filesystem + subprocess backend.
 
 Implements the full ``BackendProtocol`` using the real OS filesystem
-with path traversal prevention and ``subprocess.run`` for execute.
+with path traversal prevention and ``asyncio.create_subprocess_shell``
+for execute.
 
 Usage::
 
     from langchain_agentkit.backends import OSBackend
 
     backend = OSBackend("/path/to/workspace")
-    content = backend.read("/app/main.py")  # raw text, no line numbers
-    result = backend.execute("python3 -m pytest")
+    content = await backend.read("/app/main.py")  # raw text, no line numbers
+    result = await backend.execute("python3 -m pytest")
 """
 
 from __future__ import annotations
 
+import asyncio
 import fnmatch
 import itertools
 import os
 import re
-import subprocess
 from typing import Any
 
 from langchain_agentkit.backends.protocol import (
@@ -67,19 +68,19 @@ class OSBackend:
 
     # --- BackendProtocol methods ---
 
-    def read_bytes(self, path: str) -> bytes:
+    async def read_bytes(self, path: str) -> bytes:
         real_path = self._resolve(path)
         with open(real_path, "rb") as f:
             return f.read()
 
-    def read(self, path: str, offset: int = 0, limit: int = 2000) -> str:
+    async def read(self, path: str, offset: int = 0, limit: int = 2000) -> str:
         """Read raw text content with offset/limit support."""
         real_path = self._resolve(path)
         with open(real_path, encoding="utf-8") as f:
             selected = list(itertools.islice(itertools.islice(f, offset, None), limit))
         return "".join(selected)
 
-    def write(self, path: str, content: str | bytes) -> WriteResult:
+    async def write(self, path: str, content: str | bytes) -> WriteResult:
         real_path = self._resolve(path)
         os.makedirs(os.path.dirname(real_path), exist_ok=True)
         mode = "wb" if isinstance(content, bytes) else "w"
@@ -88,7 +89,7 @@ class OSBackend:
             f.write(content)
         return WriteResult(path=path, bytes_written=len(content))
 
-    def edit(
+    async def edit(
         self,
         path: str,
         old_string: str,
@@ -117,7 +118,7 @@ class OSBackend:
             f.write(new_content)
         return EditResult(path=path, replacements=count)
 
-    def glob(self, pattern: str, path: str = "/") -> list[str]:
+    async def glob(self, pattern: str, path: str = "/") -> list[str]:
         real_path = self._resolve(path)
         import glob as glob_mod
 
@@ -129,7 +130,7 @@ class OSBackend:
             result.append("/" + rel)
         return result
 
-    def grep(
+    async def grep(
         self,
         pattern: str,
         path: str | None = None,
@@ -156,32 +157,32 @@ class OSBackend:
                     continue
         return matches
 
-    def execute(
+    async def execute(
         self,
         command: str,
         timeout: int | None = None,
         workdir: str | None = None,
     ) -> ExecuteResponse:
-        """Execute a shell command via subprocess."""
+        """Execute a shell command via asyncio subprocess."""
         cwd = self._resolve(workdir) if workdir else self._root
         try:
-            result = subprocess.run(
+            proc = await asyncio.create_subprocess_shell(
                 command,
-                shell=True,
-                capture_output=True,
-                text=True,
-                timeout=timeout,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
             )
+            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
             return ExecuteResponse(
-                output=result.stdout,
-                exit_code=result.returncode,
+                output=stdout.decode("utf-8", errors="replace"),
+                exit_code=proc.returncode or 0,
                 truncated=False,
-                stderr=result.stderr,
+                stderr=stderr.decode("utf-8", errors="replace"),
             )
-        except subprocess.TimeoutExpired as exc:
+        except TimeoutError:
+            proc.kill()
             return ExecuteResponse(
-                output=str(exc),
+                output="Command timed out",
                 exit_code=-1,
                 truncated=True,
                 stderr="",
