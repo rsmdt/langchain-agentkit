@@ -1,8 +1,7 @@
-"""Shared graph-building utilities for agent metaclass and ephemeral agents.
+"""Shared graph-building utilities.
 
 ``build_graph`` constructs an uncompiled ``StateGraph`` with the standard
-ReAct loop (handler - ToolNode). It is used by both the ``agent`` metaclass
-and the ephemeral delegation tool.
+ReAct loop (handler - ToolNode). It is called by ``AgentKit.compile()``.
 """
 
 from __future__ import annotations
@@ -409,7 +408,7 @@ def build_ephemeral_graph(
 ) -> Any:
     """Build and compile a minimal ReAct graph for ephemeral / config-based agents.
 
-    Shared by ``AgentExtension``'s definition-based and dynamic delegation
+    Shared by ``AgentsExtension``'s definition-based and dynamic delegation
     paths and by ``TeamExtension``'s ephemeral teammates. The handler simply
     prepends a ``SystemMessage`` carrying ``prompt`` and invokes ``llm``.
 
@@ -443,15 +442,8 @@ def build_ephemeral_graph(
         response = await bound.ainvoke(msgs)
         return {"messages": [response], "sender": name}
 
-    kit = AgentKit(extensions=[], prompt=prompt)
-    graph = build_graph(
-        name=name,
-        handler=_handler,
-        llm=llm,
-        user_tools=agent_tools,
-        kit=kit,
-        state_type=AgentKitState,
-    )
+    kit = AgentKit(extensions=[], prompt=prompt, tools=agent_tools, model=llm, name=name)
+    graph = kit.compile(_handler)
     compile_kwargs: dict[str, Any] = {}
     if max_turns is not None:
         compile_kwargs["recursion_limit"] = max_turns * 2

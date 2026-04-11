@@ -13,7 +13,7 @@ Usage::
         my_field: str
 
     # Or let AgentKit compose from extensions automatically
-    kit = AgentKit([TasksExtension()])
+    kit = AgentKit(extensions=[TasksExtension()])
     kit.state_schema  # → composed TypedDict with messages + tasks
 """
 

@@ -151,7 +151,7 @@ def _compile_with_proxy_tasks(
 ) -> Any:
     """Compile a predefined agent graph, replacing task tools with proxies.
 
-    If the graph was built by the ``agent`` metaclass, it carries
+    If the graph was built by the ``Agent`` class, it carries
     ``_agentkit_*`` metadata that allows rebuilding with modified tools.
     If not, falls back to compiling as-is.
 
@@ -169,7 +169,6 @@ def _compile_with_proxy_tasks(
         # Not an agentkit-built graph — compile as-is, no checkpointer
         return agent_graph.compile()
 
-    from langchain_agentkit._graph_builder import build_graph
     from langchain_agentkit.extensions.teams.task_proxy import create_task_proxy_tools
 
     # Replace user-level task tools with proxies
@@ -182,15 +181,16 @@ def _compile_with_proxy_tasks(
     from langchain_agentkit.extensions.tasks import TasksExtension
 
     filtered_extensions = [ext for ext in kit._extensions if not isinstance(ext, TasksExtension)]
-    new_kit = AgentKit(extensions=filtered_extensions, prompt=kit._prompt)
-
-    rebuilt = build_graph(
-        name=getattr(agent_graph, "name", member_name),
-        handler=handler,
-        llm=llm,
-        user_tools=new_user_tools,
-        kit=new_kit,
+    graph_name = getattr(agent_graph, "name", member_name)
+    new_kit = AgentKit(
+        extensions=filtered_extensions,
+        prompt=kit._prompt,
+        tools=new_user_tools,
+        model=llm,
+        name=graph_name,
     )
+
+    rebuilt = new_kit.compile(handler)
     return rebuilt.compile()
 
 

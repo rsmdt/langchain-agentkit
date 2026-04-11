@@ -138,7 +138,7 @@ class HITLExtension(Extension):
             tools=True,
         )
 
-        class my_agent(agent):
+        class MyAgent(Agent):
             model = ChatOpenAI(model="gpt-4o")
             tools = [send_email]
             extensions = [hitl]
@@ -146,7 +146,7 @@ class HITLExtension(Extension):
             async def handler(state, *, llm, tools, prompt, runtime):
                 ...
 
-        graph = my_agent.compile(checkpointer=InMemorySaver())
+        graph = MyAgent().compile().compile(checkpointer=InMemorySaver())
     """
 
     def __init__(

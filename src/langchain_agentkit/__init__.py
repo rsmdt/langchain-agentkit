@@ -1,30 +1,38 @@
 """Composable extension framework for LangGraph agents.
 
-**Primitive** — use ``AgentKit`` for full graph control::
+**Declarative** — the ``Agent`` class builds a ReAct graph from class attributes::
 
-    from langchain_agentkit import AgentKit, SkillsExtension, TasksExtension
-
-    kit = AgentKit(extensions=[SkillsExtension(skills="skills/"), TasksExtension()])
-    all_tools = my_tools + kit.tools
-
-**Convenience** — use ``agent`` metaclass for standalone ReAct agents::
-
-    from langchain_agentkit import agent, SkillsExtension
-
-    class researcher(agent):
+    class Researcher(Agent):
         model = ChatOpenAI(model="gpt-4o")
         extensions = [SkillsExtension(skills="skills/")]
         prompt = "You are a research assistant."
-        async def handler(state, *, llm, tools, prompt):
-            bound = llm.bind_tools(tools)
-            response = await bound.ainvoke(state["messages"])
-            return {"messages": [response]}
+        async def handler(state, *, llm, tools, prompt): ...
 
-    graph = researcher.compile()
+    app = Researcher().compile()           # compiled runnable
+    graph = Researcher().graph()           # uncompiled StateGraph (for composition)
+
+**Dynamic** — properties can be sync/async methods for per-request resolution::
+
+    class Researcher(Agent):
+        model = ChatOpenAI(model="gpt-4o")
+        async def prompt(self):
+            return await self.backend.read("AGENTS.md")
+        async def handler(state, *, llm, tools, prompt): ...
+
+    app = Researcher(backend=my_backend).compile()
+
+**Primitive** — ``AgentKit`` for managed or manual graph wiring::
+
+    kit = AgentKit(
+        extensions=[SkillsExtension(skills="skills/"), TasksExtension()],
+        model=ChatOpenAI(model="gpt-4o"),
+    )
+    graph = kit.compile(handler)      # managed ReAct loop
+    # or access kit.tools, kit.prompt(), kit.model directly
 """
 
 # Core
-from langchain_agentkit.agent import agent
+from langchain_agentkit.agent import Agent, agent
 from langchain_agentkit.agent_kit import AgentKit
 
 # Backends
@@ -38,7 +46,7 @@ from langchain_agentkit.extension import Extension
 
 # Extensions
 from langchain_agentkit.extensions import (
-    AgentExtension,
+    AgentsExtension,
     DuckDuckGoSearchProvider,
     FilesystemExtension,
     HistoryExtension,
@@ -70,6 +78,7 @@ from langchain_agentkit.state import AgentKitState
 
 __all__ = [
     # Core
+    "Agent",
     "AgentKit",
     "AgentKitState",
     "Extension",
@@ -91,7 +100,7 @@ __all__ = [
     "STRICT_RULESET",
     "PermissionRuleset",
     # Extensions
-    "AgentExtension",
+    "AgentsExtension",
     "DuckDuckGoSearchProvider",
     "FilesystemExtension",
     "HistoryExtension",

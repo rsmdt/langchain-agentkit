@@ -1,4 +1,4 @@
-"""AgentExtension — blocking subagent delegation with parallel support."""
+"""AgentsExtension — blocking subagent delegation with parallel support."""
 
 from __future__ import annotations
 
@@ -82,7 +82,7 @@ def _get_tools_description(agent: Any) -> str:
     return ", ".join(effective)
 
 
-class AgentExtension(Extension):
+class AgentsExtension(Extension):
     """Extension providing blocking subagent delegation via the Agent tool.
 
     Two input modes:
@@ -95,10 +95,6 @@ class AgentExtension(Extension):
         ephemeral: Enable dynamic (on-the-fly) agents.
         default_conciseness: Append conciseness directive.
         delegation_timeout: Max seconds to wait for a subagent response.
-        model_resolver: Optional callable mapping model name strings to
-            ``BaseChatModel`` instances.  Required if any agent definition
-            uses a string model reference.  Also used by ``AgentKit`` to
-            resolve string-based parent model references.
     """
 
     def __init__(
@@ -109,7 +105,6 @@ class AgentExtension(Extension):
         ephemeral: bool = False,
         default_conciseness: bool = True,
         delegation_timeout: float = 300.0,
-        model_resolver: Callable[[str], BaseChatModel] | None = None,
     ) -> None:
         self._backend = backend
         self._deferred_path: str | None = None
@@ -143,7 +138,7 @@ class AgentExtension(Extension):
 
         self._parent_tools_getter: Any = list
         self._parent_llm_getter: Any = None
-        self._model_resolver: Any = model_resolver
+        self._model_resolver: Any = None
         self._skills_resolver: Any = None
 
         self._tools = tuple(self._create_tools())
@@ -158,9 +153,13 @@ class AgentExtension(Extension):
         return self._model_resolver  # type: ignore[no-any-return]
 
     async def setup(  # type: ignore[override]
-        self, *, extensions: list[Extension], **_: Any
+        self, *, extensions: list[Extension], model_resolver: Any = None, **_: Any
     ) -> None:
-        """Run deferred async discovery and discover SkillsExtension sibling."""
+        """Run deferred discovery, pick up kit-level model_resolver, discover siblings."""
+        # --- Pick up kit-level model_resolver ---
+        if model_resolver is not None and self._model_resolver is None:
+            self._model_resolver = model_resolver
+
         # --- Deferred backend discovery ---
         if self._deferred_path is not None and self._backend is not None:
             from langchain_agentkit.extensions.agents.discovery import (
