@@ -22,8 +22,8 @@ This file retains detailed entries for the last 10 minor releases plus their pat
 - README coverage for `HistoryExtension` and the `setup()` lifecycle hook.
 
 ### Changed
-- **BREAKING**: `model_resolver` moved from `AgentKit.__init__` to `AgentExtension`, where it's actually used. `AgentKit.resolve_model()` now scans extensions for any with a `model_resolver` attribute, so string-based model references in the agent metaclass pattern continue to work — but callers passing `AgentKit(model_resolver=...)` must migrate.
-- **BREAKING**: `TasksExtension`, `FilesystemExtension`, and `AgentExtension` now derive team awareness, HITL availability, and skills resolver discovery inside their own `setup()` implementations. The following setters and constructor arguments have been removed: `TasksExtension(team_active=...)`, `AgentExtension.set_model_resolver()`, `AgentExtension.set_skills_resolver()`, and `FilesystemExtension.set_hitl_available()`.
+- **BREAKING**: `model_resolver` moved from `AgentKit.__init__` to `AgentsExtension`, where it's actually used. `AgentKit.resolve_model()` now scans extensions for any with a `model_resolver` attribute, so string-based model references in the agent metaclass pattern continue to work — but callers passing `AgentKit(model_resolver=...)` must migrate.
+- **BREAKING**: `TasksExtension`, `FilesystemExtension`, and `AgentsExtension` now derive team awareness, HITL availability, and skills resolver discovery inside their own `setup()` implementations. The following setters and constructor arguments have been removed: `TasksExtension(team_active=...)`, `AgentsExtension.set_model_resolver()`, `AgentsExtension.set_skills_resolver()`, and `FilesystemExtension.set_hitl_available()`.
 - `CLAUDE.md` eval test documentation now distinguishes dataset validation (`test_eval_runner.py`, no API calls) from LLM integration evals (`-m eval`, requires `OPENAI_API_KEY`), and warns that `pytest -m eval` skips the dataset validation tests.
 
 ## [0.15.0] — 2026-04-09

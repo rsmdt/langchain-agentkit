@@ -159,7 +159,7 @@ class TeamAgent:
         """Run the lead agent to completion with the given input.
 
         The lead agent is responsible for coordinating with teammates
-        (via AgentExtension or TeamExtension tools). The TeamAgent
+        (via AgentsExtension or TeamExtension tools). The TeamAgent
         delegates the full task to the lead and returns its result.
         """
         return await self._lead.ainvoke(input, config)

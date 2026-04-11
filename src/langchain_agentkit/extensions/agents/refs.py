@@ -1,6 +1,6 @@
 """Shared agent reference types and roster helpers.
 
-These are the public contracts that both ``AgentExtension`` and
+These are the public contracts that both ``AgentsExtension`` and
 ``TeamExtension`` depend on. Keeping them in a neutral module avoids
 cross-extension private imports and makes the shape of a roster entry
 explicit.

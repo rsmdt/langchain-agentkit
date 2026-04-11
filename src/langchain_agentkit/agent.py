@@ -373,7 +373,7 @@ class Agent:
         """Resolve all properties and build an uncompiled ``StateGraph``.
 
         Use this when you need the raw graph for composition — passing
-        to ``AgentExtension(agents=[...])``, ``TeamExtension(agents=[...])``,
+        to ``AgentsExtension(agents=[...])``, ``TeamExtension(agents=[...])``,
         or embedding as a subgraph in a parent workflow.
 
         Returns:

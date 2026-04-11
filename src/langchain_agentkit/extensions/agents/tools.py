@@ -267,7 +267,7 @@ async def _agent_tool(
         if not ephemeral:
             raise ToolException(
                 "Dynamic agents are not enabled. "
-                "Set ephemeral=True on AgentExtension to allow custom agents."
+                "Set ephemeral=True on AgentsExtension to allow custom agents."
             )
         return await _delegate_dynamic(
             prompt=agent_ref["prompt"],
