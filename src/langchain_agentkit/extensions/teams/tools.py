@@ -180,11 +180,11 @@ def _compile_with_proxy_tasks(
     from langchain_agentkit.agent_kit import AgentKit
     from langchain_agentkit.extensions.tasks import TasksExtension
 
-    filtered_extensions = [ext for ext in kit._extensions if not isinstance(ext, TasksExtension)]
+    filtered_extensions = [ext for ext in kit.extensions if not isinstance(ext, TasksExtension)]
     graph_name = getattr(agent_graph, "name", member_name)
     new_kit = AgentKit(
         extensions=filtered_extensions,
-        prompt=kit._prompt,
+        prompt=kit.base_prompt,
         tools=new_user_tools,
         model=llm,
         name=graph_name,
@@ -285,6 +285,51 @@ def _build_teammate_specs(agents: list[dict[str, Any]]) -> list[dict[str, Any]]:
     return specs
 
 
+async def _rollback_partial(
+    member_tasks: dict[str, asyncio.Task[str]],
+    bus: Any,
+    ext: TeamExtension,
+) -> None:
+    """Cancel spawned tasks and clean up bus on partial team creation failure."""
+    for partial_task in member_tasks.values():
+        partial_task.cancel()
+    if member_tasks:
+        with contextlib.suppress(Exception):
+            await asyncio.wait(list(member_tasks.values()), timeout=2.0)
+    for member in list(member_tasks.keys()):
+        with contextlib.suppress(Exception):
+            bus.unregister(member)
+    with contextlib.suppress(Exception):
+        bus.unregister("lead")
+    ext._capture_buffer = []
+
+
+def _spawn_member(
+    spec: dict[str, Any],
+    bus: Any,
+    team_name: str,
+    ext: TeamExtension,
+) -> tuple[asyncio.Task[str], str]:
+    """Spawn a single teammate task. Returns (task, member_type)."""
+    from langchain_agentkit.extensions.teams.bus import _teammate_loop
+
+    member_name = spec["member_name"]
+    bus.register(member_name)
+    compiled = ext.build_teammate_graph(spec, bus)  # type: ignore[arg-type]
+    task = asyncio.create_task(
+        _teammate_loop(
+            member_name,
+            compiled,
+            bus,
+            initial_history=[],
+            capture_buffer=ext._capture_buffer,
+        ),
+        name=f"team-{team_name}-{member_name}",
+    )
+    member_type = f"ephemeral:{member_name}" if spec["kind"] == "dynamic" else spec["agent_id"]
+    return task, member_type
+
+
 async def _agent_team_inner(
     name: str,
     agents: list[dict[str, Any]],
@@ -299,14 +344,11 @@ async def _agent_team_inner(
     from langchain_agentkit.extensions.teams.bus import (
         ActiveTeam,
         TeamMessageBus,
-        _teammate_loop,
     )
 
     _validate_team_creation(name, agents, ext)
-
     specs = _build_teammate_specs(agents)
 
-    # Create message bus and fresh capture buffer for this turn.
     bus = TeamMessageBus()
     bus.register("lead")
     ext._capture_buffer = []
@@ -316,38 +358,11 @@ async def _agent_team_inner(
 
     try:
         for spec in specs:
-            member_name = spec["member_name"]
-            bus.register(member_name)
-            compiled = ext.build_teammate_graph(spec, bus)  # type: ignore[arg-type]
-            task = asyncio.create_task(
-                _teammate_loop(
-                    member_name,
-                    compiled,
-                    bus,
-                    initial_history=[],
-                    capture_buffer=ext._capture_buffer,
-                ),
-                name=f"team-{name}-{member_name}",
-            )
-            member_tasks[member_name] = task
-            if spec["kind"] == "dynamic":
-                member_types[member_name] = f"ephemeral:{member_name}"
-            else:
-                member_types[member_name] = spec["agent_id"]
+            task, member_type = _spawn_member(spec, bus, name, ext)
+            member_tasks[spec["member_name"]] = task
+            member_types[spec["member_name"]] = member_type
     except Exception as exc:
-        # Partial-failure cleanup: cancel spawned tasks, unregister bus,
-        # leave extension state untouched so the LLM can retry cleanly.
-        for partial_task in member_tasks.values():
-            partial_task.cancel()
-        if member_tasks:
-            with contextlib.suppress(Exception):
-                await asyncio.wait(list(member_tasks.values()), timeout=2.0)
-        for member in list(member_tasks.keys()):
-            with contextlib.suppress(Exception):
-                bus.unregister(member)
-        with contextlib.suppress(Exception):
-            bus.unregister("lead")
-        ext._capture_buffer = []
+        await _rollback_partial(member_tasks, bus, ext)
         raise ToolException(f"Failed to build team: {exc}") from exc
 
     ext.active_team = ActiveTeam(
@@ -416,26 +431,9 @@ async def _send_message(
     )
 
 
-async def _check_teammates(
-    state: dict[str, Any],
-    tool_call_id: str,
-    *,
-    ext: TeamExtension,
-) -> Command:  # type: ignore[type-arg]
-    """Check team member statuses and drain pending messages for lead."""
-    await ext.rehydrate_if_needed(state)
-    team = _require_active_team(ext)
-
-    # Derive task-based work status per agent
-    tasks = state.get("tasks") or []
-    agent_tasks: dict[str, list[str]] = {}
-    for t in tasks:
-        owner = t.get("owner")
-        if owner and t.get("status") not in ("completed", "deleted"):
-            agent_tasks.setdefault(owner, []).append(t["id"])
-
-    # Gather member statuses from asyncio.Task states
-    member_statuses: list[dict[str, Any]] = []
+def _collect_member_statuses(team: Any, agent_tasks: dict[str, list[str]]) -> list[dict[str, Any]]:
+    """Build per-member status dicts from asyncio.Task states."""
+    statuses: list[dict[str, Any]] = []
     for name, task in team.members.items():
         if task.done():
             try:
@@ -449,7 +447,7 @@ async def _check_teammates(
             status = "running"
 
         current_tasks = agent_tasks.get(name, [])
-        member_statuses.append(
+        statuses.append(
             {
                 "name": name,
                 "agent_type": team.member_types.get(name, "unknown"),
@@ -459,6 +457,30 @@ async def _check_teammates(
                 "pending_messages": team.bus.pending_count(name),
             }
         )
+    return statuses
+
+
+async def _check_teammates(
+    state: dict[str, Any],
+    tool_call_id: str,
+    *,
+    ext: TeamExtension,
+) -> Command:  # type: ignore[type-arg]
+    """Check team member statuses and drain pending messages for lead."""
+    await ext.rehydrate_if_needed(state)
+    team = _require_active_team(ext)
+
+    tasks = state.get("tasks") or []
+
+    # Derive task-based work status per agent
+    agent_tasks: dict[str, list[str]] = {}
+    for t in tasks:
+        owner = t.get("owner")
+        if owner and t.get("status") not in ("completed", "deleted"):
+            agent_tasks.setdefault(owner, []).append(t["id"])
+
+    # Gather member statuses from asyncio.Task states
+    member_statuses = _collect_member_statuses(team, agent_tasks)
 
     # Drain pending messages for lead
     lead_messages: list[dict[str, Any]] = []
@@ -474,7 +496,6 @@ async def _check_teammates(
         )
 
     # Include task progress from state
-    tasks = state.get("tasks") or []
     task_summary = [
         {
             "id": t["id"],

@@ -2,8 +2,9 @@
 
 Provides two capabilities:
 
-1. **Tool approval**: Intercepts whitelisted tool calls and presents
-   structured questions (Approve/Edit/Reject) before execution.
+1. **Tool approval**: Intercepts whitelisted tool calls via a
+   ``wrap_tool`` hook and presents structured questions
+   (Approve/Edit/Reject) before execution.
 2. **ask_user tool**: Gives the LLM an explicit tool to ask the user
    structured questions during execution.
 
@@ -73,8 +74,6 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from langchain_core.tools import BaseTool
-    from langgraph.prebuilt.tool_node import ToolCallRequest
-    from langgraph.types import Command
 
 DecisionType = Literal["approve", "edit", "reject"]
 
@@ -113,9 +112,13 @@ class InterruptConfig:
 class HITLExtension(Extension):
     """Human-in-the-loop extension with unified Question protocol.
 
-    Provides tool approval via ``wrap_tool_call`` and an optional
+    Provides tool approval via a ``wrap_tool`` hook and an optional
     ``ask_user`` tool for LLM-initiated questions. Both use the same
     Question-based interrupt payload.
+
+    The ``wrap_tool`` hook composes with other extensions' tool hooks
+    via the onion pattern — multiple extensions can each wrap tool
+    execution without conflict.
 
     Args:
         interrupt_on: Whitelist of tool names to gate with human approval.
@@ -175,27 +178,24 @@ class HITLExtension(Extension):
         self._tools_cache: list[BaseTool] | None = None
 
     @property
-    def state_schema(self) -> None:
-        """No additional state keys."""
-        return None
-
-    @property
     def tools(self) -> list[BaseTool]:
         """Returns ask_user tool when enabled, empty list otherwise."""
         if self._tools_cache is None:
             self._tools_cache = [create_ask_user_tool()] if self._provide_tools else []
         return self._tools_cache
 
-    def prompt(self, state: dict[str, Any], runtime: Any | None = None) -> str | None:
-        """No prompt injection needed."""
-        return None
-
-    def wrap_tool_call(
+    async def wrap_tool(
         self,
-        request: ToolCallRequest,
-        execute: Callable[[ToolCallRequest], ToolMessage | Command],  # type: ignore[type-arg]
-    ) -> ToolMessage | Command:  # type: ignore[type-arg]
+        *,
+        state: Any,
+        handler: Callable[..., Any],
+        runtime: Any,
+    ) -> Any:
         """Intercept tool calls and present structured approval questions.
+
+        This is a ``wrap_tool`` hook — it composes with other extensions'
+        tool hooks via the onion pattern. Unconfigured tools pass through
+        to the inner handler without interruption.
 
         Uses the unified Question protocol. The interrupt payload contains
         a Question with Approve/Edit/Reject options and tool context.
@@ -207,20 +207,26 @@ class HITLExtension(Extension):
             {"answers": {"<question>": "Reject"}, "message": "reason"}
 
         Args:
-            request: The tool call request from ToolNode.
-            execute: Callback to execute the tool call.
+            state: The ``ToolCallRequest`` from the tool node.
+            handler: Async callback to continue the tool execution chain.
+            runtime: The current ``ToolRuntime``.
         """
-        tool_name = request.tool_call["name"]
+        request = state
+        tool_name = (
+            request.tool_call.get("name", "")
+            if isinstance(request.tool_call, dict)
+            else getattr(request.tool_call, "name", "")
+        )
         config = self.interrupt_on.get(tool_name)
 
         if config is None:
-            return execute(request)
+            return await handler(request)
 
         question_options = [_DECISION_OPTIONS[d] for d in config.options if d in _DECISION_OPTIONS]
 
         # Single option — auto-execute without interrupting
         if len(question_options) < 2:
-            return self._auto_execute(config, request, execute)
+            return await self._auto_execute(config, request, handler)
 
         question_text = self._build_question_text(request, config)
         question = Question(
@@ -237,23 +243,22 @@ class HITLExtension(Extension):
             }
         )
 
-        return self._handle_response(response, question, config, request, execute)
+        return await self._handle_response(response, question, config, request, handler)
 
     # ------------------------------------------------------------------
     # Private helpers
     # ------------------------------------------------------------------
 
-    def _auto_execute(
+    async def _auto_execute(
         self,
         config: InterruptConfig,
-        request: ToolCallRequest,
-        execute: Callable[..., Any],
-    ) -> ToolMessage | Command:  # type: ignore[type-arg]
+        request: Any,
+        handler: Callable[..., Any],
+    ) -> Any:
         """Handle single-option configs without interrupting."""
         decision = config.options[0]
         if decision == "approve":
-            result: ToolMessage | Command = execute(request)  # type: ignore[type-arg]
-            return result
+            return await handler(request)
         tool_name = request.tool_call["name"]
         return ToolMessage(
             content=f"Auto-rejected {tool_name} (only allowed option: {decision})",
@@ -262,14 +267,14 @@ class HITLExtension(Extension):
             status="error",
         )
 
-    def _handle_response(  # noqa: PLR0911
+    async def _handle_response(  # noqa: PLR0911
         self,
         response: Any,
         question: Question,
         config: InterruptConfig,
-        request: ToolCallRequest,
-        execute: Callable[..., Any],
-    ) -> ToolMessage | Command:  # type: ignore[type-arg]
+        request: Any,
+        handler: Callable[..., Any],
+    ) -> Any:
         """Route the user's answer to the appropriate action."""
         answers: dict[str, str] = {}
         if isinstance(response, dict):
@@ -278,8 +283,7 @@ class HITLExtension(Extension):
         tool_name = request.tool_call["name"]
 
         if answer == "Approve" and "approve" in config.options:
-            result: ToolMessage | Command = execute(request)  # type: ignore[type-arg]
-            return result
+            return await handler(request)
 
         if answer == "Edit" and "edit" in config.options:
             edited_args = (
@@ -293,10 +297,7 @@ class HITLExtension(Extension):
                 id=request.tool_call["id"],
                 type="tool_call",
             )
-            edit_result: ToolMessage | Command = execute(  # type: ignore[type-arg]
-                request.override(tool_call=modified_call)
-            )
-            return edit_result
+            return await handler(request.override(tool_call=modified_call))
 
         if answer == "Reject" and "reject" in config.options:
             message = (
@@ -320,7 +321,7 @@ class HITLExtension(Extension):
 
     def _build_question_text(
         self,
-        request: ToolCallRequest,
+        request: Any,
         config: InterruptConfig,
     ) -> str:
         """Build the question text for the interrupt."""

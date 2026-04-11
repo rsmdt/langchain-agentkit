@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from functools import lru_cache
 from typing import Literal
 
 PermissionAction = Literal["allow", "deny", "ask"]
@@ -116,6 +117,7 @@ class PermissionRuleset:
 # ---------------------------------------------------------------------------
 
 
+@lru_cache(maxsize=256)
 def _glob_to_regex(pattern: str) -> re.Pattern[str]:
     """Convert a fnmatch-style glob with ``**`` support to a regex.
 
