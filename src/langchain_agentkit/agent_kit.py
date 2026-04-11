@@ -89,6 +89,16 @@ class AgentKit:
         self._name = name
         self._tools_cache: list[BaseTool] | None = None
 
+    @property
+    def extensions(self) -> list[Extension]:
+        """Ordered list of extensions (after dependency resolution)."""
+        return list(self._extensions)
+
+    @property
+    def base_prompt(self) -> str:
+        """The resolved base prompt string (before extension contributions)."""
+        return self._prompt
+
     @staticmethod
     def _resolve_dependencies(extensions: list[Any]) -> list[Any]:
         """Resolve extension dependencies. Auto-add missing dependencies.
@@ -246,10 +256,9 @@ class AgentKit:
         Returns:
             An uncompiled ``StateGraph``.
         """
-        from langchain_agentkit._graph_builder import _find_wrap_tool_call, build_graph
+        from langchain_agentkit._graph_builder import build_graph
 
         llm = self._resolve_model_internal(self._model_raw) if self._model_raw is not None else None
-        wrap_tool_call = _find_wrap_tool_call(self._extensions, self._name)
 
         # Pass user_tools=[] because self.tools already merges user + extension tools.
         # build_graph does `all_tools = user_tools + kit.tools`, so passing []
@@ -261,7 +270,6 @@ class AgentKit:
             user_tools=[],
             kit=self,
             state_type=self.state_schema,
-            wrap_tool_call=wrap_tool_call,
         )
 
     def _collect_contributions(
@@ -301,18 +309,30 @@ class AgentKit:
                     reminder_parts.append(r)
         return prompt_parts, reminder_parts
 
+    def compose(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> tuple[str, str]:
+        """Compose prompt and system reminder in a single pass.
+
+        Returns:
+            ``(prompt, system_reminder)`` — both joined with double newline.
+            ``system_reminder`` is empty string when no extension contributes one.
+        """
+        prompt_parts, reminder_parts = self._collect_contributions(state, runtime)
+        return (
+            "\n\n".join(prompt_parts),
+            "\n\n".join(reminder_parts) if reminder_parts else "",
+        )
+
     def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
         """Compose system prompt from template + extension prompt sections.
 
         Called on every LLM invocation. Each extension contributes
         a section in stack order. Sections joined with double newline.
 
-        Extensions returning a dict with ``prompt``/``reminder`` keys
-        have only their ``prompt`` value collected here. The ``reminder``
-        value is collected separately by :meth:`system_reminder`.
+        For efficiency, prefer :meth:`compose` when you need both prompt
+        and system reminder.
         """
-        prompt_parts, _ = self._collect_contributions(state, runtime)
-        return "\n\n".join(prompt_parts)
+        composed_prompt, _ = self.compose(state, runtime)
+        return composed_prompt
 
     def system_reminder(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
         """Collect ephemeral reminder content from all extensions.
@@ -322,11 +342,11 @@ class AgentKit:
         tags. This message is added at LLM call time and **never**
         stored in ``state["messages"]``.
 
-        Only extensions returning a dict with a non-empty
-        ``reminder`` value contribute here.
+        For efficiency, prefer :meth:`compose` when you need both prompt
+        and system reminder.
         """
-        _, reminder_parts = self._collect_contributions(state, runtime)
-        return "\n\n".join(reminder_parts) if reminder_parts else ""
+        _, reminder = self.compose(state, runtime)
+        return reminder
 
 
 async def run_extension_setup(kit: AgentKit) -> None:

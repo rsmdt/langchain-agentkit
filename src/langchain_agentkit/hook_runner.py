@@ -19,11 +19,7 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-# Sentinel for jump_to routing
-JUMP_TO_END = "end"
-JUMP_TO_MODEL = "model"
-JUMP_TO_TOOLS = "tools"
-_VALID_JUMP_TARGETS = frozenset({JUMP_TO_END, JUMP_TO_MODEL, JUMP_TO_TOOLS})
+_VALID_JUMP_TARGETS = frozenset({"end", "model", "tools"})
 
 # Type alias to keep signatures under 100 chars
 _HookEntry = tuple[Any, "Callable[..., Any]", list[str] | None]
@@ -77,6 +73,15 @@ class HookRunner:
             for method in all_hooks.get(("on_error", "run"), []):
                 hooks.append(method)
         return hooks
+
+    @property
+    def has_run_hooks(self) -> bool:
+        """True if any before_run, after_run, or on_error hooks are registered."""
+        return bool(
+            self._hooks.get(("before", "run"))
+            or self._hooks.get(("after", "run"))
+            or self._error_hooks
+        )
 
     @staticmethod
     def _validate_jump_to(result: dict[str, Any]) -> None:

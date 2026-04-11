@@ -23,28 +23,6 @@ if TYPE_CHECKING:
     from langchain_agentkit.agent_kit import AgentKit
 
 
-def _find_wrap_tool_call(
-    extensions: list[Any],
-    name: str,
-) -> Any | None:
-    """Find a single wrap_tool_call callback from extensions list.
-
-    Note: This is the legacy single-callback mechanism. The HookRunner's
-    wrap("tool") hooks provide the newer onion-style composition.
-    """
-    wrap_tool_call = None
-    for ext in extensions:
-        wrapper = getattr(ext, "wrap_tool_call", None)
-        if callable(wrapper):
-            if wrap_tool_call is not None:
-                raise ValueError(
-                    f"class {name}(agent): multiple extensions provide wrap_tool_call. "
-                    f"Only one is supported per agent."
-                )
-            wrap_tool_call = wrapper
-    return wrap_tool_call
-
-
 def _inject_system_reminder(
     handler_state: dict[str, Any],
     system_reminder: str,
@@ -115,6 +93,18 @@ def _process_before_updates(
     return None
 
 
+def _make_runtime(state: dict[str, Any], config: Any, **kwargs: Any) -> ToolRuntime:
+    """Build a ToolRuntime from node arguments (shared by all graph nodes)."""
+    return ToolRuntime(
+        state=state,
+        context=kwargs.get("context"),
+        config=config,
+        stream_writer=kwargs.get("stream_writer", lambda _: None),
+        tool_call_id=None,
+        store=kwargs.get("store"),
+    )
+
+
 def build_graph(  # noqa: C901
     name: str,
     handler: Any,
@@ -122,7 +112,6 @@ def build_graph(  # noqa: C901
     user_tools: list[BaseTool],
     kit: AgentKit,
     state_type: type = AgentKitState,
-    wrap_tool_call: Any | None = None,
 ) -> Any:
     """Build the ReAct subgraph.
 
@@ -132,7 +121,7 @@ def build_graph(  # noqa: C901
     """
     node_name = name
     all_tools: list[BaseTool] = list(user_tools) + kit.tools
-    extensions_list = kit._extensions
+    extensions_list = kit.extensions
 
     # Build HookRunner from extensions for lifecycle hooks
     hook_runner = HookRunner(extensions_list)
@@ -143,14 +132,7 @@ def build_graph(  # noqa: C901
     async def _agent_node(
         state: dict[str, Any], config: RunnableConfig, **kwargs: Any
     ) -> dict[str, Any]:
-        runtime = ToolRuntime(
-            state=state,
-            context=kwargs.get("context"),
-            config=config,
-            stream_writer=kwargs.get("stream_writer", lambda _: None),
-            tool_call_id=None,
-            store=kwargs.get("store"),
-        )
+        runtime = _make_runtime(state, config, **kwargs)
 
         # --- before_model hooks ---
         # before_model updates apply to handler_state (for the current LLM
@@ -168,10 +150,7 @@ def build_graph(  # noqa: C901
         # --- compose prompt and system reminder (single pass) ---
         # NOTE: called per-step intentionally. Extension prompts are dynamic —
         # they render current state (task list, team status). Do NOT hoist this.
-        prompt_parts, reminder_parts = kit._collect_contributions(handler_state, runtime)
-        composed_prompt = "\n\n".join(prompt_parts)
-        # Inject ephemeral system-reminder as a HumanMessage (never stored).
-        system_reminder = "\n\n".join(reminder_parts) if reminder_parts else ""
+        composed_prompt, system_reminder = kit.compose(handler_state, runtime)
         handler_state = _inject_system_reminder(handler_state, system_reminder)
 
         # NOTE: tool binding is the handler's responsibility. The framework
@@ -228,24 +207,13 @@ def build_graph(  # noqa: C901
 
     # --- Run lifecycle nodes ---
 
-    has_run_hooks = (
-        hook_runner._hooks.get(("before", "run"))
-        or hook_runner._hooks.get(("after", "run"))
-        or hook_runner._error_hooks
-    )
+    has_run_hooks = hook_runner.has_run_hooks
 
     async def _run_entry_node(
         state: dict[str, Any], config: RunnableConfig, **kwargs: Any
     ) -> dict[str, Any]:
         """Run before_run hooks once at graph entry."""
-        runtime = ToolRuntime(
-            state=state,
-            context=kwargs.get("context"),
-            config=config,
-            stream_writer=kwargs.get("stream_writer", lambda _: None),
-            tool_call_id=None,
-            store=kwargs.get("store"),
-        )
+        runtime = _make_runtime(state, config, **kwargs)
         updates = await hook_runner.run_before("run", state=state, runtime=runtime)
         result: dict[str, Any] = {}
         for update in updates:
@@ -256,14 +224,7 @@ def build_graph(  # noqa: C901
         state: dict[str, Any], config: RunnableConfig, **kwargs: Any
     ) -> dict[str, Any]:
         """Run after_run hooks once before graph ends."""
-        runtime = ToolRuntime(
-            state=state,
-            context=kwargs.get("context"),
-            config=config,
-            stream_writer=kwargs.get("stream_writer", lambda _: None),
-            tool_call_id=None,
-            store=kwargs.get("store"),
-        )
+        runtime = _make_runtime(state, config, **kwargs)
         updates = await hook_runner.run_after("run", state=state, runtime=runtime)
         result: dict[str, Any] = {}
         for update in updates:
@@ -293,7 +254,7 @@ def build_graph(  # noqa: C901
     has_router = "router" in workflow.nodes
 
     if all_tools:
-        # Build async tool call wrapper that integrates HookRunner + legacy wrap_tool_call
+        # Build async tool call wrapper that integrates HookRunner
         async def _hooked_wrap_tool_call(request: Any, handler: Any) -> Any:
             tool_name = (
                 request.tool_call.get("name", "")
@@ -309,21 +270,11 @@ def build_graph(  # noqa: C901
                 tool_name=tool_name,
             )
 
-            # --- wrap_tool hooks (onion) + legacy wrap_tool_call ---
-            async def _inner_handler(req: Any) -> Any:
-                if wrap_tool_call is not None:
-                    result = wrap_tool_call(req, handler)
-                    # wrap_tool_call is sync but may pass through an async
-                    # handler whose return value is a coroutine.
-                    if inspect.isawaitable(result):
-                        result = await result
-                    return result
-                return await handler(req)
-
+            # --- wrap_tool hooks (onion around handler) ---
             result = await hook_runner.run_wrap(
                 "tool",
                 state=request,
-                handler=_inner_handler,
+                handler=handler,
                 runtime=request.runtime,
                 tool_name=tool_name,
             )
@@ -359,39 +310,29 @@ def build_graph(  # noqa: C901
                 return "tools"
             return "_run_exit" if has_run_hooks else END
 
-        if has_run_hooks:
-            # START → _run_entry → agent → [tools ⇄ agent]* → _run_exit → END
-            workflow.set_entry_point("_run_entry")
-            workflow.add_edge("_run_entry", node_name)
-            destinations = {"tools": "tools", "_run_exit": "_run_exit", node_name: node_name}
-            workflow.add_conditional_edges(
-                node_name,
-                _should_continue,
-                destinations,  # type: ignore[arg-type]
-            )
-            workflow.add_edge("_run_exit", END)
-        else:
-            # START → agent → [tools ⇄ agent]* → END
-            workflow.set_entry_point(node_name)
-            destinations = {"tools": "tools", END: END, node_name: node_name}
-            workflow.add_conditional_edges(
-                node_name,
-                _should_continue,
-                destinations,  # type: ignore[arg-type]
-            )
+        terminal = "_run_exit" if has_run_hooks else END
+        destinations = {"tools": "tools", terminal: terminal, node_name: node_name}
+        workflow.add_conditional_edges(
+            node_name,
+            _should_continue,
+            destinations,  # type: ignore[arg-type]
+        )
 
         if has_router:
             workflow.add_edge("tools", "router")
         else:
             workflow.add_edge("tools", node_name)
-    else:
-        if has_run_hooks:
-            workflow.set_entry_point("_run_entry")
-            workflow.add_edge("_run_entry", node_name)
+
+    # Common entry/exit wiring
+    if has_run_hooks:
+        workflow.set_entry_point("_run_entry")
+        workflow.add_edge("_run_entry", node_name)
+        if not all_tools:
             workflow.add_edge(node_name, "_run_exit")
-            workflow.add_edge("_run_exit", END)
-        else:
-            workflow.set_entry_point(node_name)
+        workflow.add_edge("_run_exit", END)
+    else:
+        workflow.set_entry_point(node_name)
+        if not all_tools:
             workflow.add_edge(node_name, END)
 
     return workflow
