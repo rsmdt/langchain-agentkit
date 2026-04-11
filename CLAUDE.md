@@ -46,6 +46,10 @@ Composable extension framework for LangGraph agents. Python 3.11+, src layout (`
 
 ### Key design decisions
 
+- **AgentKit is a sync composition engine.** No `asetup()`, no async methods. Extensions passed to AgentKit must be fully configured. Async extension setup (backend discovery) runs via `run_extension_setup(kit)` — a standalone async function called by the `Agent` class before kit use.
+- **`kit.compile(handler)` is the primary graph-building path.** It absorbs the ReAct loop construction (agent node, ToolNode, hooks, routing). The `Agent` class delegates to it. Manual wiring via `kit.tools`, `kit.prompt()`, `kit.model`, `kit.hooks` is supported but hooks are the user's responsibility.
+- **`kit.tools` merges user + extension tools.** Pass `tools=[...]` to the constructor. The `tools` property deduplicates by name, user tools first.
+- **Model resolver fallback chain:** kit-level `model_resolver` → extension-level `model_resolver` → error. `AgentsExtension` no longer accepts its own `model_resolver` param — it picks up the kit's resolver during `setup()`.
+- **Two public API styles:** `Agent` class (declarative, static or dynamic properties, sync `compile()`) and bare `AgentKit` (managed or manual wiring). A legacy `agent` metaclass exists for backward compatibility but is not documented.
 - **Tool binding is the handler's responsibility, always.** The framework never calls `llm.bind_tools()` — it injects the raw `llm` and the composed `tools` list, and handlers call `llm.bind_tools(tools, ...)` themselves. This keeps provider-specific kwargs (`strict`, `parallel_tool_calls`, `tool_choice`) and dynamic per-step tool filtering fully in implementer control.
 - `kit.prompt()` is called **per-step** intentionally — extension prompts render current state (task list, team status).
-- The `agent` metaclass returns a `StateGraph`, not a class. This is deliberate.

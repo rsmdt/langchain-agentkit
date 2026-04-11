@@ -16,16 +16,16 @@ Requires Python 3.11+.
 
 ## Quick Start
 
-### The `agent` metaclass
+### The `Agent` class
 
 Declare a class, get a complete ReAct agent with extension-composed tools and prompts:
 
 ```python
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from langchain_agentkit import agent, SkillsExtension, TasksExtension
+from langchain_agentkit import Agent, SkillsExtension, TasksExtension
 
-class researcher(agent):
+class Researcher(Agent):
     model = ChatOpenAI(model="gpt-4o")
     extensions = [
         SkillsExtension(skills="skills/"),
@@ -37,29 +37,72 @@ class researcher(agent):
         messages = [SystemMessage(content=prompt)] + state["messages"]
         return {"messages": [await llm.bind_tools(tools).ainvoke(messages)]}
 
-graph = researcher.compile()
-result = graph.invoke({"messages": [HumanMessage("Size the B2B SaaS market")]})
+app = Researcher().compile()
+result = app.invoke({"messages": [HumanMessage("Size the B2B SaaS market")]})
 ```
 
-The `model` attribute accepts a `BaseChatModel` instance (used as-is) or a string resolved via an `AgentExtension`'s `model_resolver`:
+The `model` attribute accepts a `BaseChatModel` instance (used as-is) or a string resolved via `model_resolver`:
 
 ```python
-class fast_agent(agent):
-    model = "gpt-4o-mini"  # resolved via AgentExtension.model_resolver
-    extensions = [
-        AgentExtension(
-            agents=[researcher, coder],
-            model_resolver=lambda name: ChatOpenAI(model=name),
-        ),
-    ]
+class FastAgent(Agent):
+    model = "gpt-4o-mini"
+    model_resolver = staticmethod(lambda name: ChatOpenAI(model=name))
+    extensions = [AgentsExtension(agents=[Researcher, Coder])]
     ...
 ```
 
 The state schema is composed automatically from extensions — `TasksExtension` adds a `tasks` key, `SkillsExtension` adds nothing. No need to define state manually.
 
-### `AgentKit` for manual graph wiring
+### Dynamic properties
 
-Use `AgentKit` when you need full control over graph topology — custom routing, multi-node graphs, or a shared `ToolNode`:
+Each property (`model`, `prompt`, `extensions`, `tools`, `model_resolver`) can be a static attribute, a sync method, or an async method — `compile()` resolves them uniformly. Pass any per-request configuration via `__init__(**kwargs)`:
+
+```python
+from langchain_agentkit import Agent, FilesystemExtension
+
+class Researcher(Agent):
+    model = ChatOpenAI(model="gpt-4o")
+
+    async def prompt(self):
+        return await self.backend.read(".agentkit/AGENTS.md")
+
+    def extensions(self):
+        return [FilesystemExtension(backend=self.backend)]
+
+    async def handler(state, *, llm, tools, prompt, runtime):
+        messages = [SystemMessage(content=prompt)] + state["messages"]
+        return {"messages": [await llm.bind_tools(tools).ainvoke(messages)]}
+
+app = Researcher(backend=my_backend).compile()
+```
+
+Use `graph()` instead of `compile()` when you need the uncompiled `StateGraph` for composition — e.g. passing to `AgentsExtension(agents=[...])` or embedding as a subgraph.
+
+### `AgentKit` for managed or manual graph wiring
+
+`AgentKit` accepts extensions, user tools, model, and prompt — then `compile(handler)` builds a complete ReAct graph with hooks wired:
+
+```python
+from langchain_openai import ChatOpenAI
+from langchain_agentkit import AgentKit, SkillsExtension, TasksExtension
+
+kit = AgentKit(
+    extensions=[SkillsExtension(skills="skills/"), TasksExtension()],
+    tools=[web_search],
+    model=ChatOpenAI(model="gpt-4o"),
+    prompt="You are a research assistant.",
+)
+
+async def handler(state, *, llm, tools, prompt, runtime):
+    from langchain_core.messages import SystemMessage
+    messages = [SystemMessage(content=prompt)] + state["messages"]
+    return {"messages": [await llm.bind_tools(tools).ainvoke(messages)]}
+
+graph = kit.compile(handler)          # uncompiled StateGraph
+app = graph.compile()                 # compiled, ready to invoke
+```
+
+For **full manual control** over graph topology (custom routing, multi-node graphs, shared `ToolNode`), access `kit.tools`, `kit.prompt(state)`, `kit.model`, `kit.state_schema`, and `kit.hooks` directly:
 
 ```python
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -69,7 +112,7 @@ from langgraph.prebuilt import ToolNode
 
 from langchain_agentkit import AgentKit, SkillsExtension, TasksExtension
 
-kit = AgentKit([
+kit = AgentKit(extensions=[
     SkillsExtension(skills="skills/"),
     TasksExtension(),
 ])
@@ -113,7 +156,7 @@ extensions = [
     WebSearchExtension(),
     HistoryExtension(strategy="count", max_messages=50),
     HITLExtension(interrupt_on={"send_email": True}, tools=True),
-    AgentExtension(agents=[researcher, coder]),
+    AgentsExtension(agents=[researcher, coder]),
     TeamExtension(agents=[researcher, coder]),
 ]
 ```
@@ -156,31 +199,33 @@ skills/
     └── calculator.py     # Reference files accessible via Read tool
 ```
 
-### AgentExtension
+### AgentsExtension
 
 Delegate tasks to specialist subagents at runtime. Accepts compiled StateGraphs, `AgentConfig` definitions, or discovers agents from a directory of markdown files.
 
 ```python
-from langchain_agentkit import agent, AgentExtension, AgentConfig
+from langchain_agentkit import Agent, AgentsExtension, AgentConfig
 
-class researcher(agent):
+class Researcher(Agent):
     model = ChatOpenAI(model="gpt-4o-mini")
     description = "Research specialist for information gathering"
     tools = [web_search]
     prompt = "You are a research specialist."
     async def handler(state, *, llm, tools, prompt): ...
 
+researcher = Researcher().compile()  # StateGraph
+
 # Programmatic — mix compiled graphs and AgentConfig definitions
-ext = AgentExtension(agents=[
+ext = AgentsExtension(agents=[
     researcher,                                          # compiled StateGraph
     AgentConfig(name="coder", description="Code expert", prompt="You code."),
 ])
 
 # Directory discovery — scan for .md files with frontmatter
-ext = AgentExtension(agents="agents/")
+ext = AgentsExtension(agents="agents/")
 
 # With a custom backend
-ext = AgentExtension(agents="/agents", backend=my_backend)
+ext = AgentsExtension(agents="/agents", backend=my_backend)
 ```
 
 **AgentConfig** supports the same frontmatter fields as file-based agents:
@@ -349,13 +394,15 @@ Requires a checkpointer. Resume with `Command(resume={"answers": {"<question>": 
 Coordinate a team of concurrent agents for complex, multi-step work that requires back-and-forth communication. The lead spawns teammates, assigns tasks, reacts to their results, and can forward information between team members.
 
 ```python
-from langchain_agentkit import agent, TeamExtension, TasksExtension
+from langchain_agentkit import Agent, TeamExtension, TasksExtension
 
-class lead(agent):
+class Lead(Agent):
     model = ChatOpenAI(model="gpt-4o")
     extensions = [TasksExtension(), TeamExtension(agents=[researcher, coder])]
     prompt = "You are a project lead. Coordinate your team."
     async def handler(state, *, llm, tools, prompt): ...
+
+graph = Lead().compile()
 ```
 
 **How it works:** Teammates run as `asyncio.Task`s with their own checkpointers (conversation history persists across messages). A **Router Node** in the graph checks for teammate messages after each tool execution — when a teammate sends a result, the lead is automatically re-invoked with the message.
@@ -417,12 +464,13 @@ class MyExtension(Extension):
         self._hitl_enabled = any(isinstance(e, HITLExtension) for e in extensions)
 ```
 
-`setup()` is called once by `AgentKit` after dependency resolution, before the graph is built. Each extension declares only the kwargs it needs — the framework uses signature introspection to pass only what's requested. Available kwargs:
+`setup()` is called once after dependency resolution, before the graph is built. Each extension declares only the kwargs it needs — the framework uses signature introspection to pass only what's requested. Available kwargs:
 
 | Kwarg | Type | Meaning |
 |---|---|---|
 | `extensions` | `list[Extension]` | All extensions in the kit, including `self` |
 | `prompt` | `str` | The base prompt configured on `AgentKit` (empty if none) |
+| `model_resolver` | `Callable` or `None` | The kit-level model resolver, if configured |
 
 **Contract — inspect presence, not state**: `setup()` runs in declaration order, so another extension's `setup()` may not have run yet when yours executes. Only inspect sibling *presence* via `isinstance()` checks — never read mutable state that another extension's `setup()` might populate. Anything that depends on a sibling being fully configured should happen lazily at runtime.
 
