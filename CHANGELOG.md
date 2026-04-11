@@ -9,6 +9,36 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.18.0] — 2026-04-11
+
+### Added
+
+- **Agent base class** for declarative agent definition — supports properties as class attributes, sync methods, or async methods, all resolved uniformly at `compile()`. The legacy `agent` metaclass is retained but undocumented.
+- **Cross-turn team rehydration** — teams now survive HTTP request/response boundaries. `TeamMetadata` in graph state is sufficient to rebuild the bus, asyncio tasks, and compiled graphs on any pod, with graceful degradation for missing roster agents.
+- **`AgentKit.compile(handler)`** as the primary graph-building path — absorbs the full ReAct loop construction (agent node, tool node, hooks, routing) so callers no longer wire graphs manually.
+- Authoritative team-message filtering via a single `additional_kwargs["team"]` key, replacing fragile name-based heuristics across message types.
+
+### Changed
+
+- **BREAKING:** `BackendProtocol` is now fully async — all methods (`execute`, `read`, `write`, `edit`, `glob`, `grep`) are coroutines. `OSBackend` uses `asyncio.create_subprocess_shell`; `DaytonaBackend` awaits its shell calls. All tools and extensions have been migrated to `await` backend calls.
+- **BREAKING:** `AgentKit` constructor now takes keyword-only arguments (`tools`, `model`, `model_resolver`, `name`). `asetup()` is replaced by the standalone `run_extension_setup(kit)` function.
+- **BREAKING:** `AgentExtension` renamed to `AgentsExtension`. The extension no longer accepts its own `model_resolver` — it picks up the kit-level resolver during `setup()`.
+- **BREAKING:** `BackendProtocol.read()` returns raw text instead of line-numbered output. Line numbering moves to the Read tool as a presentation concern.
+- `before_model` hook returns now merge into the agent node's output so they reach the checkpointer, enabling hook-based message capture such as the teammate message flush.
+- Team state consolidated into a typed `TeamMetadata` reducer (name, members as `TeammateSpec`, created\_at) with replace-wins semantics, replacing the untyped `team_members`/`team_name` channels.
+- Public API surface expanded: `AgentKit.extensions`, `base_prompt`, and `compose()` are now documented public methods; `HookRunner.has_run_hooks` replaces private `_hooks` access.
+
+### Fixed
+
+- `build_ephemeral_graph` now calls `bind_tools` so ephemeral agents can emit tool calls.
+- Variable shadowing in `_check_teammates` resolved with hoisted assignment.
+
+### Removed
+
+- Unused `team_messages` list reducer and `_append_messages` helper — team communication routes through the bus, not graph state.
+- `tools_inherit` attribute on `_AgentConfigProxy` — definition-based agents now route through `_agent_config` before any inherit check.
+- `resolve_agent_fn` injection hook — `AgentExtension` and `TeamExtension` share a single resolver via the extracted `agents/refs` module.
+
 ## [0.17.0] — 2026-04-09
 
 ### Changed
@@ -127,51 +157,8 @@ Version bump only — no code changes.
 - Existing examples modernized to use the `agent` decorator with simplified state handling.
 - Filesystem middleware and VFS expanded with broader test coverage.
 
-## [0.9.0] — 2026-03-25
-
-### Added
-- New `VirtualFilesystem` with Claude Code-aligned file tools (`Read`, `Write`, `Edit`, `Glob`, `Grep`) supporting POSIX paths, unicode, glob wildcards, and regex search. Exposed via the new `FilesystemMiddleware` for standalone use.
-- Trajectory-based eval framework for tool usage with 4 match modes (strict, unordered, subset, superset) and 3 tool-args modes. Ships with 12 datasets and 8 LLM integration evals (`pytest -m eval`) covering filesystem, task, and skill workflows. `.env` is auto-loaded for API keys, and an `eval` optional dependency group is available.
-- Task tools gain `owner`, `metadata`, and `blocks` fields, plus a new `TaskStop` tool for halting in-progress tasks. `TaskUpdate` supports owner/metadata merges (with null-delete) and `add_blocks`; `TaskGet` returns computed `blocks` as the reverse of `blocked_by`. Parallel `Command` updates are safely merged via a new `_merge_tasks` reducer (union-dedup for lists, deep-merge for metadata).
-- Task management prompt rewritten with structured decision criteria, decomposition heuristics (prefer 3-7 tasks), lifecycle rules, and concrete worked examples.
-
-### Changed
-- **BREAKING**: State is now composed progressively from middleware. `AgentState` is split into `AgentKitState` (messages + sender) and `TasksState` (tasks with reducer). Middleware declares state requirements via a `state_schema` property, and `AgentKit.state_schema` composes `TypedDict`s dynamically. The `agent` metaclass uses the composed schema when no handler annotation is provided.
-- **BREAKING**: `SkillsMiddleware` is decoupled from the filesystem. `SkillsMiddleware(skills="path/")` owns its own VFS and includes file tools; pass an existing `filesystem=vfs` to expose only the `Skill` tool. Skills are loaded from the real filesystem into the VFS at `/skills/{name}/`, and `SkillRead` has been removed in favor of `Read("/skills/name/file")`. Reference files are now listed in the available-skills XML.
-- Source layout reorganized into layered `tools/`, `middleware/`, `vfs/`, and `prompts/` packages, with tests mirroring the new structure under `tests/unit/` and `tests/evals/`. Public API is unchanged — all existing imports continue to work via `__init__.py` re-exports.
-
-### Removed
-- **BREAKING**: `SkillRead` tool removed. Use `Read` against the `/skills/{name}/` VFS path instead.
-
-## [0.8.0] — 2026-03-16
-
-### Changed
-- **BREAKING**: Simplified the `Task` type by removing `owner`, `blocks`, `metadata`, and `created_at` fields. Tasks are ephemeral graph state, not database records — these fields added complexity without concrete use cases. The `blocked_by` field is now optional and only present when a task has actual dependencies.
-
-### Added
-- Exported `Task` (TypedDict) and `TaskStatus` (Literal) from the public API for use in type annotations and handlers.
-
-## [0.7.0] — 2026-03-15
-
-### Added
-- New `WebSearchMiddleware` with multi-provider fan-out via `asyncio.gather`, shipping with a zero-config `QwantSearchTool` default (no API key required) and accepting any `BaseTool` or callable as a provider.
-- `SkillRegistry` and `SkillsMiddleware` now accept `Path` objects (or lists mixing `str` and `Path`) for `skills_dirs`, matching the common `Path(__file__).parent / "skills"` pattern.
-
-### Changed
-- **BREAKING**: The `runtime` parameter in the `Middleware` protocol is now optional and defaults to `None` across the protocol, `AgentKit`, and all built-in middleware implementations, supporting callers without a `ToolRuntime` (e.g. prompt composition outside `ToolNode`). Custom middleware implementations should update their signatures accordingly.
-
-### Fixed
-- `TaskCreate` and `TaskUpdate` now return a proper `ToolMessage` alongside their `Command` update, resolving LangGraph runtime errors caused by `ToolNode` requiring every tool call to produce a corresponding `ToolMessage`.
-
-## [0.6.0] — 2026-03-08
-
-### Changed
-- **BREAKING**: Migrated tool runtime to `langgraph.prebuilt.ToolRuntime`. Custom tool execution paths have been replaced with the upstream LangGraph primitive, which may affect code depending on the previous internal runtime behavior.
-- **BREAKING**: Removed the `node` metaclass. Code relying on this construct must be updated to use the current graph-building APIs.
-
-### Removed
-- Dead code paths eliminated as part of the runtime migration, reducing surface area and simplifying the extension framework internals.
-
+[0.18.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.18.0
+[0.17.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.17.0
 [0.16.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.16.0
 [0.15.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.15.0
 [0.14.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.14.0
