@@ -1,4 +1,4 @@
-# ruff: noqa: N801, N805
+# ruff: noqa: N805
 """Web search — multi-provider search with zero config or custom providers.
 
 WebSearchExtension fans out queries to all providers in parallel.
@@ -11,12 +11,12 @@ import asyncio
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from langchain_agentkit import WebSearchExtension, agent
+from langchain_agentkit import Agent, WebSearchExtension
 
 # --- Example 1: Zero config (built-in Qwant search) ---
 
 
-class quick_researcher(agent):
+class QuickResearcher(Agent):
     model = ChatOpenAI(model="gpt-4o")
     extensions = [WebSearchExtension()]
     prompt = "You are a research assistant. Use web search to find current information."
@@ -32,7 +32,7 @@ class quick_researcher(agent):
 #
 # from langchain_tavily import TavilySearch
 #
-# class deep_researcher(agent):
+# class DeepResearcher(Agent):
 #     model = ChatOpenAI(model="gpt-4o")
 #     extensions = [WebSearchExtension(providers=[TavilySearch(max_results=5)])]
 #     prompt = "You are a research assistant."
@@ -44,7 +44,7 @@ class quick_researcher(agent):
 
 
 async def main():
-    graph = quick_researcher.compile()
+    graph = QuickResearcher().compile()
     result = await graph.ainvoke(
         {"messages": [HumanMessage("What are the latest developments in AI agents?")]}
     )

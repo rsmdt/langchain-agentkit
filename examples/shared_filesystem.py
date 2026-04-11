@@ -1,4 +1,4 @@
-# ruff: noqa: N801, N805
+# ruff: noqa: N805
 """Shared workspace — SkillsExtension + FilesystemExtension on the same directory.
 
 SkillsExtension discovers skills from a directory on disk.
@@ -15,9 +15,9 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from langchain_agentkit import (
+    Agent,
     FilesystemExtension,
     SkillsExtension,
-    agent,
 )
 
 # Pre-populate a workspace directory
@@ -41,7 +41,7 @@ Deadline: 2024-Q4
 skills_dir = Path(__file__).parent.parent / "tests" / "fixtures" / "skills"
 
 
-class researcher(agent):
+class Researcher(Agent):
     model = ChatOpenAI(model="gpt-4o")
     extensions = [
         # Skills discovered from real directory — provides only Skill tool
@@ -60,7 +60,7 @@ and Read/Glob to access workspace files. Write your findings to the workspace.""
 
 
 async def main():
-    graph = researcher.compile()
+    graph = Researcher().compile()
 
     result = await graph.ainvoke(
         {

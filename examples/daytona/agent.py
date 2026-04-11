@@ -1,10 +1,10 @@
-# ruff: noqa: N801, N805
+# ruff: noqa: N805
 """Daytona sandbox — full integration with filesystem, skills, and agents.
 
 Demonstrates using a Daytona sandbox as the backend for:
 - FilesystemExtension — file tools (Read, Write, Edit, Glob, Grep, Bash)
 - SkillsExtension — skills discovered from sandbox filesystem
-- AgentExtension — agent definitions discovered from sandbox filesystem
+- AgentsExtension — agent definitions discovered from sandbox filesystem
 
 Bash requires human approval via the DEFAULT_RULESET permission preset.
 
@@ -32,10 +32,10 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
 from langchain_agentkit import (
-    AgentExtension,
+    Agent,
+    AgentsExtension,
     FilesystemExtension,
     SkillsExtension,
-    agent,
 )
 from langchain_agentkit.backends import DaytonaBackend
 from langchain_agentkit.permissions import DEFAULT_RULESET
@@ -65,11 +65,11 @@ def seed_sandbox(backend: DaytonaBackend) -> None:
 def build_agent(backend: DaytonaBackend):
     """Build the agent with Daytona-backed extensions."""
 
-    class sandbox_agent(agent):
+    class SandboxAgent(Agent):
         model = ChatOpenAI(model="gpt-4o")
         extensions = [
             SkillsExtension(skills=SKILLS_PATH, backend=backend),
-            AgentExtension(agents=AGENTS_PATH, backend=backend),
+            AgentsExtension(agents=AGENTS_PATH, backend=backend),
             FilesystemExtension(backend=backend, permissions=DEFAULT_RULESET),
         ]
         prompt = """\
@@ -82,7 +82,7 @@ Use your tools to explore, read, and modify files."""
             response = await llm.bind_tools(tools).ainvoke(messages)
             return {"messages": [response]}
 
-    return sandbox_agent
+    return SandboxAgent
 
 
 async def main() -> None:
@@ -104,11 +104,11 @@ async def main() -> None:
         seed_sandbox(backend)
 
         print("\nBuilding agent...")
-        graph = build_agent(backend)
-        compiled = graph.compile()
+        agent_class = build_agent(backend)
+        graph = agent_class().compile()
 
         print("Running agent...\n")
-        result = await compiled.ainvoke(
+        result = await graph.ainvoke(
             {
                 "messages": [
                     HumanMessage("List all files in the workspace, then summarize what you find.")

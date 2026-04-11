@@ -3,6 +3,10 @@
 Use this approach when you need custom routing, multi-node graphs,
 or a shared ToolNode. AgentKit composes tools, prompts, and state
 schema from extensions.
+
+For most cases, ``kit.compile(handler)`` builds the graph for you.
+This example shows the manual-wiring path where you access kit
+components (tools, prompt, state_schema) directly.
 """
 
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -20,15 +24,17 @@ def web_search(query: str) -> str:
     return f"Results for: {query}"
 
 
+# Pass user tools to AgentKit — kit.tools merges them with extension tools.
 kit = AgentKit(
-    [
+    extensions=[
         SkillsExtension(skills="skills/"),
         TasksExtension(),
-    ]
+    ],
+    tools=[web_search],
 )
 
 llm = ChatOpenAI(model="gpt-4o")
-all_tools = [web_search] + kit.tools
+all_tools = kit.tools  # includes web_search + extension tools
 bound_llm = llm.bind_tools(all_tools)
 
 

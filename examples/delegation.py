@@ -1,7 +1,7 @@
-# ruff: noqa: N801, N805
+# ruff: noqa: N805
 """Agent delegation — delegate tasks to specialist subagents.
 
-AgentExtension enables a lead agent to delegate work to specialist
+AgentsExtension enables a lead agent to delegate work to specialist
 subagents at runtime. The lead decides when and to whom to delegate
 via the Agent tool. Subagents run in isolation (scoped context)
 and return concise results.
@@ -29,7 +29,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from langchain_agentkit import AgentExtension, TasksExtension, agent
+from langchain_agentkit import Agent, AgentsExtension, TasksExtension
 
 # ---------------------------------------------------------------------------
 # 1. Define specialist agents
@@ -48,7 +48,7 @@ def calculator(expression: str) -> str:
     return str(eval(expression))  # noqa: S307
 
 
-class researcher(agent):
+class Researcher(Agent):
     """Specialist: information gathering."""
 
     model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
@@ -61,7 +61,7 @@ class researcher(agent):
         return {"messages": [await llm.bind_tools(tools).ainvoke(messages)]}
 
 
-class analyst(agent):
+class AnalystAgent(Agent):
     """Specialist: data analysis and calculations."""
 
     model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
@@ -74,18 +74,22 @@ class analyst(agent):
         return {"messages": [await llm.bind_tools(tools).ainvoke(messages)]}
 
 
+# Build specialist StateGraphs for use as delegation targets
+researcher = Researcher().graph()
+analyst = AnalystAgent().graph()
+
 # ---------------------------------------------------------------------------
 # 2. Create the lead agent with delegation
 # ---------------------------------------------------------------------------
 
 
-class lead(agent):
+class Lead(Agent):
     """Lead agent that delegates to specialists."""
 
     model = ChatOpenAI(model="gpt-4o", temperature=0)
     extensions = [
         TasksExtension(),
-        AgentExtension(
+        AgentsExtension(
             agents=[researcher, analyst],
             ephemeral=True,  # enable dynamic agents
             delegation_timeout=60.0,  # 60s max per delegation
@@ -109,7 +113,7 @@ if __name__ == "__main__":
     import asyncio
 
     async def main():
-        graph = lead.compile()
+        graph = Lead().compile()
         result = await graph.ainvoke(
             {
                 "messages": [

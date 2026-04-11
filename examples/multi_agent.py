@@ -1,7 +1,7 @@
-# ruff: noqa: N801, N805
-"""Multi-agent graph — compose multiple agent subclasses.
+# ruff: noqa: N805
+"""Multi-agent graph — compose multiple Agent subclasses.
 
-Each agent metaclass produces a self-contained ReAct subgraph with its own
+Each Agent subclass produces a self-contained ReAct subgraph with its own
 tools and extensions. Compose them in a parent graph for multi-agent workflows.
 """
 
@@ -10,7 +10,7 @@ from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.graph import END, START, StateGraph
 
-from langchain_agentkit import AgentKit, SkillsExtension, agent
+from langchain_agentkit import Agent, AgentKit, SkillsExtension
 
 
 @tool
@@ -31,7 +31,7 @@ def calculate(expression: str) -> str:
     return str(eval(expression))  # noqa: S307
 
 
-class researcher(agent):
+class Researcher(Agent):
     model = ChatOpenAI(model="gpt-4o")
     tools = [web_search]
     extensions = [SkillsExtension(skills="skills/")]
@@ -43,7 +43,7 @@ class researcher(agent):
         return {"messages": [response]}
 
 
-class analyst(agent):
+class Analyst(Agent):
     model = ChatOpenAI(model="gpt-4o")
     tools = [sql_query, calculate]
     prompt = "You are a data analyst."
@@ -55,11 +55,11 @@ class analyst(agent):
 
 
 # Compose in a parent graph — use AgentKit to get the combined state schema
-kit = AgentKit([SkillsExtension(skills="skills/")])
+kit = AgentKit(extensions=[SkillsExtension(skills="skills/")])
 
 workflow = StateGraph(kit.state_schema)
-workflow.add_node("researcher", researcher.compile())
-workflow.add_node("analyst", analyst.compile())
+workflow.add_node("researcher", Researcher().compile())
+workflow.add_node("analyst", Analyst().compile())
 
 workflow.add_edge(START, "researcher")
 workflow.add_edge("researcher", "analyst")

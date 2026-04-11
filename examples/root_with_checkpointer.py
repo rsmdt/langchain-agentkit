@@ -1,10 +1,10 @@
+# ruff: noqa: N805
 """Root graph with checkpointer — enables interrupt() for multi-turn conversations.
 
-When an agent metaclass is the root graph (no parent), pass a checkpointer
-to .compile() so interrupt() can persist state between turns.
+When an Agent is the root graph (no parent), pass a checkpointer
+to Agent.compile() so interrupt() can persist state between turns.
 """
 
-# ruff: noqa: N801, N805
 import asyncio
 
 from langchain_core.messages import HumanMessage
@@ -12,10 +12,10 @@ from langchain_openai import ChatOpenAI
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.types import Command, interrupt
 
-from langchain_agentkit import agent
+from langchain_agentkit import Agent
 
 
-class advisor(agent):
+class Advisor(Agent):
     model = ChatOpenAI(model="gpt-4o")
 
     async def handler(state, *, llm):
@@ -32,8 +32,8 @@ class advisor(agent):
 
 
 async def main():
-    # Compile with a checkpointer for interrupt() support
-    graph = advisor.compile(checkpointer=InMemorySaver())
+    # Agent.compile() returns a compiled runnable; pass checkpointer for interrupt() support
+    graph = Advisor().compile(checkpointer=InMemorySaver())
     config = {"configurable": {"thread_id": "session-1"}}
 
     # Turn 1: agent responds, hits interrupt() — graph pauses

@@ -1,4 +1,4 @@
-# ruff: noqa: N801, N805
+# ruff: noqa: N805
 """Filesystem — give agents file tools on the real OS filesystem.
 
 FilesystemExtension provides Read, Write, Edit, Glob, Grep, LS, and
@@ -16,7 +16,7 @@ from pathlib import Path
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from langchain_agentkit import FilesystemExtension, agent
+from langchain_agentkit import Agent, FilesystemExtension
 
 # --- Create a workspace with pre-populated data ---
 
@@ -51,7 +51,7 @@ for quarter in range(1, 4):
 # --- Create an agent with filesystem access ---
 
 
-class analyst(agent):
+class FileAnalyst(Agent):
     model = ChatOpenAI(model="gpt-4o")
     extensions = [FilesystemExtension(root=workspace)]
     prompt = """\
@@ -66,7 +66,7 @@ and Write to save your analysis results."""
 
 
 async def main():
-    graph = analyst.compile()
+    graph = FileAnalyst().compile()
 
     # The agent can discover and read all pre-loaded files
     result = await graph.ainvoke(

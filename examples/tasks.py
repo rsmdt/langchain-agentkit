@@ -1,4 +1,4 @@
-# ruff: noqa: N801, N805
+# ruff: noqa: N805
 """Task management — break complex objectives into tracked steps.
 
 TasksExtension provides TaskCreate, TaskUpdate, TaskList, TaskGet, and
@@ -14,10 +14,10 @@ import asyncio
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from langchain_agentkit import TasksExtension, agent
+from langchain_agentkit import Agent, TasksExtension
 
 
-class planner(agent):
+class Planner(Agent):
     model = ChatOpenAI(model="gpt-4o")
     extensions = [TasksExtension()]
     prompt = """\
@@ -34,7 +34,7 @@ You are a project planner. When given a complex objective:
 
 
 async def main():
-    graph = planner.compile()
+    graph = Planner().compile()
     result = await graph.ainvoke(
         {
             "messages": [

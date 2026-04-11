@@ -1,4 +1,4 @@
-# ruff: noqa: N801, N805
+# ruff: noqa: N805
 """Agent teams — coordinate concurrent specialists.
 
 TeamExtension enables a lead agent to spawn a team of concurrent
@@ -38,7 +38,7 @@ from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from langchain_agentkit import TasksExtension, TeamExtension, agent
+from langchain_agentkit import Agent, TasksExtension, TeamExtension
 
 # ---------------------------------------------------------------------------
 # 1. Define worker agents
@@ -51,7 +51,7 @@ def web_search(query: str) -> str:
     return f"[Search results for '{query}']: Token bucket is the standard approach..."
 
 
-class researcher(agent):
+class ResearchWorker(Agent):
     """Worker: researches topics and reports findings."""
 
     model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
@@ -67,7 +67,7 @@ class researcher(agent):
         return {"messages": [await llm.bind_tools(tools).ainvoke(messages)]}
 
 
-class coder(agent):
+class Coder(Agent):
     """Worker: writes code and implementation plans."""
 
     model = ChatOpenAI(model="gpt-4o-mini", temperature=0)
@@ -82,19 +82,23 @@ class coder(agent):
         return {"messages": [await llm.ainvoke(messages)]}
 
 
+# Build worker StateGraphs for use as team members
+research_worker = ResearchWorker().graph()
+coder = Coder().graph()
+
 # ---------------------------------------------------------------------------
 # 2. Create the lead agent with team coordination
 # ---------------------------------------------------------------------------
 
 
-class lead(agent):
+class Lead(Agent):
     """Team lead that coordinates researcher and coder."""
 
     model = ChatOpenAI(model="gpt-4o", temperature=0)
     extensions = [
         TasksExtension(),
         TeamExtension(
-            agents=[researcher, coder],
+            agents=[research_worker, coder],
             max_team_size=5,
             router_timeout=30.0,
         ),
@@ -123,7 +127,7 @@ if __name__ == "__main__":
     import asyncio
 
     async def main():
-        graph = lead.compile()
+        graph = Lead().compile()
         result = await graph.ainvoke(
             {
                 "messages": [

@@ -1,15 +1,16 @@
-# ruff: noqa: N801, N805
+# ruff: noqa: N805
 """Standalone agent — the simplest way to use langchain-agentkit.
 
-Declare a class with the agent metaclass and get a complete ReAct agent
-with extension support. The result is a StateGraph — call .compile() to run it.
+Declare a class with the Agent base class and get a complete ReAct agent
+with extension support. Agent.graph() returns an uncompiled StateGraph
+(for composition), Agent.compile() returns a compiled runnable.
 """
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 
-from langchain_agentkit import SkillsExtension, agent
+from langchain_agentkit import Agent, SkillsExtension
 
 
 @tool
@@ -18,7 +19,7 @@ def web_search(query: str) -> str:
     return f"Results for: {query}"
 
 
-class researcher(agent):
+class Researcher(Agent):
     model = ChatOpenAI(model="gpt-4o")
     tools = [web_search]
     extensions = [SkillsExtension(skills="skills/")]
@@ -30,8 +31,8 @@ class researcher(agent):
         return {"messages": [response]}
 
 
-# researcher is a StateGraph — compile and invoke
+# Researcher().compile() returns a compiled runnable directly
 if __name__ == "__main__":
-    graph = researcher.compile()
+    graph = Researcher().compile()
     result = graph.invoke({"messages": [HumanMessage("Size the B2B SaaS market in Europe")]})
     print(result["messages"][-1].content)

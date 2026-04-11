@@ -1,3 +1,4 @@
+# ruff: noqa: N805
 """Custom state type — use a different state shape via handler annotation.
 
 Annotate the handler's first parameter to use a custom TypedDict as the
@@ -5,7 +6,6 @@ graph's state type. Custom fields survive graph execution. Without an
 annotation, the state schema is composed from extensions automatically.
 """
 
-# ruff: noqa: N801, N805
 import asyncio
 from typing import Annotated, Any, TypedDict
 
@@ -14,7 +14,7 @@ from langchain_core.tools import tool
 from langchain_openai import ChatOpenAI
 from langgraph.graph.message import add_messages
 
-from langchain_agentkit import agent
+from langchain_agentkit import Agent
 
 # --- Define a custom state with domain-specific fields ---
 
@@ -37,7 +37,7 @@ def save_component(name: str, content: str) -> str:
 # --- Declare an agent with custom state ---
 
 
-class drafter(agent):
+class Drafter(Agent):
     model = ChatOpenAI(model="gpt-4o")
     tools = [save_component]
 
@@ -48,7 +48,7 @@ class drafter(agent):
 
 
 async def main():
-    graph = drafter.compile()
+    graph = Drafter().compile()
     result = await graph.ainvoke(
         {
             "messages": [HumanMessage("Draft the introduction")],
