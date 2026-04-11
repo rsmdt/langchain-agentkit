@@ -579,15 +579,12 @@ class TestCompileWithProxyTasks:
 
     def test_replaces_task_tools_with_proxies(self):
         """Predefined agent built with TasksExtension gets proxy tools instead."""
-        # Build a real agent graph (uncompiled) that has TasksExtension
-        from langchain_agentkit._graph_builder import build_graph
         from langchain_agentkit.agent_kit import AgentKit
         from langchain_agentkit.extensions.tasks import TasksExtension
         from langchain_agentkit.extensions.teams.bus import TeamMessageBus
         from langchain_agentkit.extensions.teams.tools import _compile_with_proxy_tasks
 
         tasks_ext = TasksExtension()
-        kit = AgentKit(extensions=[tasks_ext], prompt="You are a tester.")
 
         async def _handler(state, *, llm, prompt, **kw):
             from langchain_core.messages import AIMessage
@@ -599,13 +596,10 @@ class TestCompileWithProxyTasks:
         llm_mock.bind_tools = MagicMock(return_value=llm_mock)
         llm_mock.ainvoke = AsyncMock()
 
-        graph = build_graph(
-            name="test-agent",
-            handler=_handler,
-            llm=llm_mock,
-            user_tools=[],
-            kit=kit,
+        kit = AgentKit(
+            extensions=[tasks_ext], prompt="You are a tester.", model=llm_mock, name="test-agent"
         )
+        graph = kit.compile(_handler)
         # Attach agentkit metadata (as agent metaclass does)
         graph._agentkit_handler = _handler
         graph._agentkit_llm = llm_mock
@@ -647,14 +641,12 @@ class TestCompileWithProxyTasks:
         """User tools that aren't task tools are preserved in the rebuild."""
         from langchain_core.tools import StructuredTool
 
-        from langchain_agentkit._graph_builder import build_graph
         from langchain_agentkit.agent_kit import AgentKit
         from langchain_agentkit.extensions.tasks import TasksExtension
         from langchain_agentkit.extensions.teams.bus import TeamMessageBus
         from langchain_agentkit.extensions.teams.tools import _compile_with_proxy_tasks
 
         tasks_ext = TasksExtension()
-        kit = AgentKit(extensions=[tasks_ext], prompt="test")
 
         def _my_custom_tool(query: str) -> str:
             return "result"
@@ -673,13 +665,14 @@ class TestCompileWithProxyTasks:
         llm_mock = MagicMock()
         llm_mock.bind_tools = MagicMock(return_value=llm_mock)
 
-        graph = build_graph(
+        kit = AgentKit(
+            extensions=[tasks_ext],
+            prompt="test",
+            tools=[custom_tool],
+            model=llm_mock,
             name="agent-with-tools",
-            handler=_handler,
-            llm=llm_mock,
-            user_tools=[custom_tool],
-            kit=kit,
         )
+        graph = kit.compile(_handler)
         graph._agentkit_handler = _handler
         graph._agentkit_llm = llm_mock
         graph._agentkit_user_tools = [custom_tool]

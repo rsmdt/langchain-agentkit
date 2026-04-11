@@ -1,4 +1,4 @@
-"""Tests for AgentLike integration into AgentExtension and TeamExtension."""
+"""Tests for AgentLike integration into AgentsExtension and TeamExtension."""
 
 from __future__ import annotations
 
@@ -96,34 +96,34 @@ class TestValidateAgentList:
             validate_agent_list([])
 
 
-# --- AgentExtension with AgentLike ---
+# --- AgentsExtension with AgentLike ---
 
 
-class TestAgentExtensionAcceptsAgentLike:
-    """AgentExtension should accept AgentLike objects in its agents list."""
+class TestAgentsExtensionAcceptsAgentLike:
+    """AgentsExtension should accept AgentLike objects in its agents list."""
 
     def test_accepts_raw_graphs(self):
-        from langchain_agentkit.extensions.agents import AgentExtension
+        from langchain_agentkit.extensions.agents import AgentsExtension
 
         agents = [_make_mock_agent("researcher", "Research specialist")]
-        ext = AgentExtension(agents=agents)
+        ext = AgentsExtension(agents=agents)
 
         assert ext._agents_by_name["researcher"] is agents[0]
 
     def test_accepts_agent_like(self):
-        from langchain_agentkit.extensions.agents import AgentExtension
+        from langchain_agentkit.extensions.agents import AgentsExtension
 
         agent_like = _make_agent_like("researcher", "Research specialist")
-        ext = AgentExtension(agents=[agent_like])
+        ext = AgentsExtension(agents=[agent_like])
 
         assert "researcher" in ext._agents_by_name
 
     def test_accepts_mixed(self):
-        from langchain_agentkit.extensions.agents import AgentExtension
+        from langchain_agentkit.extensions.agents import AgentsExtension
 
         raw = _make_mock_agent("raw_agent", "Raw")
         like = _make_agent_like("like_agent", "Like")
-        ext = AgentExtension(agents=[raw, like])
+        ext = AgentsExtension(agents=[raw, like])
 
         assert "raw_agent" in ext._agents_by_name
         assert "like_agent" in ext._agents_by_name

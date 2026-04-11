@@ -65,9 +65,10 @@ def _build_agent(extensions_list):
     from langgraph.prebuilt import ToolNode
 
     from langchain_agentkit import AgentKit
+    from langchain_agentkit.agent_kit import run_extension_setup
 
-    kit = AgentKit(extensions_list)
-    asyncio.run(kit.asetup())
+    kit = AgentKit(extensions=extensions_list)
+    asyncio.run(run_extension_setup(kit))
     state_schema = kit.state_schema
 
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)

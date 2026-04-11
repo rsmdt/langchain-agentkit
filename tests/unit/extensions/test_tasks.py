@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 from langchain_core.tools import BaseTool
 from langgraph.prebuilt import ToolRuntime
 
+from langchain_agentkit.agent_kit import run_extension_setup
 from langchain_agentkit.extensions.tasks import (
     BASE_AGENT_PROMPT,
     TASK_MANAGEMENT_PROMPT,
@@ -258,7 +259,7 @@ class TestConditionalTeamTips:
                 return {"messages": [], "sender": "teammate"}
 
         kit = AgentKit(extensions=[TasksExtension(), TeamExtension(agents=[teammate])])
-        await kit.asetup()
+        await run_extension_setup(kit)
         tasks_ext = next(e for e in kit._extensions if isinstance(e, TasksExtension))
 
         tool_descriptions = [t.description for t in tasks_ext.tools if t.name == "TaskCreate"]
@@ -275,7 +276,7 @@ class TestConditionalTeamTips:
                 return {"messages": [], "sender": "teammate"}
 
         kit = AgentKit(extensions=[TasksExtension(), TeamExtension(agents=[teammate])])
-        await kit.asetup()
+        await run_extension_setup(kit)
         tasks_ext = next(e for e in kit._extensions if isinstance(e, TasksExtension))
 
         tool_descriptions = [t.description for t in tasks_ext.tools if t.name == "TaskCreate"]

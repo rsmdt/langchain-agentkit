@@ -33,13 +33,13 @@ class TestTasksState:
 
 class TestAgentKitStateSchema:
     def test_no_extensions_returns_base(self):
-        kit = AgentKit([])
+        kit = AgentKit(extensions=[])
 
         assert kit.state_schema is AgentKitState
 
     def test_skills_only_returns_base(self):
         kit = AgentKit(
-            [
+            extensions=[
                 SkillsExtension(
                     skills=[
                         SkillConfig(name="test", description="test", prompt="test"),
@@ -55,7 +55,7 @@ class TestAgentKitStateSchema:
         assert "tasks" not in annotations
 
     def test_tasks_adds_tasks_key(self):
-        kit = AgentKit([TasksExtension()])
+        kit = AgentKit(extensions=[TasksExtension()])
 
         schema = kit.state_schema
         annotations = typing.get_type_hints(schema, include_extras=True)
@@ -64,7 +64,7 @@ class TestAgentKitStateSchema:
         assert "tasks" in annotations
 
     def test_tasks_reducer_preserved(self):
-        kit = AgentKit([TasksExtension()])
+        kit = AgentKit(extensions=[TasksExtension()])
 
         schema = kit.state_schema
         hints = typing.get_type_hints(schema, include_extras=True)
@@ -72,7 +72,7 @@ class TestAgentKitStateSchema:
         assert hasattr(hints["tasks"], "__metadata__")
 
     def test_messages_reducer_preserved(self):
-        kit = AgentKit([TasksExtension()])
+        kit = AgentKit(extensions=[TasksExtension()])
 
         schema = kit.state_schema
         hints = typing.get_type_hints(schema, include_extras=True)
@@ -81,7 +81,7 @@ class TestAgentKitStateSchema:
 
     def test_multiple_extensions_compose(self):
         kit = AgentKit(
-            [
+            extensions=[
                 SkillsExtension(
                     skills=[
                         SkillConfig(name="test", description="test", prompt="test"),
@@ -99,7 +99,7 @@ class TestAgentKitStateSchema:
         assert "tasks" in annotations
 
     def test_duplicate_extensions_deduplicates(self):
-        kit = AgentKit([TasksExtension(), TasksExtension()])
+        kit = AgentKit(extensions=[TasksExtension(), TasksExtension()])
 
         schema = kit.state_schema
         annotations = typing.get_type_hints(schema, include_extras=True)
@@ -108,7 +108,7 @@ class TestAgentKitStateSchema:
         assert "tasks" in annotations
 
     def test_filesystem_only_returns_base(self):
-        kit = AgentKit([FilesystemExtension()])
+        kit = AgentKit(extensions=[FilesystemExtension()])
 
         schema = kit.state_schema
 

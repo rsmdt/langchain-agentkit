@@ -91,12 +91,14 @@ def _build_ask_user_agent():
     import asyncio
 
     kit = AgentKit(
-        [
+        extensions=[
             HITLExtension(tools=True),
             FilesystemExtension(backend=OSBackend(root=tmpdir)),
         ]
     )
-    asyncio.run(kit.asetup())
+    from langchain_agentkit.agent_kit import run_extension_setup
+
+    asyncio.run(run_extension_setup(kit))
 
     llm = _get_llm()
 

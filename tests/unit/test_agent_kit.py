@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from langchain_core.tools import StructuredTool
 
-from langchain_agentkit.agent_kit import AgentKit
+from langchain_agentkit.agent_kit import AgentKit, run_extension_setup
 
 if TYPE_CHECKING:
     from langchain_agentkit.extensions import Extension
@@ -65,7 +65,7 @@ class TestAgentKitTools:
         mw1 = StubExtension(tools=[tool_a])
         mw2 = StubExtension(tools=[tool_b])
 
-        kit = AgentKit([mw1, mw2])
+        kit = AgentKit(extensions=[mw1, mw2])
 
         assert len(kit.tools) == 2
         assert kit.tools[0].name == "tool_a"
@@ -77,13 +77,13 @@ class TestAgentKitTools:
         mw1 = StubExtension(tools=[tool_first])
         mw2 = StubExtension(tools=[tool_second])
 
-        kit = AgentKit([mw1, mw2])
+        kit = AgentKit(extensions=[mw1, mw2])
 
         assert len(kit.tools) == 1
         assert kit.tools[0].description == "first"
 
     def test_tools_cached_same_identity(self):
-        kit = AgentKit([StubExtension(tools=[_make_tool("t")])])
+        kit = AgentKit(extensions=[StubExtension(tools=[_make_tool("t")])])
 
         first = kit.tools
         second = kit.tools
@@ -91,12 +91,12 @@ class TestAgentKitTools:
         assert first is second
 
     def test_empty_extensions_list_returns_empty_tools(self):
-        kit = AgentKit([])
+        kit = AgentKit(extensions=[])
 
         assert kit.tools == []
 
     def test_extensions_with_no_tools_returns_empty(self):
-        kit = AgentKit([StubExtension()])
+        kit = AgentKit(extensions=[StubExtension()])
 
         assert kit.tools == []
 
@@ -110,7 +110,7 @@ class TestAgentKitTools:
         mw1 = StubExtension(tools=[tool_a, tool_b_first])
         mw2 = StubExtension(tools=[tool_b_second, tool_c])
 
-        kit = AgentKit([mw1, mw2])
+        kit = AgentKit(extensions=[mw1, mw2])
 
         assert len(kit.tools) == 3
         names = [t.name for t in kit.tools]
@@ -123,7 +123,7 @@ class TestAgentKitPrompt:
         mw1 = StubExtension(prompt_text="Section A")
         mw2 = StubExtension(prompt_text="Section B")
 
-        kit = AgentKit([mw1, mw2])
+        kit = AgentKit(extensions=[mw1, mw2])
         result = kit.prompt({}, {})
 
         assert result == "Section A\n\nSection B"
@@ -132,13 +132,13 @@ class TestAgentKitPrompt:
         mw1 = StubExtension(prompt_text="Only section")
         mw2 = StubExtension(prompt_text=None)
 
-        kit = AgentKit([mw1, mw2])
+        kit = AgentKit(extensions=[mw1, mw2])
         result = kit.prompt({}, {})
 
         assert result == "Only section"
 
     def test_empty_extensions_returns_empty_string(self):
-        kit = AgentKit([])
+        kit = AgentKit(extensions=[])
         result = kit.prompt({}, {})
 
         assert result == ""
@@ -146,13 +146,13 @@ class TestAgentKitPrompt:
     def test_template_prepended_before_extensions_sections(self):
         mw = StubExtension(prompt_text="extensions section")
 
-        kit = AgentKit([mw], prompt="System template")
+        kit = AgentKit(extensions=[mw], prompt="System template")
         result = kit.prompt({}, {})
 
         assert result == "System template\n\nextensions section"
 
     def test_template_from_inline_string(self):
-        kit = AgentKit([], prompt="Inline prompt")
+        kit = AgentKit(extensions=[], prompt="Inline prompt")
         result = kit.prompt({}, {})
 
         assert result == "Inline prompt"
@@ -160,7 +160,7 @@ class TestAgentKitPrompt:
     def test_template_from_file_path(self):
         fixture_path = FIXTURES / "prompts" / "nodes" / "researcher.md"
 
-        kit = AgentKit([], prompt=fixture_path)
+        kit = AgentKit(extensions=[], prompt=fixture_path)
         result = kit.prompt({}, {})
 
         assert "Research Assistant" in result
@@ -169,7 +169,7 @@ class TestAgentKitPrompt:
         researcher = FIXTURES / "prompts" / "nodes" / "researcher.md"
         analyst = FIXTURES / "prompts" / "nodes" / "analyst.md"
 
-        kit = AgentKit([], prompt=[researcher, analyst])
+        kit = AgentKit(extensions=[], prompt=[researcher, analyst])
         result = kit.prompt({}, {})
 
         assert "Research Assistant" in result
@@ -177,14 +177,14 @@ class TestAgentKitPrompt:
         assert "\n\n" in result
 
     def test_template_list_with_inline_strings(self):
-        kit = AgentKit([], prompt=["Part one", "Part two"])
+        kit = AgentKit(extensions=[], prompt=["Part one", "Part two"])
         result = kit.prompt({}, {})
 
         assert result == "Part one\n\nPart two"
 
     def test_nonexistent_path_treated_as_inline_string(self):
         """A string that looks like a path but doesn't exist is treated as inline."""
-        kit = AgentKit([], prompt="nonexistent/path/prompt.md")
+        kit = AgentKit(extensions=[], prompt="nonexistent/path/prompt.md")
         result = kit.prompt({}, {})
 
         assert result == "nonexistent/path/prompt.md"
@@ -197,7 +197,7 @@ class TestAgentKitIntegration:
         mw1 = StubExtension(tools=[tool_a], prompt_text="Use tool_a for X")
         mw2 = StubExtension(tools=[tool_b], prompt_text="Use tool_b for Y")
 
-        kit = AgentKit([mw1, mw2], prompt="You are an agent.")
+        kit = AgentKit(extensions=[mw1, mw2], prompt="You are an agent.")
 
         assert len(kit.tools) == 2
         assert kit.tools[0].name == "tool_a"
@@ -238,7 +238,7 @@ class TestDictPromptReturn:
 
     def test_str_return_collected_in_prompt(self):
         mw = StubExtension(prompt_text="Hello")
-        kit = AgentKit([mw])
+        kit = AgentKit(extensions=[mw])
 
         result = kit.prompt({}, {})
 
@@ -246,7 +246,7 @@ class TestDictPromptReturn:
 
     def test_prompt_contribution_prompt_field_collected(self):
         mw = DictPromptExtension(prompt_text="Guidance")
-        kit = AgentKit([mw])
+        kit = AgentKit(extensions=[mw])
 
         result = kit.prompt({}, {})
 
@@ -254,7 +254,7 @@ class TestDictPromptReturn:
 
     def test_prompt_contribution_empty_prompt_skipped(self):
         mw = DictPromptExtension(prompt_text="", reminder="something")
-        kit = AgentKit([mw])
+        kit = AgentKit(extensions=[mw])
 
         result = kit.prompt({}, {})
 
@@ -262,7 +262,7 @@ class TestDictPromptReturn:
 
     def test_prompt_contribution_reminder_not_in_prompt(self):
         mw = DictPromptExtension(prompt_text="", reminder="Ephemeral")
-        kit = AgentKit([mw])
+        kit = AgentKit(extensions=[mw])
 
         result = kit.prompt({}, {})
 
@@ -270,7 +270,7 @@ class TestDictPromptReturn:
 
     def test_system_reminder_collects_reminder_field(self):
         mw = DictPromptExtension(reminder="Status: 3 pending")
-        kit = AgentKit([mw])
+        kit = AgentKit(extensions=[mw])
 
         result = kit.system_reminder({}, {})
 
@@ -278,7 +278,7 @@ class TestDictPromptReturn:
 
     def test_system_reminder_empty_when_no_reminders(self):
         mw = StubExtension(prompt_text="Just a prompt")
-        kit = AgentKit([mw])
+        kit = AgentKit(extensions=[mw])
 
         result = kit.system_reminder({}, {})
 
@@ -287,7 +287,7 @@ class TestDictPromptReturn:
     def test_system_reminder_joins_multiple_reminders(self):
         mw1 = DictPromptExtension(reminder="Reminder A")
         mw2 = DictPromptExtension(reminder="Reminder B")
-        kit = AgentKit([mw1, mw2])
+        kit = AgentKit(extensions=[mw1, mw2])
 
         result = kit.system_reminder({}, {})
 
@@ -296,7 +296,7 @@ class TestDictPromptReturn:
     def test_mixed_str_and_prompt_contribution(self):
         mw1 = StubExtension(prompt_text="String section")
         mw2 = DictPromptExtension(prompt_text="Contribution section")
-        kit = AgentKit([mw1, mw2])
+        kit = AgentKit(extensions=[mw1, mw2])
 
         result = kit.prompt({}, {})
 
@@ -305,7 +305,7 @@ class TestDictPromptReturn:
 
     def test_collect_contributions_single_pass(self):
         mw = DictPromptExtension(prompt_text="P", reminder="R")
-        kit = AgentKit([mw])
+        kit = AgentKit(extensions=[mw])
 
         prompt_parts, reminder_parts = kit._collect_contributions({}, {})
 
@@ -315,7 +315,7 @@ class TestDictPromptReturn:
     def test_none_return_handled(self):
         mw1 = NoneExtension()
         mw2 = StubExtension(prompt_text="Valid")
-        kit = AgentKit([mw1, mw2])
+        kit = AgentKit(extensions=[mw1, mw2])
 
         result = kit.prompt({}, {})
 
@@ -394,7 +394,7 @@ class TestSetupLifecycle:
 
         ext = Recorder()
         kit = AgentKit(extensions=[ext])
-        await kit.asetup()
+        await run_extension_setup(kit)
 
         assert ext in received
         assert len(received) == len(kit._extensions)
@@ -409,7 +409,7 @@ class TestSetupLifecycle:
                 captured["prompt"] = prompt
 
         kit = AgentKit(extensions=[PromptCapture()], prompt="Base prompt.")
-        await kit.asetup()
+        await run_extension_setup(kit)
 
         assert captured["prompt"] == "Base prompt."
 
@@ -425,7 +425,7 @@ class TestSetupLifecycle:
                 # prompt not declared — should not be injected
 
         kit = AgentKit(extensions=[MinimalSetup()], prompt="Hello")
-        await kit.asetup()
+        await run_extension_setup(kit)
 
         assert "extensions" in seen
         # MinimalSetup's signature only declares `extensions` — no other kwargs
@@ -441,7 +441,7 @@ class TestSetupLifecycle:
                 captured.update(kwargs)
 
         kit = AgentKit(extensions=[VarKwargs()], prompt="Hello")
-        await kit.asetup()
+        await run_extension_setup(kit)
 
         assert "extensions" in captured
         assert "prompt" in captured
@@ -456,7 +456,7 @@ class TestSetupLifecycle:
 
         # Should not raise
         kit = AgentKit(extensions=[Plain()])
-        await kit.asetup()
+        await run_extension_setup(kit)
 
     def test_resolve_model_via_extension(self):
         """kit.resolve_model() should find a model_resolver on any extension."""
@@ -474,7 +474,7 @@ class TestSetupLifecycle:
 
         kit = AgentKit(extensions=[])
 
-        with pytest.raises(ValueError, match="no extension provides a model_resolver"):
+        with pytest.raises(ValueError, match="no model_resolver is configured"):
             kit.resolve_model("gpt-4o")
 
     def test_resolve_model_passes_through_non_string(self):
@@ -484,3 +484,100 @@ class TestSetupLifecycle:
         obj = MagicMock()
 
         assert kit.resolve_model(obj) is obj
+
+    def test_model_resolver_fallback_chain_resolver_first(self):
+        """Kit-level model_resolver takes priority over extension resolver."""
+        from langchain_agentkit.extension import Extension
+
+        class ResolverExt(Extension):
+            model_resolver = staticmethod(lambda name: f"ext:{name}")
+
+        kit = AgentKit(
+            extensions=[ResolverExt()],
+            model="gpt-4o",
+            model_resolver=lambda name: f"kit:{name}",
+        )
+
+        assert kit.model == "kit:gpt-4o"
+
+    def test_model_resolver_fallback_to_extension(self):
+        """Falls back to extension resolver when no kit-level resolver."""
+        from langchain_agentkit.extension import Extension
+
+        class ResolverExt(Extension):
+            model_resolver = staticmethod(lambda name: f"ext:{name}")
+
+        kit = AgentKit(extensions=[ResolverExt()], model="gpt-4o")
+
+        assert kit.model == "ext:gpt-4o"
+
+    def test_model_property_non_string(self):
+        """model property returns the raw model when it's not a string."""
+        from unittest.mock import MagicMock
+
+        mock_llm = MagicMock()
+        kit = AgentKit(extensions=[], model=mock_llm)
+
+        assert kit.model is mock_llm
+
+    def test_model_property_none_when_not_set(self):
+        """model property returns None when no model configured."""
+        kit = AgentKit(extensions=[])
+
+        assert kit.model is None
+
+
+class TestAgentKitCompile:
+    """Tests for kit.compile(handler)."""
+
+    def test_compile_returns_state_graph(self):
+        from unittest.mock import MagicMock
+
+        from langgraph.graph import StateGraph
+
+        mock_llm = MagicMock()
+        kit = AgentKit(extensions=[], model=mock_llm)
+
+        async def handler(state, *, llm):
+            from langchain_core.messages import AIMessage
+
+            return {"messages": [AIMessage(content="ok")]}
+
+        graph = kit.compile(handler)
+
+        assert isinstance(graph, StateGraph)
+
+    def test_compile_merges_user_and_extension_tools(self):
+        from unittest.mock import MagicMock
+
+        from langchain_core.tools import StructuredTool
+
+        user_tool = StructuredTool.from_function(
+            func=lambda x: x, name="user_tool", description="user"
+        )
+        ext_tool = StructuredTool.from_function(
+            func=lambda x: x, name="ext_tool", description="ext"
+        )
+
+        class ToolExt:
+            @property
+            def tools(self):
+                return [ext_tool]
+
+            def prompt(self, state, runtime):
+                return None
+
+        mock_llm = MagicMock()
+        kit = AgentKit(extensions=[ToolExt()], tools=[user_tool], model=mock_llm)
+
+        # Both tools should be in kit.tools
+        tool_names = [t.name for t in kit.tools]
+        assert "user_tool" in tool_names
+        assert "ext_tool" in tool_names
+
+    def test_hooks_property_returns_hook_runner(self):
+        from langchain_agentkit.hook_runner import HookRunner
+
+        kit = AgentKit(extensions=[])
+
+        assert isinstance(kit.hooks, HookRunner)

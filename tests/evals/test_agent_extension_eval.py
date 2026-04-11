@@ -1,5 +1,5 @@
 # ruff: noqa: N801, N805
-"""Real-LLM integration evals for AgentExtension delegation pipeline.
+"""Real-LLM integration evals for AgentsExtension delegation pipeline.
 
 Tests exercise the FULL compiled graph flow: lead agent receives a message,
 decides to delegate via the Agent tool, LangGraph's ToolNode executes the
@@ -23,7 +23,7 @@ import pytest
 from langchain_core.messages import HumanMessage
 
 from langchain_agentkit.agent import agent
-from langchain_agentkit.extensions.agents import AgentExtension
+from langchain_agentkit.extensions.agents import AgentsExtension
 
 pytestmark = [
     pytest.mark.eval,
@@ -100,8 +100,8 @@ def _build_greeter():
 # ---------------------------------------------------------------------------
 
 
-def _build_lead_with_extension(mw: AgentExtension):
-    """Build a lead agent that uses AgentExtension to delegate."""
+def _build_lead_with_extension(mw: AgentsExtension):
+    """Build a lead agent that uses AgentsExtension to delegate."""
     _llm = _get_llm()
 
     class lead(agent):
@@ -134,7 +134,7 @@ class TestDelegationFullFlow:
     async def test_delegate_math_to_calculator(self):
         """Lead receives 'What is 2+2?', delegates to calculator, returns '4'."""
         calculator = _build_calculator()
-        mw = AgentExtension(agents=[calculator])
+        mw = AgentsExtension(agents=[calculator])
         lead = _build_lead_with_extension(mw)
 
         graph = lead.compile()
@@ -146,7 +146,7 @@ class TestDelegationFullFlow:
     async def test_delegate_multiplication(self):
         """Verify delegation works for a different math problem."""
         calculator = _build_calculator()
-        mw = AgentExtension(agents=[calculator])
+        mw = AgentsExtension(agents=[calculator])
         lead = _build_lead_with_extension(mw)
 
         graph = lead.compile()
@@ -168,7 +168,7 @@ class TestMultiAgentDelegation:
         """With calculator+greeter, math goes to calculator."""
         calculator = _build_calculator()
         greeter = _build_greeter()
-        mw = AgentExtension(agents=[calculator, greeter])
+        mw = AgentsExtension(agents=[calculator, greeter])
         lead = _build_lead_with_extension(mw)
 
         graph = lead.compile()
@@ -188,7 +188,7 @@ class TestDynamicDelegation:
     async def test_dynamic_delegation(self):
         """Lead delegates to a dynamic reasoning agent."""
         calculator = _build_calculator()
-        mw = AgentExtension(agents=[calculator], ephemeral=True)
+        mw = AgentsExtension(agents=[calculator], ephemeral=True)
 
         mw.set_parent_llm_getter(_get_llm)
 
@@ -228,7 +228,7 @@ class TestScopedContext:
     async def test_subagent_answers_only_delegated_question(self):
         """Parent has unrelated history; subagent answers only the math question."""
         calculator = _build_calculator()
-        mw = AgentExtension(agents=[calculator])
+        mw = AgentsExtension(agents=[calculator])
         lead = _build_lead_with_extension(mw)
 
         graph = lead.compile()

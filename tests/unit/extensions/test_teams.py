@@ -321,7 +321,7 @@ class TestTeamExtensionDependencies:
         agent_a = _make_mock_agent("researcher")
         team_mw = TeamExtension(agents=[agent_a])
 
-        kit = AgentKit([team_mw])
+        kit = AgentKit(extensions=[team_mw])
 
         # TasksExtension should be auto-added
         mw_types = [type(mw) for mw in kit._extensions]
@@ -337,7 +337,7 @@ class TestTeamExtensionDependencies:
         tasks_mw = TasksExtension()
 
         # User explicitly adds TasksExtension AND TeamExtension
-        kit = AgentKit([tasks_mw, team_mw])
+        kit = AgentKit(extensions=[tasks_mw, team_mw])
 
         # TasksExtension should NOT be duplicated
         tasks_count = sum(1 for mw in kit._extensions if isinstance(mw, TasksExtension))
@@ -349,7 +349,7 @@ class TestTeamExtensionDependencies:
         agent_a = _make_mock_agent("researcher")
         team_mw = TeamExtension(agents=[agent_a])
 
-        kit = AgentKit([team_mw])
+        kit = AgentKit(extensions=[team_mw])
         schema = kit.state_schema
         annotations = schema.__annotations__
 

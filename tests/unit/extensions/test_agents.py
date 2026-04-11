@@ -1,4 +1,4 @@
-"""Tests for AgentExtension."""
+"""Tests for AgentsExtension."""
 
 import tempfile
 from pathlib import Path
@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from langchain_agentkit.extensions.agents import AgentExtension
+from langchain_agentkit.extensions.agents import AgentsExtension
 
 
 def _make_mock_agent(name: str, description: str = "") -> MagicMock:
@@ -36,27 +36,27 @@ class TestProgrammaticMode:
         agent_a = _make_mock_agent("researcher", "Research specialist")
         agent_b = _make_mock_agent("coder", "Code specialist")
 
-        mw = AgentExtension(agents=[agent_a, agent_b])
+        mw = AgentsExtension(agents=[agent_a, agent_b])
 
         assert mw._agents_by_name["researcher"] is agent_a
         assert mw._agents_by_name["coder"] is agent_b
 
     def test_construction_with_empty_list_raises_value_error(self):
         with pytest.raises(ValueError, match="agents list cannot be empty"):
-            AgentExtension(agents=[])
+            AgentsExtension(agents=[])
 
     def test_construction_with_duplicate_names_raises_value_error(self):
         agent_a = _make_mock_agent("researcher")
         agent_b = _make_mock_agent("researcher")
 
         with pytest.raises(ValueError, match="Duplicate agent names"):
-            AgentExtension(agents=[agent_a, agent_b])
+            AgentsExtension(agents=[agent_a, agent_b])
 
     def test_construction_with_missing_name_raises_value_error(self):
         mock = MagicMock(spec=[])  # No attributes at all
 
         with pytest.raises(ValueError, match="name"):
-            AgentExtension(agents=[mock])
+            AgentsExtension(agents=[mock])
 
 
 class TestDirectoryMode:
@@ -66,7 +66,7 @@ class TestDirectoryMode:
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "researcher.md").write_text(_AGENT_MD)
 
-            mw = AgentExtension(agents=tmpdir)
+            mw = AgentsExtension(agents=tmpdir)
 
             assert "researcher" in mw._agents_by_name
 
@@ -74,7 +74,7 @@ class TestDirectoryMode:
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "researcher.md").write_text(_AGENT_MD)
 
-            mw = AgentExtension(agents=tmpdir)
+            mw = AgentsExtension(agents=tmpdir)
 
             agent = mw._agents_by_name["researcher"]
             assert agent.description == "Research specialist that gathers factual information"
@@ -83,19 +83,19 @@ class TestDirectoryMode:
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "researcher.md").write_text(_AGENT_MD)
 
-            mw = AgentExtension(agents=tmpdir)
+            mw = AgentsExtension(agents=tmpdir)
 
             agent = mw._agents_by_name["researcher"]
             assert "Research Assistant" in agent._agent_config.prompt
 
     def test_empty_directory_returns_empty_roster(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            mw = AgentExtension(agents=tmpdir)
+            mw = AgentsExtension(agents=tmpdir)
 
             assert mw._agents_by_name == {}
 
     def test_nonexistent_directory_returns_empty_roster(self):
-        mw = AgentExtension(agents="/nonexistent/path")
+        mw = AgentsExtension(agents="/nonexistent/path")
 
         assert mw._agents_by_name == {}
 
@@ -103,7 +103,7 @@ class TestDirectoryMode:
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "unnamed.md").write_text("---\ndescription: no name\n---\nbody")
 
-            mw = AgentExtension(agents=tmpdir)
+            mw = AgentsExtension(agents=tmpdir)
 
             assert mw._agents_by_name == {}
 
@@ -114,7 +114,7 @@ class TestDirectoryMode:
             (Path(tmpdir) / "plain.md").write_text("No frontmatter, just text.")
 
             with caplog.at_level(logging.WARNING):
-                mw = AgentExtension(agents=tmpdir)
+                mw = AgentsExtension(agents=tmpdir)
 
             assert mw._agents_by_name == {}
             assert any("skipping" in r.message.lower() for r in caplog.records)
@@ -126,7 +126,7 @@ class TestDirectoryMode:
             (Path(tmpdir) / "bad.md").write_text("---\n: broken: yaml: {{{\n---\nbody")
 
             with caplog.at_level(logging.WARNING):
-                mw = AgentExtension(agents=tmpdir)
+                mw = AgentsExtension(agents=tmpdir)
 
             assert mw._agents_by_name == {}
             assert any("skipping" in r.message.lower() for r in caplog.records)
@@ -148,7 +148,7 @@ class TestDirectoryMode:
             (Path(tmpdir) / "upper.md").write_text("---\nname: UPPER\ndescription: x\n---\nb")
 
             with caplog.at_level(logging.WARNING):
-                mw = AgentExtension(agents=tmpdir)
+                mw = AgentsExtension(agents=tmpdir)
 
             assert list(mw._agents_by_name.keys()) == ["researcher"]
 
@@ -160,7 +160,7 @@ class TestDirectoryMode:
             (Path(tmpdir) / "a.md").write_text("---\nname: dupe\ndescription: first\n---\nbody1")
             (Path(tmpdir) / "b.md").write_text("---\nname: dupe\ndescription: second\n---\nbody2")
 
-            mw = AgentExtension(agents=tmpdir)
+            mw = AgentsExtension(agents=tmpdir)
 
             assert len(mw._agents_by_name) == 1
 
@@ -168,14 +168,14 @@ class TestDirectoryMode:
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "researcher.md").write_text(_AGENT_MD)
 
-            mw = AgentExtension(agents=tmpdir)
+            mw = AgentsExtension(agents=tmpdir)
 
             assert mw._has_config_agents is True
 
     def test_programmatic_mode_has_no_filesystem_flag(self):
         agent = _make_mock_agent("researcher")
 
-        mw = AgentExtension(agents=[agent])
+        mw = AgentsExtension(agents=[agent])
 
         assert mw._has_config_agents is False
 
@@ -190,7 +190,7 @@ class TestBackendMode:
             (Path(tmpdir) / "researcher.md").write_text(_AGENT_MD)
             backend = OSBackend(tmpdir)
 
-            mw = AgentExtension(agents="/", backend=backend)
+            mw = AgentsExtension(agents="/", backend=backend)
             await mw.setup(extensions=[mw])
 
             assert "researcher" in mw._agents_by_name
@@ -202,7 +202,7 @@ class TestBackendMode:
             (Path(tmpdir) / "researcher.md").write_text(_AGENT_MD)
             backend = OSBackend(tmpdir)
 
-            mw = AgentExtension(agents="/", backend=backend)
+            mw = AgentsExtension(agents="/", backend=backend)
             await mw.setup(extensions=[mw])
 
             agent = mw._agents_by_name["researcher"]
@@ -214,7 +214,7 @@ class TestBackendMode:
 
             backend = OSBackend(tmpdir)
 
-            mw = AgentExtension(agents="/", backend=backend)
+            mw = AgentsExtension(agents="/", backend=backend)
             await mw.setup(extensions=[mw])
 
             assert mw._agents_by_name == {}
@@ -227,7 +227,7 @@ class TestBackendMode:
             (Path(tmpdir) / "b.md").write_text("---\nname: dupe\ndescription: second\n---\nbody2")
             backend = OSBackend(tmpdir)
 
-            mw = AgentExtension(agents="/", backend=backend)
+            mw = AgentsExtension(agents="/", backend=backend)
             await mw.setup(extensions=[mw])
 
             assert len(mw._agents_by_name) == 1
@@ -237,7 +237,7 @@ class TestTools:
     def test_tools_returns_single_agent_tool(self):
         agent_a = _make_mock_agent("researcher")
 
-        mw = AgentExtension(agents=[agent_a], ephemeral=False)
+        mw = AgentsExtension(agents=[agent_a], ephemeral=False)
 
         assert len(mw.tools) == 1
         assert mw.tools[0].name == "Agent"
@@ -245,14 +245,14 @@ class TestTools:
     def test_tools_returns_single_agent_tool_with_ephemeral(self):
         agent_a = _make_mock_agent("researcher")
 
-        mw = AgentExtension(agents=[agent_a], ephemeral=True)
+        mw = AgentsExtension(agents=[agent_a], ephemeral=True)
 
         assert len(mw.tools) == 1
         assert mw.tools[0].name == "Agent"
 
     def test_tools_returns_immutable_tuple(self):
         agent_a = _make_mock_agent("researcher")
-        mw = AgentExtension(agents=[agent_a])
+        mw = AgentsExtension(agents=[agent_a])
 
         first = mw.tools
         second = mw.tools
@@ -264,7 +264,7 @@ class TestTools:
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "researcher.md").write_text(_AGENT_MD)
 
-            mw = AgentExtension(agents=tmpdir)
+            mw = AgentsExtension(agents=tmpdir)
 
             assert len(mw.tools) == 1
             assert mw.tools[0].name == "Agent"
@@ -275,7 +275,7 @@ class TestPrompt:
         agent_a = _make_mock_agent("researcher", "Research specialist")
         agent_b = _make_mock_agent("coder", "Code specialist")
 
-        mw = AgentExtension(agents=[agent_a, agent_b])
+        mw = AgentsExtension(agents=[agent_a, agent_b])
         result = mw.prompt({})
 
         assert "researcher" in result
@@ -286,7 +286,7 @@ class TestPrompt:
     def test_prompt_includes_delegation_guidelines(self):
         agent_a = _make_mock_agent("researcher", "Research specialist")
 
-        mw = AgentExtension(agents=[agent_a])
+        mw = AgentsExtension(agents=[agent_a])
         result = mw.prompt({})
 
         assert "Delegation Guidelines" in result
@@ -294,7 +294,7 @@ class TestPrompt:
     def test_prompt_references_agent_tool(self):
         agent_a = _make_mock_agent("researcher")
 
-        mw = AgentExtension(agents=[agent_a])
+        mw = AgentsExtension(agents=[agent_a])
         result = mw.prompt({})
 
         assert "Agent" in result
@@ -302,7 +302,7 @@ class TestPrompt:
     def test_prompt_includes_conciseness_directive_by_default(self):
         agent_a = _make_mock_agent("researcher")
 
-        mw = AgentExtension(agents=[agent_a], default_conciseness=True)
+        mw = AgentsExtension(agents=[agent_a], default_conciseness=True)
         result = mw.prompt({})
 
         assert "concise" in result.lower()
@@ -310,7 +310,7 @@ class TestPrompt:
     def test_prompt_excludes_conciseness_directive_when_disabled(self):
         agent_a = _make_mock_agent("researcher")
 
-        mw = AgentExtension(agents=[agent_a], default_conciseness=False)
+        mw = AgentsExtension(agents=[agent_a], default_conciseness=False)
         result = mw.prompt({})
 
         assert "Synthesize the key findings" not in result
@@ -318,7 +318,7 @@ class TestPrompt:
     def test_prompt_shows_no_description_for_undescribed_agents(self):
         agent_a = _make_mock_agent("researcher", "")
 
-        mw = AgentExtension(agents=[agent_a])
+        mw = AgentsExtension(agents=[agent_a])
         result = mw.prompt({})
 
         assert "researcher" in result
@@ -327,7 +327,7 @@ class TestPrompt:
     def test_prompt_includes_dynamic_section_when_ephemeral(self):
         agent_a = _make_mock_agent("researcher")
 
-        mw = AgentExtension(agents=[agent_a], ephemeral=True)
+        mw = AgentsExtension(agents=[agent_a], ephemeral=True)
         result = mw.prompt({})
 
         assert "custom agent" in result.lower()
@@ -336,7 +336,7 @@ class TestPrompt:
     def test_prompt_excludes_dynamic_section_when_not_ephemeral(self):
         agent_a = _make_mock_agent("researcher")
 
-        mw = AgentExtension(agents=[agent_a], ephemeral=False)
+        mw = AgentsExtension(agents=[agent_a], ephemeral=False)
         result = mw.prompt({})
 
         assert "custom agent" not in result.lower()
@@ -344,7 +344,7 @@ class TestPrompt:
     def test_prompt_returns_string(self):
         agent_a = _make_mock_agent("researcher")
 
-        mw = AgentExtension(agents=[agent_a])
+        mw = AgentsExtension(agents=[agent_a])
         result = mw.prompt({})
 
         assert isinstance(result, str)
@@ -353,7 +353,7 @@ class TestPrompt:
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "researcher.md").write_text(_AGENT_MD)
 
-            mw = AgentExtension(agents=tmpdir)
+            mw = AgentsExtension(agents=tmpdir)
             result = mw.prompt({})
 
             assert "researcher" in result
@@ -364,7 +364,7 @@ class TestNoStateSchema:
     def test_state_schema_is_none(self):
         agent_a = _make_mock_agent("researcher")
 
-        mw = AgentExtension(agents=[agent_a])
+        mw = AgentsExtension(agents=[agent_a])
 
         assert mw.state_schema is None
 
@@ -449,7 +449,7 @@ class TestGetToolsDescription:
 class TestExtensionProtocol:
     def test_satisfies_extension_protocol(self):
         agent_a = _make_mock_agent("researcher")
-        mw = AgentExtension(agents=[agent_a])
+        mw = AgentsExtension(agents=[agent_a])
 
         assert hasattr(mw, "tools")
         assert callable(mw.prompt)
