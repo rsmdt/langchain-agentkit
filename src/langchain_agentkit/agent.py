@@ -1,26 +1,34 @@
-"""Metaclass-driven LangGraph agent node with extension support.
+"""Declarative LangGraph agent with extension support.
 
-Usage::
+**Static** — all properties are class attributes::
 
-    from langchain_agentkit import agent
+    from langchain_agentkit import Agent
 
-    class researcher(agent):
+    class Researcher(Agent):
         model = ChatOpenAI(model="gpt-4o")
-        tools = [web_search]
-        extensions = [SkillsExtension(skills="skills/"), TasksExtension()]
+        extensions = [SkillsExtension(skills="skills/")]
         prompt = "You are a research assistant."
 
         async def handler(state, *, llm, tools, prompt, runtime):
-            bound = llm.bind_tools(tools)
-            response = await bound.ainvoke(state["messages"])
-            return {"messages": [response], "sender": "researcher"}
+            ...
 
-``researcher`` is a ``StateGraph`` — call ``.compile()`` to get a
-runnable graph, optionally passing a checkpointer for ``interrupt()``
-support.
+    graph = Researcher().compile()
 
-The ``model`` attribute accepts either a ``BaseChatModel`` instance or
-a string. Strings are resolved at build time via ``AgentKit.model_resolver``.
+**Dynamic** — properties resolved per-request via sync/async methods::
+
+    class Researcher(Agent):
+        model = ChatOpenAI(model="gpt-4o")
+
+        async def prompt(self):
+            return await self.backend.read(".agentkit/AGENTS.md")
+
+        def extensions(self):
+            return [FilesystemExtension(backend=self.backend)]
+
+        async def handler(state, *, llm, tools, prompt, runtime):
+            ...
+
+    graph = Researcher(backend=DaytonaBackend(sandbox)).compile()
 """
 
 from __future__ import annotations
@@ -30,13 +38,12 @@ import inspect
 import threading
 from typing import TYPE_CHECKING, Any
 
-from langchain_agentkit._graph_builder import _find_wrap_tool_call, build_graph
-from langchain_agentkit.agent_kit import AgentKit
+from langchain_agentkit.agent_kit import AgentKit, run_extension_setup
 from langchain_agentkit.state import AgentKitState
 
 
 def _run_async_setup(kit: AgentKit) -> None:
-    """Run kit.asetup() synchronously, handling running event loops."""
+    """Run extension setup synchronously, handling running event loops."""
     try:
         asyncio.get_running_loop()
         has_loop = True
@@ -49,7 +56,7 @@ def _run_async_setup(kit: AgentKit) -> None:
         def _run() -> None:
             nonlocal exc
             try:
-                asyncio.run(kit.asetup())
+                asyncio.run(run_extension_setup(kit))
             except BaseException as e:
                 exc = e
 
@@ -59,7 +66,7 @@ def _run_async_setup(kit: AgentKit) -> None:
         if exc is not None:
             raise exc
     else:
-        asyncio.run(kit.asetup())
+        asyncio.run(run_extension_setup(kit))
 
 
 if TYPE_CHECKING:
@@ -170,8 +177,8 @@ class _AgentMeta(type):
                 f"class {name}(agent): handler must be callable, got {type(handler).__name__}"
             )
 
-        # Validate handler signature and extract state type
-        state_type = _validate_handler_signature(handler, name, _INJECTABLE_PARAMS, "agent")
+        # Validate handler signature (state type is resolved by kit.state_schema)
+        _validate_handler_signature(handler, name, _INJECTABLE_PARAMS, "agent")
 
         # Extract model (required) — string or BaseChatModel
         model_raw = namespace.get("model")
@@ -211,31 +218,20 @@ class _AgentMeta(type):
         skills: list[str] = namespace.get("skills", [])
         max_turns: int | None = namespace.get("max_turns")
 
-        kit = AgentKit(extensions=list(extensions), prompt=prompt_source)
+        kit = AgentKit(
+            extensions=list(extensions),
+            prompt=prompt_source,
+            tools=list(user_tools),
+            model=model_raw,
+            name=name,
+        )
 
         # Run async setup (discovery, cross-extension wiring)
         _run_async_setup(kit)
 
-        # Resolve model — string goes through model_resolver, object used as-is
-        llm = kit.resolve_model(model_raw)
+        graph = kit.compile(handler)
 
-        # Use composed schema from extensions unless handler explicitly annotates state
-        if state_type is AgentKitState:
-            state_type = kit.state_schema
-
-        wrap_tool_call = _find_wrap_tool_call(extensions, name)
-
-        graph = build_graph(
-            name=name,
-            handler=handler,
-            llm=llm,
-            user_tools=list(user_tools),
-            kit=kit,
-            state_type=state_type,
-            wrap_tool_call=wrap_tool_call,
-        )
-
-        # Attach metadata
+        # Attach metadata (delegation, rebuild ingredients)
         graph.name = name
         graph.description = description
         graph.tools_inherit = tools_inherit
@@ -244,7 +240,7 @@ class _AgentMeta(type):
 
         # Store rebuild ingredients for team proxy tool injection
         graph._agentkit_handler = handler
-        graph._agentkit_llm = llm
+        graph._agentkit_llm = kit.model
         graph._agentkit_user_tools = list(user_tools)
         graph._agentkit_kit = kit
 
@@ -252,62 +248,197 @@ class _AgentMeta(type):
 
 
 class agent(metaclass=_AgentMeta):  # noqa: N801
-    """Base class for extension-aware LangGraph agent nodes.
+    """Legacy metaclass that intercepts class body and returns a StateGraph.
 
-    Declare a subclass to create a ``StateGraph`` with an automatic
-    ReAct loop (handler - ToolNode) and extension-composed tools and
-    prompts. Call ``.compile()`` on the result to get a runnable graph.
+    Prefer the ``Agent`` base class for new code. The metaclass is retained
+    for backward compatibility.
+    """
 
-    Example::
 
-        from langchain_agentkit import agent
+# Properties that are callables but must NOT be called by _resolve()
+# because they take arguments (model_resolver) or are the handler itself.
+_NO_CALL = frozenset({"handler", "model_resolver"})
 
-        class researcher(agent):
+
+def _run_coroutine(coro: Any) -> Any:
+    """Run an awaitable synchronously, handling running event loops.
+
+    Uses the same threading bridge as ``_run_async_setup``.
+    """
+    if not inspect.isawaitable(coro):
+        return coro
+
+    try:
+        asyncio.get_running_loop()
+        has_loop = True
+    except RuntimeError:
+        has_loop = False
+
+    if has_loop:
+        result_box: list[Any] = [None]
+        exc_box: list[BaseException | None] = [None]
+
+        def _run() -> None:
+            try:
+                result_box[0] = asyncio.run(coro)  # type: ignore[arg-type]
+            except BaseException as e:
+                exc_box[0] = e
+
+        t = threading.Thread(target=_run)
+        t.start()
+        t.join()
+        if exc_box[0] is not None:
+            raise exc_box[0]
+        return result_box[0]
+
+    return asyncio.run(coro)  # type: ignore[arg-type]
+
+
+class Agent:
+    """Declarative agent with flexible property resolution.
+
+    Each configurable property (``model``, ``prompt``, ``extensions``,
+    ``tools``, ``model_resolver``) can be declared as:
+
+    1. **Static class attribute** — ``model = ChatOpenAI(model="gpt-4o")``
+    2. **Instance attribute** — set via ``__init__`` kwargs
+    3. **Sync method** — ``def extensions(self): return [...]``
+    4. **Async method** — ``async def prompt(self): return await ...``
+
+    ``handler`` is always a function defined on the class (no ``self``),
+    passed directly to ``kit.compile(handler)``.
+
+    Two entry points:
+
+    - ``compile(**kwargs)`` — returns a compiled, invocable graph.
+      Pass ``checkpointer``, ``recursion_limit``, etc.
+    - ``graph()`` — returns an uncompiled ``StateGraph`` for
+      composition (delegation targets, team members, subgraphs).
+
+    Example — fully static::
+
+        class Researcher(Agent):
             model = ChatOpenAI(model="gpt-4o")
-            tools = [web_search]
-            extensions = [SkillsExtension(skills="skills/"), TasksExtension()]
-            prompt = "You are a research assistant."
+            prompt = "You are a researcher."
+            extensions = [SkillsExtension(skills="skills/")]
 
             async def handler(state, *, llm, tools, prompt, runtime):
-                bound = llm.bind_tools(tools)
-                response = await bound.ainvoke(state["messages"])
-                return {"messages": [response], "sender": "researcher"}
+                ...
 
-        # Model can be a string (resolved via model_resolver):
-        class fast_agent(agent):
-            model = "gpt-4o-mini"
-            extensions = [SkillsExtension(skills="skills/")]
-            ...
+        app = Researcher().compile()
 
-    Class attributes:
+    Example — dynamic backend::
 
-        model: Required. A BaseChatModel instance or a string resolved
-            via ``AgentKit.model_resolver``.
-        tools: Optional. Agent-specific tools (not from extensions).
-        extensions: Optional. Ordered list of Extension instances.
-        prompt: Optional. System prompt template — inline string, file path,
-            or list of either.
-        description: Optional. Used for delegation matching.
-        skills: Optional. List of skill names to preload into the prompt.
-        max_turns: Optional. Maximum agentic turns before the agent stops.
+        class Researcher(Agent):
+            model = ChatOpenAI(model="gpt-4o")
 
-    Handler signature::
+            async def prompt(self):
+                return await self.backend.read(".agentkit/AGENTS.md")
 
-        async def handler(state, *, llm, tools, prompt, runtime): ...
+            def extensions(self):
+                return [FilesystemExtension(backend=self.backend)]
 
-    ``state`` is positional. Everything after ``*`` is keyword-only and
-    injected by name — declare only what you need, in any order.
+            async def handler(state, *, llm, tools, prompt, runtime):
+                ...
 
-    Injectable parameters:
-
-        llm: The raw model, exactly as declared in the ``model`` attribute.
-            Tool binding is the handler's responsibility — call
-            ``llm.bind_tools(tools, ...)`` when you need tool calling. This
-            gives implementers full control over provider-specific kwargs
-            (``strict``, ``parallel_tool_calls``, ``tool_choice``) and
-            enables dynamic tool filtering per step.
-        tools: Complete tool list (user tools + extension tools).
-        prompt: Fully composed system prompt (template + extension sections).
-        runtime: ToolRuntime — unified runtime context. Use
-            ``runtime.config`` for the full ``RunnableConfig``.
+        app = Researcher(backend=DaytonaBackend(sandbox)).compile()
     """
+
+    model: Any = None
+    model_resolver: Any = None
+    prompt: Any = None
+    extensions: Any = []
+    tools: Any = []
+
+    def __init__(self, **kwargs: Any) -> None:
+        for k, v in kwargs.items():
+            setattr(self, k, v)
+
+    async def _resolve(self, name: str) -> Any:
+        """Resolve a property through the static/method/async chain.
+
+        Properties in ``_NO_CALL`` (handler, model_resolver) are returned
+        as-is without calling — they are callables that take arguments.
+        """
+        val = getattr(self, name)
+        if name in _NO_CALL:
+            return val
+        if callable(val):
+            val = val()
+        if inspect.isawaitable(val):
+            val = await val
+        return val
+
+    def graph(self) -> Any:
+        """Resolve all properties and build an uncompiled ``StateGraph``.
+
+        Use this when you need the raw graph for composition — passing
+        to ``AgentExtension(agents=[...])``, ``TeamExtension(agents=[...])``,
+        or embedding as a subgraph in a parent workflow.
+
+        Returns:
+            An uncompiled ``StateGraph``.
+        """
+        model = _run_coroutine(self._resolve("model"))
+        prompt = _run_coroutine(self._resolve("prompt"))
+        extensions = _run_coroutine(self._resolve("extensions"))
+        tools = _run_coroutine(self._resolve("tools"))
+        model_resolver = _run_coroutine(self._resolve("model_resolver"))
+
+        resolved_extensions = list(extensions) if extensions else []
+        resolved_tools = list(tools) if tools else []
+
+        kit = AgentKit(
+            model=model,
+            model_resolver=model_resolver,
+            prompt=prompt,
+            extensions=resolved_extensions,
+            tools=resolved_tools,
+        )
+
+        # Run extension setup (async discovery, cross-extension wiring)
+        _run_coroutine(run_extension_setup(kit))
+
+        # Resolve model string → BaseChatModel once, store back so
+        # kit.compile() doesn't re-resolve through model_resolver.
+        resolved_model = kit.model
+        kit._model_raw = resolved_model
+
+        # Get handler as raw function, not bound method. When defined
+        # in a class body as `async def handler(state, *, llm): ...`,
+        # `self.handler` would be a bound method injecting `self` as
+        # the first arg. We need the unbound function.
+        handler = type(self).__dict__.get("handler")
+        if handler is None:
+            handler = getattr(self, "handler", None)
+        if handler is None:
+            raise ValueError(f"{type(self).__name__} must define a handler function")
+
+        state_graph = kit.compile(handler)
+
+        # Attach metadata for delegation and team proxy rebuilds
+        cls = type(self)
+        state_graph.name = getattr(self, "name", cls.__name__)
+        state_graph.description = getattr(self, "description", "")
+        state_graph.tools_inherit = getattr(self, "tools_inherit", False)
+        state_graph.skills = getattr(self, "skills", [])
+        state_graph.max_turns = getattr(self, "max_turns", None)
+
+        # Store rebuild ingredients for team proxy tool injection
+        state_graph._agentkit_handler = handler
+        state_graph._agentkit_llm = resolved_model
+        state_graph._agentkit_user_tools = resolved_tools
+        state_graph._agentkit_kit = kit
+
+        return state_graph
+
+    def compile(self, **kwargs: Any) -> Any:
+        """Build and compile in one step — returns a runnable graph.
+
+        Shorthand for ``self.graph().compile(**kwargs)``. Pass
+        ``checkpointer``, ``recursion_limit``, etc. as keyword arguments.
+
+        Returns:
+            A compiled, invocable graph.
+        """
+        return self.graph().compile(**kwargs)
