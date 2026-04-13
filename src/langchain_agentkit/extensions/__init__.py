@@ -19,6 +19,9 @@ from langchain_agentkit.extensions.history import (
     HistoryExtension as HistoryExtension,
 )
 from langchain_agentkit.extensions.hitl import HITLExtension as HITLExtension
+from langchain_agentkit.extensions.persistence import (
+    MessagePersistenceExtension as MessagePersistenceExtension,
+)
 from langchain_agentkit.extensions.skills import SkillsExtension as SkillsExtension
 from langchain_agentkit.extensions.tasks import TasksExtension as TasksExtension
 from langchain_agentkit.extensions.teams import TeamExtension as TeamExtension
@@ -38,6 +41,7 @@ __all__ = [
     "FilesystemExtension",
     "HistoryExtension",
     "HITLExtension",
+    "MessagePersistenceExtension",
     "QwantSearchProvider",
     "SkillsExtension",
     "TasksExtension",

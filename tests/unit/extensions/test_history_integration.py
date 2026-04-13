@@ -155,3 +155,86 @@ class TestHistoryExtensionGraphIntegration:
 
         contents = [m.content for m in result["messages"]]
         assert contents == ["msg-9", "done"]
+
+
+class TestHistoryExtensionCheckpointerPersistence:
+    """Verify that truncation is persisted in the checkpointer — not just
+    applied to the LLM input. This is the load-bearing claim in
+    HistoryExtension's docstring: "the checkpointer stays lean"."""
+
+    @pytest.mark.asyncio
+    async def test_checkpointer_state_is_truncated(self):
+        """After one turn, the checkpointed messages list is the kept
+        window + response — dropped messages are gone from state."""
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        class truncating_agent(agent):
+            model = _make_llm()
+            extensions = [HistoryExtension(strategy="count", max_messages=3)]
+
+            async def handler(state, *, llm):
+                return {
+                    "messages": [AIMessage(content="reply-1")],
+                    "sender": "truncating_agent",
+                }
+
+        compiled = truncating_agent.compile(checkpointer=InMemorySaver())
+        config = {"configurable": {"thread_id": "t1"}}
+        messages = [HumanMessage(content=f"msg-{i}") for i in range(10)]
+        await compiled.ainvoke({"messages": messages}, config=config)
+
+        persisted = compiled.get_state(config).values["messages"]
+        contents = [m.content for m in persisted]
+
+        # Only last 3 + response survive in the checkpointer
+        assert contents == ["msg-7", "msg-8", "msg-9", "reply-1"]
+        assert "msg-0" not in contents
+        assert "msg-6" not in contents
+
+    @pytest.mark.asyncio
+    async def test_truncation_holds_across_two_turns_on_same_thread(self):
+        """Resuming the same thread: the second turn's LLM input is
+        truncated from the persisted (already-lean) prefix + new input,
+        and the final checkpointed state remains within the window."""
+        from langgraph.checkpoint.memory import InMemorySaver
+
+        received_per_turn: list[list[Any]] = []
+        responses = iter([AIMessage(content="reply-1"), AIMessage(content="reply-2")])
+
+        class truncating_agent(agent):
+            model = _make_llm()
+            extensions = [HistoryExtension(strategy="count", max_messages=3)]
+
+            async def handler(state, *, llm):
+                received_per_turn.append(list(state["messages"]))
+                return {
+                    "messages": [next(responses)],
+                    "sender": "truncating_agent",
+                }
+
+        compiled = truncating_agent.compile(checkpointer=InMemorySaver())
+        config = {"configurable": {"thread_id": "t1"}}
+
+        # Turn 1: 5 messages in, window=3 → handler sees last 3
+        turn1 = [HumanMessage(content=f"a-{i}") for i in range(5)]
+        await compiled.ainvoke({"messages": turn1}, config=config)
+
+        after_turn1 = [m.content for m in compiled.get_state(config).values["messages"]]
+        assert after_turn1 == ["a-2", "a-3", "a-4", "reply-1"]
+
+        # Turn 2: append 2 new messages to the same thread
+        turn2 = [HumanMessage(content="b-0"), HumanMessage(content="b-1")]
+        await compiled.ainvoke({"messages": turn2}, config=config)
+
+        # Handler on turn 2 should see last 3 of (persisted-lean + new) =
+        # ["a-2","a-3","a-4","reply-1","b-0","b-1"] → ["reply-1","b-0","b-1"]
+        turn2_seen = [m.content for m in received_per_turn[1]]
+        assert turn2_seen == ["reply-1", "b-0", "b-1"]
+
+        # And the checkpointer still holds only kept window + reply-2
+        after_turn2 = [m.content for m in compiled.get_state(config).values["messages"]]
+        assert after_turn2 == ["reply-1", "b-0", "b-1", "reply-2"]
+        # First-turn human inputs must be gone — they were dropped in turn 1
+        # and never resurrected by the resumption path.
+        assert "a-0" not in after_turn2
+        assert "a-4" not in after_turn2
