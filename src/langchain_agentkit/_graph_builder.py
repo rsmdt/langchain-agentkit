@@ -40,11 +40,7 @@ def _inject_system_reminder(
     return {
         **handler_state,
         "messages": list(handler_state.get("messages", []))
-        + [
-            HumanMessage(
-                content=f"<system-reminder>\n{system_reminder}\n</system-reminder>",
-            ),
-        ],
+        + [HumanMessage(content=system_reminder)],
     }
 
 
@@ -150,8 +146,8 @@ def build_graph(  # noqa: C901
         # --- compose prompt and system reminder (single pass) ---
         # NOTE: called per-step intentionally. Extension prompts are dynamic —
         # they render current state (task list, team status). Do NOT hoist this.
-        composed_prompt, system_reminder = kit.compose(handler_state, runtime)
-        handler_state = _inject_system_reminder(handler_state, system_reminder)
+        composition = kit.compose(handler_state, runtime)
+        composed_prompt = composition.joined
 
         # NOTE: tool binding is the handler's responsibility. The framework
         # injects the raw ``llm`` and the composed ``tools`` list; the handler
@@ -172,6 +168,11 @@ def build_graph(  # noqa: C901
         # transform messages before the LLM sees them.  _call_handler
         # uses the request (not a closure) so modifications propagate.
         async def _call_handler(request: Any) -> dict[str, Any]:
+            # Inject the system-reminder HumanMessage inside the handler
+            # boundary so wrap_model hooks (e.g. HistoryExtension) do not
+            # observe it in their truncation window — the reminder is
+            # strictly ephemeral and must not leak into persisted state.
+            request = _inject_system_reminder(request, composition.reminder)
             result = handler(request, **inject)
             if inspect.isawaitable(result):
                 result = await result

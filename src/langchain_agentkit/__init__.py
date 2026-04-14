@@ -28,7 +28,7 @@
         model=ChatOpenAI(model="gpt-4o"),
     )
     graph = kit.compile(handler)      # managed ReAct loop
-    # or access kit.tools, kit.prompt(), kit.model directly
+    # or access kit.tools, kit.compose(), kit.model directly
 """
 
 # Core

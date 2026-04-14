@@ -20,7 +20,7 @@ Advanced case — decorators with per-tool filtering::
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any
+from typing import Any, ClassVar, Literal
 
 # Named method patterns recognized as hooks
 _NAMED_HOOK_METHODS: dict[str, tuple[str, str]] = {
@@ -53,6 +53,16 @@ class Extension:
 
     _decorated_hooks: dict[tuple[str, str], list[Any]]
 
+    #: Cache scope for this extension's default ``prompt()`` contribution.
+    #:
+    #: When ``prompt()`` returns a plain string (not a ``dict``), the string is
+    #: routed to either the ``static`` or ``dynamic`` section of the composed
+    #: system prompt according to this attribute. Extensions that emit stable,
+    #: rarely-changing content should set this to ``"static"`` to maximize
+    #: prompt-cache reuse; extensions whose prompts render live state should
+    #: leave the default of ``"dynamic"``.
+    prompt_cache_scope: ClassVar[Literal["static", "dynamic"]] = "dynamic"
+
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         hooks: dict[tuple[str, str], list[Any]] = defaultdict(list)
@@ -70,10 +80,23 @@ class Extension:
         """Tools this extension provides to the agent."""
         return []
 
-    def prompt(self, state: dict[str, Any], runtime: Any | None = None) -> str | None:
+    def prompt(
+        self, state: dict[str, Any], runtime: Any | None = None
+    ) -> str | dict[str, str] | None:
         """Prompt section contributed by this extension.
 
-        Called on every LLM invocation. Return None to skip injection.
+        Called on every LLM invocation. May return:
+
+        - ``None`` or ``""`` — contribute nothing.
+        - ``str`` — contribute a single section, routed to the scope declared
+          by :attr:`prompt_cache_scope` (``"static"`` or ``"dynamic"``).
+        - ``dict`` with any of the keys ``"prompt"`` and ``"reminder"``:
+
+          * ``"prompt"`` is routed by :attr:`prompt_cache_scope`.
+          * ``"reminder"`` is appended to AgentKit's ``<system-reminder>``
+            envelope under a ``# <ExtensionClassName>`` header.
+
+          Unknown keys are silently ignored.
         """
         return None
 

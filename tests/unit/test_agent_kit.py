@@ -124,7 +124,7 @@ class TestAgentKitPrompt:
         mw2 = StubExtension(prompt_text="Section B")
 
         kit = AgentKit(extensions=[mw1, mw2])
-        result = kit.prompt({}, {})
+        result = kit.compose({}, None).joined
 
         assert result == "Section A\n\nSection B"
 
@@ -133,13 +133,13 @@ class TestAgentKitPrompt:
         mw2 = StubExtension(prompt_text=None)
 
         kit = AgentKit(extensions=[mw1, mw2])
-        result = kit.prompt({}, {})
+        result = kit.compose({}, None).joined
 
         assert result == "Only section"
 
     def test_empty_extensions_returns_empty_string(self):
         kit = AgentKit(extensions=[])
-        result = kit.prompt({}, {})
+        result = kit.compose({}, None).joined
 
         assert result == ""
 
@@ -147,13 +147,13 @@ class TestAgentKitPrompt:
         mw = StubExtension(prompt_text="extensions section")
 
         kit = AgentKit(extensions=[mw], prompt="System template")
-        result = kit.prompt({}, {})
+        result = kit.compose({}, None).joined
 
         assert result == "System template\n\nextensions section"
 
     def test_template_from_inline_string(self):
         kit = AgentKit(extensions=[], prompt="Inline prompt")
-        result = kit.prompt({}, {})
+        result = kit.compose({}, None).joined
 
         assert result == "Inline prompt"
 
@@ -161,7 +161,7 @@ class TestAgentKitPrompt:
         fixture_path = FIXTURES / "prompts" / "nodes" / "researcher.md"
 
         kit = AgentKit(extensions=[], prompt=fixture_path)
-        result = kit.prompt({}, {})
+        result = kit.compose({}, None).joined
 
         assert "Research Assistant" in result
 
@@ -170,7 +170,7 @@ class TestAgentKitPrompt:
         analyst = FIXTURES / "prompts" / "nodes" / "analyst.md"
 
         kit = AgentKit(extensions=[], prompt=[researcher, analyst])
-        result = kit.prompt({}, {})
+        result = kit.compose({}, None).joined
 
         assert "Research Assistant" in result
         assert "data analyst" in result
@@ -178,14 +178,14 @@ class TestAgentKitPrompt:
 
     def test_template_list_with_inline_strings(self):
         kit = AgentKit(extensions=[], prompt=["Part one", "Part two"])
-        result = kit.prompt({}, {})
+        result = kit.compose({}, None).joined
 
         assert result == "Part one\n\nPart two"
 
     def test_nonexistent_path_treated_as_inline_string(self):
         """A string that looks like a path but doesn't exist is treated as inline."""
         kit = AgentKit(extensions=[], prompt="nonexistent/path/prompt.md")
-        result = kit.prompt({}, {})
+        result = kit.compose({}, None).joined
 
         assert result == "nonexistent/path/prompt.md"
 
@@ -203,23 +203,24 @@ class TestAgentKitIntegration:
         assert kit.tools[0].name == "tool_a"
         assert kit.tools[1].name == "tool_b"
 
-        prompt = kit.prompt({}, {})
+        prompt = kit.compose({}, None).joined
         assert prompt == "You are an agent.\n\nUse tool_a for X\n\nUse tool_b for Y"
 
 
 class DictPromptExtension:
-    """Stub extension that returns a dict with prompt/reminder from prompt()."""
+    """Stub extension that returns a dict with the ``prompt`` key (scope=dynamic)."""
 
-    def __init__(self, prompt_text="", reminder=""):
-        self._prompt_text = prompt_text
-        self._reminder = reminder
+    prompt_cache_scope = "dynamic"
+
+    def __init__(self, prompt_text=""):
+        self._prompt = prompt_text
 
     @property
     def tools(self):
         return []
 
     def prompt(self, state, config):
-        return {"prompt": self._prompt_text, "reminder": self._reminder}
+        return {"prompt": self._prompt} if self._prompt else {}
 
 
 class NoneExtension:
@@ -234,90 +235,48 @@ class NoneExtension:
 
 
 class TestDictPromptReturn:
-    """Dict return type with prompt/reminder from extensions."""
+    """Dict return type with the ``prompt`` key from extensions."""
 
     def test_str_return_collected_in_prompt(self):
         mw = StubExtension(prompt_text="Hello")
         kit = AgentKit(extensions=[mw])
 
-        result = kit.prompt({}, {})
+        result = kit.compose({}, None).joined
 
         assert result == "Hello"
 
-    def test_prompt_contribution_prompt_field_collected(self):
-        mw = DictPromptExtension(prompt_text="Guidance")
+    def test_dict_prompt_field_collected(self):
+        mw = DictPromptExtension(prompt_text="Live")
         kit = AgentKit(extensions=[mw])
 
-        result = kit.prompt({}, {})
+        result = kit.compose({}, None).joined
 
-        assert "Guidance" in result
+        assert "Live" in result
 
-    def test_prompt_contribution_empty_prompt_skipped(self):
-        mw = DictPromptExtension(prompt_text="", reminder="something")
+    def test_dict_empty_prompt_skipped(self):
+        mw = DictPromptExtension(prompt_text="")
         kit = AgentKit(extensions=[mw])
 
-        result = kit.prompt({}, {})
+        result = kit.compose({}, None).joined
 
         assert result == ""
 
-    def test_prompt_contribution_reminder_not_in_prompt(self):
-        mw = DictPromptExtension(prompt_text="", reminder="Ephemeral")
-        kit = AgentKit(extensions=[mw])
-
-        result = kit.prompt({}, {})
-
-        assert "Ephemeral" not in result
-
-    def test_system_reminder_collects_reminder_field(self):
-        mw = DictPromptExtension(reminder="Status: 3 pending")
-        kit = AgentKit(extensions=[mw])
-
-        result = kit.system_reminder({}, {})
-
-        assert "Status: 3 pending" in result
-
-    def test_system_reminder_empty_when_no_reminders(self):
-        mw = StubExtension(prompt_text="Just a prompt")
-        kit = AgentKit(extensions=[mw])
-
-        result = kit.system_reminder({}, {})
-
-        assert result == ""
-
-    def test_system_reminder_joins_multiple_reminders(self):
-        mw1 = DictPromptExtension(reminder="Reminder A")
-        mw2 = DictPromptExtension(reminder="Reminder B")
-        kit = AgentKit(extensions=[mw1, mw2])
-
-        result = kit.system_reminder({}, {})
-
-        assert result == "Reminder A\n\nReminder B"
-
-    def test_mixed_str_and_prompt_contribution(self):
+    def test_mixed_str_and_dict_contribution(self):
         mw1 = StubExtension(prompt_text="String section")
-        mw2 = DictPromptExtension(prompt_text="Contribution section")
+        mw2 = DictPromptExtension(prompt_text="Dict section")
         kit = AgentKit(extensions=[mw1, mw2])
 
-        result = kit.prompt({}, {})
+        composition = kit.compose({}, None)
 
-        assert "String section" in result
-        assert "Contribution section" in result
-
-    def test_collect_contributions_single_pass(self):
-        mw = DictPromptExtension(prompt_text="P", reminder="R")
-        kit = AgentKit(extensions=[mw])
-
-        prompt_parts, reminder_parts = kit._collect_contributions({}, {})
-
-        assert "P" in prompt_parts
-        assert "R" in reminder_parts
+        assert "String section" in composition.dynamic
+        assert "Dict section" in composition.dynamic
 
     def test_none_return_handled(self):
         mw1 = NoneExtension()
         mw2 = StubExtension(prompt_text="Valid")
         kit = AgentKit(extensions=[mw1, mw2])
 
-        result = kit.prompt({}, {})
+        result = kit.compose({}, None).joined
 
         assert result == "Valid"
 
@@ -344,15 +303,15 @@ class TestInjectSystemReminder:
         assert len(result["messages"]) == 1
         assert isinstance(result["messages"][0], HumanMessage)
 
-    def test_reminder_wrapped_in_system_reminder_tags(self):
+    def test_reminder_content_preserved_verbatim(self):
+        """``compose().reminder`` already contains the ``<system-reminder>``
+        envelope; the graph injector must not wrap it a second time."""
         from langchain_agentkit._graph_builder import _inject_system_reminder
 
-        result = _inject_system_reminder({"messages": []}, "hello")
+        payload = "<system-reminder>\ncontext\n</system-reminder>"
+        result = _inject_system_reminder({"messages": []}, payload)
 
-        content = result["messages"][0].content
-        assert content.startswith("<system-reminder>")
-        assert content.endswith("</system-reminder>")
-        assert "hello" in content
+        assert result["messages"][0].content == payload
 
     def test_original_state_not_mutated(self):
         from langchain_agentkit._graph_builder import _inject_system_reminder

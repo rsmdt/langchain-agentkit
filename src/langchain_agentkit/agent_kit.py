@@ -18,9 +18,9 @@ surface. ``compile(handler)`` builds a complete ReAct graph with hooks wired.
 **Manual wiring** — access components directly for custom graphs::
 
     kit = AgentKit(extensions=exts)
-    kit.tools          # merged user + extension tools
-    kit.prompt(state)  # composed system prompt
-    kit.model          # resolved BaseChatModel
+    kit.tools                     # merged user + extension tools
+    kit.compose(state, runtime)   # PromptComposition(static, dynamic, reminder)
+    kit.model                     # resolved BaseChatModel
     kit.state_schema   # composed TypedDict from extensions
     kit.hooks          # HookRunner for manual lifecycle wiring
 """
@@ -31,6 +31,9 @@ import inspect
 import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
+
+from langchain_agentkit.prompt_composition import PromptComposition
+from langchain_agentkit.reminders import assemble_builtin_reminder
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -43,12 +46,14 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
+_VALID_PRESETS: frozenset[str] = frozenset({"full"})
+
 
 class AgentKit:
     """Sync composition engine — merges extensions, tools, model, and prompt.
 
     Use ``compile(handler)`` to build a managed ReAct graph, or access
-    ``tools``, ``prompt()``, ``model``, ``state_schema``, and ``hooks``
+    ``tools``, ``compose()``, ``model``, ``state_schema``, and ``hooks``
     directly for manual graph wiring.
 
     Args:
@@ -60,6 +65,13 @@ class AgentKit:
         model_resolver: Callable resolving model name strings to
             ``BaseChatModel`` instances.
         name: Graph node name (default ``"agent"``).
+        preset: Optional preset that seeds a curated extension stack.
+            When ``"full"``, the kit prepends
+            ``[CoreBehaviorExtension(), TasksExtension(),
+            MemoryExtension(path="~/.agents/memory")]`` ahead of any
+            user-supplied ``extensions=[...]``. ``None`` (default)
+            leaves the extension list untouched. Unknown preset
+            strings raise :class:`ValueError`.
 
     Example::
 
@@ -80,8 +92,11 @@ class AgentKit:
         model: BaseChatModel | str | None = None,
         model_resolver: Callable[[str], BaseChatModel] | None = None,
         name: str = "agent",
+        preset: str | None = None,
     ) -> None:
-        self._extensions = self._resolve_dependencies(list(extensions or []))
+        seeded = _seed_preset_extensions(preset)
+        combined: list[Extension] = [*seeded, *(extensions or [])]
+        self._extensions = self._resolve_dependencies(combined)
         self._prompt = _load_prompt(prompt)
         self._user_tools: list[BaseTool] = list(tools or [])
         self._model_raw = model
@@ -186,25 +201,14 @@ class AgentKit:
         1. ``model_resolver(name)`` if model is a string and resolver exists
         2. Falls back to ``self._model_raw`` as-is for non-string models
         3. Raises if model is a string and no resolver is available
-
-        Raises:
-            ValueError: If model is a string but no resolver is configured
-                and no extension provides one.
         """
         return self._resolve_model_internal(self._model_raw)
 
     def _resolve_model_internal(self, model: Any) -> Any:
-        """Apply the model resolver fallback chain.
-
-        1. model_resolver(name) succeeds → use the result
-        2. model_resolver(name) raises or returns None → warn, fall back to self._model_raw
-        3. No model_resolver → scan extensions, fall back to self._model_raw
-        4. No model at all → error
-        """
+        """Apply the model resolver fallback chain."""
         if not isinstance(model, str):
             return model
 
-        # Try kit-level resolver first
         if self._model_resolver is not None:
             try:
                 result = self._model_resolver(model)
@@ -217,7 +221,6 @@ class AgentKit:
                 )
                 raise
 
-        # Fallback: scan extensions for a model_resolver attribute
         for ext in self._extensions:
             resolver = getattr(ext, "model_resolver", None)
             if callable(resolver):
@@ -230,39 +233,15 @@ class AgentKit:
         )
 
     def resolve_model(self, model: Any) -> Any:
-        """Resolve a model reference to a BaseChatModel instance.
-
-        If *model* is a string, uses the configured ``model_resolver`` or
-        scans extensions for one that exposes a ``model_resolver`` attribute.
-        Otherwise returns the input as-is (assumed to be a BaseChatModel).
-
-        Raises:
-            ValueError: If *model* is a string but no resolver is available.
-        """
+        """Resolve a model reference to a BaseChatModel instance."""
         return self._resolve_model_internal(model)
 
     def compile(self, handler: Any) -> Any:
-        """Build the full ReAct graph with hooks wired.
-
-        Absorbs all logic from ``build_graph()``. Returns an uncompiled
-        ``StateGraph``. Call ``.compile()`` on the result to get a runnable
-        graph, optionally passing a checkpointer for ``interrupt()`` support.
-
-        Args:
-            handler: The agent handler function. Accepts ``state`` as first
-                positional arg, plus keyword-only injectables (llm, tools,
-                prompt, runtime).
-
-        Returns:
-            An uncompiled ``StateGraph``.
-        """
+        """Build the full ReAct graph with hooks wired."""
         from langchain_agentkit._graph_builder import build_graph
 
         llm = self._resolve_model_internal(self._model_raw) if self._model_raw is not None else None
 
-        # Pass user_tools=[] because self.tools already merges user + extension tools.
-        # build_graph does `all_tools = user_tools + kit.tools`, so passing []
-        # avoids duplicating the user tools that are already in self.tools.
         return build_graph(
             name=self._name,
             handler=handler,
@@ -272,81 +251,100 @@ class AgentKit:
             state_type=self.state_schema,
         )
 
-    def _collect_contributions(
-        self,
-        state: dict[str, Any],
-        runtime: ToolRuntime | None = None,
-    ) -> tuple[list[str], list[str]]:
-        """Single-pass collection of prompt sections and reminders.
+    def compose(
+        self, state: dict[str, Any], runtime: ToolRuntime | None = None
+    ) -> PromptComposition:
+        """Compose the per-step system prompt into static/dynamic/reminder scopes.
 
-        Iterates each extension's ``prompt()`` exactly once, splitting
-        the result into system-prompt sections and ephemeral reminders.
+        Iterates each extension's ``prompt()`` exactly once and routes
+        every contribution to the matching channel of the returned
+        :class:`PromptComposition`:
 
-        Returns:
-            (prompt_parts, reminder_parts) — both are lists of non-empty strings.
+        - The kit-level base prompt is routed to ``static``.
+        - ``str`` returns are routed to the scope declared by the
+          extension's :attr:`Extension.prompt_cache_scope` attribute
+          (defaults to ``"dynamic"``).
+        - ``dict`` returns may carry the keys ``"prompt"`` and
+          ``"reminder"``:
 
-        Extension ``prompt()`` can return:
-        - ``str`` — goes into system prompt
-        - ``dict`` with ``prompt`` and/or ``reminder`` keys — prompt goes
-          to system prompt, reminder goes to ephemeral message
-        - ``None`` — no contribution
+            * ``"prompt"`` is routed by ``prompt_cache_scope``.
+            * ``"reminder"`` is appended to the reminder channel as a
+              ``# <ext-class-name>`` section.
+
+          Unknown keys are silently ignored.
+        - ``None`` and empty-string returns contribute nothing.
+
+        The reminder channel always starts with AgentKit's built-in
+        source (today's date) followed by any extension contributions.
+        When every source is empty, the ``reminder`` field is the
+        empty string.
+
+        Sections within each scope are joined with ``"\\n\\n"`` in
+        extension declaration order.
         """
-        prompt_parts: list[str] = [self._prompt] if self._prompt else []
-        reminder_parts: list[str] = []
+        static_parts: list[str] = [self._prompt] if self._prompt else []
+        dynamic_parts: list[str] = []
+        reminder_sections: list[str] = []
+
         for ext in self._extensions:
             result = ext.prompt(state, runtime)
             if result is None:
                 continue
             if isinstance(result, str):
-                if result:
-                    prompt_parts.append(result)
+                if not result:
+                    continue
+                self._route_scoped(ext, result, static_parts, dynamic_parts)
             elif isinstance(result, dict):
-                p = result.get("prompt", "")
-                r = result.get("reminder", "")
-                if p:
-                    prompt_parts.append(p)
-                if r:
-                    reminder_parts.append(r)
-        return prompt_parts, reminder_parts
+                prompt_piece = result.get("prompt")
+                if isinstance(prompt_piece, str) and prompt_piece:
+                    self._route_scoped(ext, prompt_piece, static_parts, dynamic_parts)
+                reminder_piece = result.get("reminder")
+                if isinstance(reminder_piece, str) and reminder_piece:
+                    key = type(ext).__name__
+                    reminder_sections.append(f"# {key}\n{reminder_piece}")
 
-    def compose(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> tuple[str, str]:
-        """Compose prompt and system reminder in a single pass.
-
-        Returns:
-            ``(prompt, system_reminder)`` — both joined with double newline.
-            ``system_reminder`` is empty string when no extension contributes one.
-        """
-        prompt_parts, reminder_parts = self._collect_contributions(state, runtime)
-        return (
-            "\n\n".join(prompt_parts),
-            "\n\n".join(reminder_parts) if reminder_parts else "",
+        reminder = assemble_builtin_reminder(reminder_sections)
+        return PromptComposition(
+            static="\n\n".join(static_parts),
+            dynamic="\n\n".join(dynamic_parts),
+            reminder=reminder,
         )
 
-    def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
-        """Compose system prompt from template + extension prompt sections.
-
-        Called on every LLM invocation. Each extension contributes
-        a section in stack order. Sections joined with double newline.
-
-        For efficiency, prefer :meth:`compose` when you need both prompt
-        and system reminder.
-        """
-        composed_prompt, _ = self.compose(state, runtime)
-        return composed_prompt
+    @staticmethod
+    def _route_scoped(
+        ext: Any,
+        piece: str,
+        static_parts: list[str],
+        dynamic_parts: list[str],
+    ) -> None:
+        scope = getattr(ext, "prompt_cache_scope", "dynamic")
+        if scope == "static":
+            static_parts.append(piece)
+        else:
+            dynamic_parts.append(piece)
 
     def system_reminder(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
-        """Collect ephemeral reminder content from all extensions.
+        """Return the reminder channel from :meth:`compose`."""
+        return self.compose(state, runtime).reminder
 
-        Returns combined text that will be appended to the messages
-        array as a ``HumanMessage`` wrapped in ``<system-reminder>``
-        tags. This message is added at LLM call time and **never**
-        stored in ``state["messages"]``.
 
-        For efficiency, prefer :meth:`compose` when you need both prompt
-        and system reminder.
-        """
-        _, reminder = self.compose(state, runtime)
-        return reminder
+def _seed_preset_extensions(preset: str | None) -> list[Any]:
+    """Return the preset-seeded extension list (empty when no preset)."""
+    if preset is None:
+        return []
+    if preset not in _VALID_PRESETS:
+        raise ValueError(f"Unknown preset {preset!r}. Valid presets: {sorted(_VALID_PRESETS)!r}.")
+    if preset == "full":
+        from langchain_agentkit.extensions.core_behavior import CoreBehaviorExtension
+        from langchain_agentkit.extensions.memory import MemoryExtension
+        from langchain_agentkit.extensions.tasks import TasksExtension
+
+        return [
+            CoreBehaviorExtension(),
+            TasksExtension(),
+            MemoryExtension(path="~/.agents/memory"),
+        ]
+    return []  # pragma: no cover — guarded by _VALID_PRESETS
 
 
 async def run_extension_setup(kit: AgentKit) -> None:
@@ -390,8 +388,6 @@ async def run_extension_setup(kit: AgentKit) -> None:
 def _load_prompt_source(source: str | Path) -> str:
     """Load a single prompt source from file path or return inline string."""
     text = str(source)
-    # Skip path resolution for strings that are clearly inline prompts
-    # (contain newlines or exceed OS filename limits).
     if "\n" in text or len(text) > 255:
         return text
     path = Path(text)
