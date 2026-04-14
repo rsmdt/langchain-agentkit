@@ -25,10 +25,15 @@ class TestPromptBody:
         for forbidden in ("code", "test", "commit", "pull request", " pr ", "software"):
             assert forbidden not in body, f"found forbidden token: {forbidden!r}"
 
-    def test_body_under_2kb(self):
+    def test_body_under_2_5kb(self):
         ext = CoreBehaviorExtension()
         body = ext.prompt({}, None)
-        assert len(body.encode("utf-8")) <= 2048
+        assert len(body.encode("utf-8")) <= 2560
+
+    def test_body_covers_tool_results_guidance(self):
+        ext = CoreBehaviorExtension()
+        body = ext.prompt({}, None).lower()
+        assert "tool result" in body
 
     def test_no_env_block(self):
         ext = CoreBehaviorExtension()

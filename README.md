@@ -161,6 +161,58 @@ extensions = [
 ]
 ```
 
+### Recommended ordering
+
+Declaration order in `extensions=[...]` determines prompt-section order in the composed system prompt. For best results, declare extensions in the following order:
+
+```python
+extensions = [
+    # --- Prompt-contributing layer (order shapes system prompt) ---
+    CoreBehaviorExtension(),                        # universal behavior
+    MemoryExtension(),                              # persistent user/project memory
+    EnvExtension(),                                 # auto-detected runtime env block
+    FilesystemExtension(root="..."),                # workspace root + file tools
+    SkillsExtension(skills="skills/"),              # progressive-disclosure skill catalog
+    TasksExtension(),                               # task tracking
+    WebSearchExtension(),                           # external research tool
+    TeamExtension(agents=[...]),                    # peer-to-peer coordination
+    AgentsExtension(agents=[...]),                  # delegate-to-specialist tool
+
+    # --- Hook-only layer (order shapes wrap onion, not prompt) ---
+    HITLExtension(interrupt_on={"send_email": True}, tools=True),
+    HistoryExtension(strategy="count", max_messages=50),
+    ContextCompactionExtension(keep_recent=5),
+    MessagePersistenceExtension(persist=write_to_db),
+]
+```
+
+The stack has two layers. The **prompt-contributing layer** produces the system prompt in declaration order — placement here is visible to the model. The **hook-only layer** contributes no prompt text; declaration order here only determines wrap-hook nesting and run-lifecycle call order.
+
+Rationale for each slot:
+
+| Slot | Extension | Why it sits here |
+|------|-----------|------------------|
+| 1 | `CoreBehaviorExtension` | Domain-neutral behavior — terseness, tool-use discipline, action safety, tool-result summarization. Applies to everything that follows. |
+| 2 | `MemoryExtension` | User/project memory context should be available before any runtime environment or tool-specific guidance. |
+| 3 | `EnvExtension` | Runtime env (cwd, git, platform) is read-mostly context; placed ahead of tool blocks so tool guidance can reference the environment. |
+| 4 | `FilesystemExtension` | Workspace-root guidance anchors later filesystem-adjacent tools. |
+| 5 | `SkillsExtension` | Progressive-disclosure skill catalog; read before any task or coordination layer so the agent knows what capabilities it has. |
+| 6 | `TasksExtension` | Task tracking is a coordination primitive consumed by teams/agents — must appear before them. |
+| 7 | `WebSearchExtension` | Leaf research tool; grouped with other first-party tool blocks, before coordination layers. |
+| 8 | `TeamExtension` | Peer coordination; depends on `TasksExtension` (auto-prepended if omitted). |
+| 9 | `AgentsExtension` | Delegation to specialists; placed last among tool blocks so the agent has full context of its own capabilities before deciding to hand off. |
+| 10 | `HITLExtension` | `wrap_tool` interceptor — declared outermost in the hook layer so approval gating wraps every tool call before other tool-layer hooks run. |
+| 11 | `HistoryExtension` | `wrap_model` message truncation; runs before compaction so truncation decides *which* messages survive, then compaction redacts within the survivors. |
+| 12 | `ContextCompactionExtension` | `wrap_model` eviction of old tool results, composing inside the history window. |
+| 13 | `MessagePersistenceExtension` | `before_run`/`after_run` — declared last so its snapshot captures state produced by all prior before_run hooks, and its after_run (which runs in reverse order) fires first to persist the full turn delta. |
+
+Notes:
+
+- **Dependencies are auto-resolved.** Missing dependencies are prepended automatically — e.g. omitting `TasksExtension` while using `TeamExtension` still produces a valid stack.
+- **`preset="full"` seeds the first two slots.** Passing `preset="full"` to `AgentKit(...)` prepends `CoreBehaviorExtension` and `TasksExtension` ahead of any user-declared extensions.
+- **Every extension listed is opt-in.** Include only what your agent needs. Hook-layer extensions (`HITL`, `History`, `ContextCompaction`, `MessagePersistence`) pay off in different scenarios: use `ContextCompaction` for sessions with many tool calls, `History` when raw message count grows faster than tool results, `HITL` when specific tools need approval, and `MessagePersistence` when turns must be mirrored to an external store.
+- **Wrap-hook ordering is an onion.** First declaration = outermost layer. If you need compaction to run before truncation (redact first, then drop), swap slots 11 and 12.
+
 ### SkillsExtension
 
 Loads skills and provides progressive disclosure — the agent sees skill names and descriptions, then loads full content on demand via the `Skill` tool.
