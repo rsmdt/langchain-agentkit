@@ -24,24 +24,27 @@ class SkillInput(BaseModel):
     skill_name: str = Field(description="Name of the skill to load (e.g. 'market-sizing')")
 
 
-_SKILL_TOOL_DESCRIPTION = """\
-Execute a skill within the main conversation.
+_SKILL_TOOL_DESCRIPTION = """Execute a skill within the main conversation
 
-When users ask you to perform tasks, check if any of the available skills match. \
-Skills provide specialized capabilities and domain knowledge.
+When users ask you to perform tasks, check if any of the available skills match. Skills provide specialized capabilities and domain knowledge.
 
-When users reference a "slash command" or "/<something>" (e.g., "/commit", \
-"/review-pr"), they are referring to a skill. Use this tool to invoke it.
+When users reference a "slash command" or "/<something>" (e.g., "/summarize", "/translate"), they are referring to a skill. Use this tool to invoke it.
 
 How to invoke:
 - Use this tool with the skill name and optional arguments
+- Examples:
+  - `skill: "pdf"` - invoke the pdf skill
+  - `skill: "summarize", args: "--short"` - invoke with arguments
+  - `skill: "translate", args: "fr"` - invoke with arguments
+  - `skill: "ms-office-suite:pdf"` - invoke using fully qualified name
 
 Important:
-- When a skill matches the user's request, this is a BLOCKING REQUIREMENT: \
-invoke the relevant Skill tool BEFORE generating any other response about the task
+- Available skills are listed in system-reminder messages in the conversation
+- When a skill matches the user's request, this is a BLOCKING REQUIREMENT: invoke the relevant Skill tool BEFORE generating any other response about the task
 - NEVER mention a skill without actually calling this tool
-- Do not invoke a skill that is already running\
-"""
+- Do not invoke a skill that is already running
+- Do not use this tool for built-in CLI commands (like /help, /clear, etc.)
+- If you see a <command-name> tag in the current conversation turn, the skill has ALREADY been loaded - follow the instructions directly instead of calling this tool again"""
 
 
 def _build_available_skills_description(
@@ -61,27 +64,47 @@ def _build_available_skills_description(
     return "\n\nAvailable skills:\n" + "\n".join(entries)
 
 
-def build_skill_tool(
+def render_skills_roster(
     configs: list[SkillConfig],
     *,
     budget_percent: float | None = None,
     max_description_chars: int | None = None,
     context_window: int | None = None,
-) -> BaseTool:
-    """Build the Skill tool from a list of SkillConfig objects."""
-    index: dict[str, SkillConfig] = {c.name: c for c in configs}
+) -> str:
+    """Render the available-skills roster block for the reminder channel.
 
-    available_skills = _build_available_skills_description(
+    Returns an empty string when no skills are configured. Applies the same
+    budget/truncation rules that previously ran at tool-build time.
+    """
+    roster = _build_available_skills_description(
         configs,
         max_description_chars=max_description_chars,
     )
-
+    if not roster:
+        return ""
     if budget_percent is not None and context_window is not None:
         budget_chars = int(context_window * budget_percent)
-        if len(available_skills) > budget_chars:
-            available_skills = available_skills[:budget_chars]
+        if len(roster) > budget_chars:
+            roster = roster[:budget_chars]
+    return roster
 
-    description = _SKILL_TOOL_DESCRIPTION + available_skills
+
+def build_skill_tool(
+    configs: list[SkillConfig],
+    *,
+    budget_percent: float | None = None,  # noqa: ARG001 — reminder-side now
+    max_description_chars: int | None = None,  # noqa: ARG001
+    context_window: int | None = None,  # noqa: ARG001
+) -> BaseTool:
+    """Build the Skill tool from a list of SkillConfig objects.
+
+    The tool description is static; the available-skills roster is delivered
+    separately via :func:`render_skills_roster` (emitted by
+    :class:`SkillsExtension` as a ``"reminder"`` dict entry from ``prompt()``).
+    """
+    index: dict[str, SkillConfig] = {c.name: c for c in configs}
+
+    description = _SKILL_TOOL_DESCRIPTION
 
     def skill(skill_name: str) -> str:
         if not NAME_PATTERN.match(skill_name):

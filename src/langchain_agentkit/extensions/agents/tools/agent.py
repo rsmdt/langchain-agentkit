@@ -3,19 +3,6 @@
 Tools return ``Command(update={"messages": [ToolMessage(...)]})`` to
 propagate delegation results. Compatible with LangGraph's ``ToolNode``
 out of the box.
-
-Usage::
-
-    from langchain_agentkit.tools.agent import create_agent_tools
-
-    tools = create_agent_tools(
-        agents_by_name={"researcher": researcher_graph},
-        compiled_cache={},
-        delegation_timeout=300.0,
-        parent_tools_getter=lambda: parent_tools,
-        ephemeral=True,
-        parent_llm_getter=lambda: llm,
-    )
 """
 
 from __future__ import annotations
@@ -111,15 +98,7 @@ def _compile_or_resolve(
     compiled_cache: dict[str, Any],
     parent_tools_getter: Callable[[], list[BaseTool]] | None,
 ) -> Any:
-    """Resolve a delegation target to an invocable object.
-
-    If ``target`` satisfies ``AgentLike`` (has ``ainvoke``), returns it
-    directly — no compilation needed. Otherwise treats it as a raw
-    ``StateGraph`` and compiles it (with caching).
-
-    This is the bridge that enables both raw graphs and ``TeamAgent``
-    (or any ``AgentLike``) to be used as delegation targets.
-    """
+    """Resolve a delegation target to an invocable object."""
     from langchain_agentkit.composability import AgentLike
 
     if isinstance(target, AgentLike):
@@ -133,10 +112,7 @@ def _compile_agent(
     compiled_cache: dict[str, Any],
     parent_tools_getter: Callable[[], list[BaseTool]] | None,
 ) -> Any:
-    """Compile a raw StateGraph agent, caching the result.
-
-    Handles ``tools="inherit"`` by injecting parent tools before compilation.
-    """
+    """Compile a raw StateGraph agent, caching the result."""
     name: str = graph.name
     if name in compiled_cache:
         return compiled_cache[name]
@@ -246,7 +222,6 @@ async def _agent_tool(
     skills_resolver: Callable[[list[str]], str] | None = None,
 ) -> Any:
     """Delegate a task to a pre-defined or dynamically created agent."""
-    # Normalise to dict — LangChain may pass a Pydantic model or a raw dict
     agent_ref = agent if isinstance(agent, dict) else agent.model_dump()
 
     if "id" in agent_ref:
@@ -295,15 +270,9 @@ async def _delegate_predefined(
     model_resolver: Callable[[str], Any] | None = None,
     skills_resolver: Callable[[list[str]], str] | None = None,
 ) -> Any:
-    """Delegate a task to a named pre-defined agent.
-
-    Handles both compiled agents and definition-based agents.
-    Definition-based agents (those with ``_agent_config``) are compiled
-    at delegation time with resolved model, tools, skills, and max_turns.
-    """
+    """Delegate a task to a named pre-defined agent."""
     target = resolve_agent_by_name(agent_id, agents_by_name)
 
-    # Definition-based agents → resolve and compile at delegation time
     from langchain_agentkit.extensions.agents.types import AgentConfig
 
     agent_config = getattr(target, "_agent_config", None)
@@ -342,7 +311,6 @@ async def _delegate_agent_config(
     tool_call_id: str,
 ) -> Any:
     """Delegate to an AgentConfig — resolve model, tools, skills, max_turns."""
-    # Resolve LLM
     if agent_config.model and model_resolver:
         llm = model_resolver(agent_config.model)
     elif parent_llm_getter is not None:
@@ -352,14 +320,12 @@ async def _delegate_agent_config(
             "Agent definition requires a model but no parent LLM or model_resolver is available."
         )
 
-    # Resolve tools — filter from parent's tools by name
     agent_tools: list[BaseTool] = []
     if agent_config.tools is not None and parent_tools_getter is not None:
         parent_tools = parent_tools_getter()
         allowed = set(agent_config.tools)
         agent_tools = [t for t in parent_tools if t.name in allowed]
 
-    # Resolve skills — concatenate into prompt
     prompt = agent_config.prompt
     if agent_config.skills and skills_resolver:
         skill_content = skills_resolver(agent_config.skills)
@@ -432,14 +398,13 @@ async def _delegate_dynamic(
 # ---------------------------------------------------------------------------
 
 
-_AGENT_DESCRIPTION = """\
-Delegate a task to an agent and wait for the result.
+_AGENT_DESCRIPTION = """Delegate a task to an agent and wait for the result.
 
 Use when:
-- The task requires specialized tools you don't have
-- The task is independent and can be done in isolation
-- You need multiple things done in parallel (call Agent multiple times in one turn)
-- The task would benefit from focused, context-isolated execution
+- The task needs specialized tools or knowledge you don't have directly
+- The task is independent and can be done in isolation from your current context
+- You need several things done in parallel (call Agent multiple times in one turn)
+- The task benefits from focused, context-isolated execution
 
 Do NOT use when:
 - The task requires your full conversation context
@@ -448,51 +413,41 @@ Do NOT use when:
 
 ## Writing the prompt
 
-Brief the agent like a smart colleague who just walked into the room — it hasn't \
-seen this conversation, doesn't know what you've tried, doesn't understand why \
-this task matters.
+Brief the agent like a smart colleague who just walked into the room — it hasn't seen this conversation, doesn't know what you've tried, doesn't know why this task matters.
 - Explain what you're trying to accomplish and why.
 - Describe what you've already learned or ruled out.
-- Give enough context about the surrounding problem that the agent can make \
-judgment calls rather than just following a narrow instruction.
-- If you need a short response, say so ("report in under 200 words").
+- Give enough context that the agent can make judgment calls rather than following a narrow instruction.
+- If you need a short response, say so (e.g., "summarize in under 200 words").
 
-**Never delegate understanding.** Don't write "based on your findings, fix the bug" \
-or "based on the research, implement it." Those phrases push synthesis onto the \
-agent instead of doing it yourself. Write prompts that prove you understood: \
-include file paths, line numbers, what specifically to change.
+**Never delegate understanding.** Don't write "based on your findings, decide what to do" or "based on the research, produce the final summary." Those phrases push synthesis onto the agent. Write prompts that prove you understood: include the specific facts, sources, or identifiers the agent should use.
 
-Provide a clear, self-contained message. The agent receives ONLY your message — \
-it has no access to your conversation history.
+The agent receives ONLY your message — it has no access to your conversation history.
+
+## Parallel launches
+
+When subtasks are independent, issue multiple Agent calls in the same turn. Each agent runs in isolation, so parallel launches are the fastest way to fan out work.
 
 ## Examples
 
 <example>
-user: "Research React, Vue, and Svelte for our new frontend"
-assistant: I'll delegate the research to three agents in parallel — one per framework.
-Agent(agent={id: "researcher"}, message="Research React's ecosystem: bundle size, \
-learning curve, community size, enterprise adoption. Report strengths and weaknesses \
-in under 200 words.")
-Agent(agent={id: "researcher"}, message="Research Vue's ecosystem: ...")
-Agent(agent={id: "researcher"}, message="Research Svelte's ecosystem: ...")
+user: "Compare three candidate vendors for our new CRM"
+assistant: I'll delegate research to three agents in parallel — one per vendor.
+Agent(agent={id: "researcher"}, message="Research vendor A: pricing, integrations, support reputation, data residency. Summarize strengths and weaknesses in under 200 words.")
+Agent(agent={id: "researcher"}, message="Research vendor B: ...")
+Agent(agent={id: "researcher"}, message="Research vendor C: ...")
 <commentary>
-Three independent research tasks launched in parallel. Each agent gets a focused, \
-self-contained prompt. The lead will synthesize results after all three return.
+Three independent research tasks in parallel. Each agent gets a focused prompt. The lead synthesizes results after all three return.
 </commentary>
 </example>
 
 <example>
-user: "Fix the authentication bug in the login flow"
-assistant: I've investigated and found the issue is in src/auth/login.ts:42 — the \
-token validation skips the expiry check when refresh_token is present.
-[fixes the bug directly using Edit tool]
+user: "Summarize the key points of this 40-page contract"
+assistant: I've skimmed it; the material sections are payment (§4), termination (§9), IP assignment (§12).
+[reads those sections directly and summarizes]
 <commentary>
-The assistant does NOT delegate this — it already understands the problem and can \
-fix it directly. Delegating with "fix the auth bug" would push understanding onto \
-the agent, violating the "never delegate understanding" principle.
+The assistant does NOT delegate — it already has the document in context. Delegating would push understanding onto the agent.
 </commentary>
-</example>\
-"""
+</example>"""
 
 
 # ---------------------------------------------------------------------------
@@ -510,21 +465,7 @@ def create_agent_tools(
     model_resolver: Callable[[str], Any] | None = None,
     skills_resolver: Callable[[list[str]], str] | None = None,
 ) -> list[BaseTool]:
-    """Create the unified Agent tool for agent-to-agent delegation.
-
-    Returns a list containing the Agent tool. When ``ephemeral=True``,
-    the tool schema includes the Dynamic agent variant.
-
-    Args:
-        agents_by_name: Dict mapping agent name to its StateGraph.
-        compiled_cache: Shared cache for compiled graphs (mutated in place).
-        delegation_timeout: Max seconds to wait for a subagent response.
-        parent_tools_getter: Callable returning parent's tools (for inherit).
-        ephemeral: Whether to include the Dynamic agent variant in the schema.
-        parent_llm_getter: Callable returning the parent LLM (for dynamic).
-        model_resolver: Callable resolving model name strings to BaseChatModel.
-        skills_resolver: Callable resolving skill name list to concatenated prompt content.
-    """
+    """Create the unified Agent tool for agent-to-agent delegation."""
     if ephemeral and parent_llm_getter is None:
         msg = "parent_llm_getter is required when ephemeral=True"
         raise ValueError(msg)

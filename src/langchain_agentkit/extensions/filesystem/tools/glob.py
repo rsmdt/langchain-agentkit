@@ -12,6 +12,12 @@ from langchain_agentkit.extensions.filesystem.tools.common import (
     _GlobInput,
 )
 
+_GLOB_DESCRIPTION = """- Fast file pattern matching tool that works with any codebase size
+- Supports glob patterns like "**/*.js" or "src/**/*.ts"
+- Returns matching file paths sorted by modification time
+- Use this tool when you need to find files by name patterns
+- When you are doing an open ended search that may require multiple rounds of globbing and grepping, use the Agent tool instead"""
+
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
@@ -47,10 +53,7 @@ def _build_glob(backend: Any) -> BaseTool:
     return StructuredTool.from_function(
         coroutine=glob,
         name="Glob",
-        description=(
-            "Fast file pattern matching. "
-            'Supports patterns like "**/*.py". Returns matching file paths.'
-        ),
+        description=_GLOB_DESCRIPTION,
         args_schema=_GlobInput,
         response_format="content_and_artifact",
         handle_tool_error=True,

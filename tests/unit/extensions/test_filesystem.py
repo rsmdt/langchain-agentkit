@@ -114,19 +114,26 @@ class TestTools:
 
 
 class TestPrompt:
-    def test_returns_filesystem_prompt(self):
-        ext = FilesystemExtension()
+    def test_returns_none_when_root_matches_cwd(self):
+        ext = FilesystemExtension()  # root="." resolves to cwd
         result = ext.prompt({}, _TEST_RUNTIME)
 
-        assert "Filesystem" in result
-        assert "Read" in result
+        assert result is None
 
-    def test_shows_root_for_os_backend(self):
+    def test_returns_minimal_root_line_when_root_differs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             ext = FilesystemExtension(root=tmpdir)
             result = ext.prompt({}, _TEST_RUNTIME)
 
-            assert tmpdir in result
+            assert result is not None
+            # Minimal output: single "Filesystem root: <path>" line only.
+            assert result.startswith("Filesystem root:")
+            # Must not mention tool names.
+            for name in ("Read", "Write", "Edit", "Glob", "Grep", "Bash"):
+                assert name not in result
+
+    def test_prompt_cache_scope_is_static(self):
+        assert FilesystemExtension.prompt_cache_scope == "static"
 
 
 class TestStateSchema:
@@ -236,12 +243,10 @@ class TestPermissionGate2:
 
 
 class TestPromptWithPermissions:
-    def test_prompt_includes_bash_when_available(self):
-        ext = FilesystemExtension(permissions=PERMISSIVE_RULESET)
-        result = ext.prompt({}, _TEST_RUNTIME)
-        assert "Bash" in result
-
-    def test_prompt_excludes_bash_when_denied(self):
-        ext = FilesystemExtension(permissions=READONLY_RULESET)
-        result = ext.prompt({}, _TEST_RUNTIME)
-        assert "Bash" not in result
+    def test_prompt_does_not_reference_tool_names(self):
+        """Tool names live on tool descriptions, not in the prompt."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ext = FilesystemExtension(root=tmpdir, permissions=PERMISSIVE_RULESET)
+            result = ext.prompt({}, _TEST_RUNTIME) or ""
+            for name in ("Read", "Write", "Edit", "Glob", "Grep", "Bash"):
+                assert name not in result

@@ -8,7 +8,8 @@ from langchain_core.tools import ToolException
 from langgraph.types import Command
 
 from langchain_agentkit.extensions.agents.refs import Dynamic, Predefined
-from langchain_agentkit.extensions.agents.tools import (
+from langchain_agentkit.extensions.agents.tools import create_agent_tools
+from langchain_agentkit.extensions.agents.tools.agent import (
     _agent_tool,
     _AgentDynamicInput,
     _AgentInput,
@@ -16,7 +17,6 @@ from langchain_agentkit.extensions.agents.tools import (
     _delegate_dynamic,
     _delegate_predefined,
     _extract_final_response,
-    create_agent_tools,
 )
 
 FAKE_TOOL_CALL_ID = "call_test123"

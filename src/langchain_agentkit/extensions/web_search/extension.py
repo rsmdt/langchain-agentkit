@@ -26,9 +26,9 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_core.prompts import PromptTemplate
 from langchain_core.tools import BaseTool
-from pydantic import ConfigDict
 
 from langchain_agentkit.extension import Extension
+from langchain_agentkit.extensions.web_search.tools.web_search import _WebSearchTool
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -167,39 +167,6 @@ class QwantSearchProvider(BaseTool):
         return await loop.run_in_executor(None, self._run, query)
 
 
-class _WebSearchTool(BaseTool):
-    """Internal fan-out tool that calls all providers concurrently."""
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-    name: str = "WebSearch"
-    description: str = "Search the web using multiple search providers simultaneously."
-    providers: list[BaseTool]
-
-    async def _arun(self, query: str) -> str:
-        """Fan out to all providers concurrently, capturing errors per-provider."""
-        results = await asyncio.gather(*[self._call_provider(p, query) for p in self.providers])
-        return "\n\n".join(f"## {name}\n{result}" for name, result in results)
-
-    async def _call_provider(self, provider: BaseTool, query: str) -> tuple[str, str]:
-        try:
-            result = await provider.ainvoke(query)
-            return (provider.name, str(result))
-        except Exception as e:
-            return (provider.name, f"Error: {e}")
-
-    def _run(self, query: str) -> str:
-        """Sync fallback — sequential provider calls."""
-        sections = []
-        for provider in self.providers:
-            try:
-                result = provider.invoke(query)
-                sections.append(f"## {provider.name}\n{result}")
-            except Exception as e:
-                sections.append(f"## {provider.name}\nError: {e}")
-        return "\n\n".join(sections)
-
-
 class WebSearchExtension(Extension):
     """Extension providing a single WebSearch tool that fans out to
     multiple configured search providers in parallel.
@@ -272,6 +239,7 @@ class WebSearchExtension(Extension):
         return self._tools
 
     def prompt(self, state: dict[str, Any], runtime: Any | None = None) -> str | None:
-        """Search guidance listing configured provider names."""
-        provider_names = ", ".join(p.name for p in self._providers)
-        return self._prompt_template.format(provider_names=provider_names)
+        """No system-prompt contribution — all guidance lives on the
+        ``WebSearch`` tool description.
+        """
+        return None

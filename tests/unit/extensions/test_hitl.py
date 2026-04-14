@@ -539,9 +539,9 @@ class TestAskUserTool:
         tool = ext.tools[0]
 
         assert tool.name == "ask_user"
-        assert "ask the user a question" in tool.description.lower()
+        assert "ask the user questions" in tool.description.lower()
 
-    @patch("langchain_agentkit.extensions.hitl.tools.interrupt")
+    @patch("langchain_agentkit.extensions.hitl.tools.ask_user.interrupt")
     def test_sends_question_interrupt_and_returns_answer(self, mock_interrupt):
         mock_interrupt.return_value = {
             "answers": {"Which database?": "PostgreSQL"},
@@ -572,7 +572,7 @@ class TestAskUserTool:
         assert "Which database?" in result
         assert "PostgreSQL" in result
 
-    @patch("langchain_agentkit.extensions.hitl.tools.interrupt")
+    @patch("langchain_agentkit.extensions.hitl.tools.ask_user.interrupt")
     def test_handles_multiple_questions(self, mock_interrupt):
         mock_interrupt.return_value = {
             "answers": {
@@ -611,7 +611,7 @@ class TestAskUserTool:
         assert "PostgreSQL" in result
         assert "US East" in result
 
-    @patch("langchain_agentkit.extensions.hitl.tools.interrupt")
+    @patch("langchain_agentkit.extensions.hitl.tools.ask_user.interrupt")
     def test_handles_missing_answer(self, mock_interrupt):
         mock_interrupt.return_value = {"answers": {}}
         ext = HITLExtension(tools=True)
@@ -635,7 +635,7 @@ class TestAskUserTool:
 
         assert "No answer provided" in result
 
-    @patch("langchain_agentkit.extensions.hitl.tools.interrupt")
+    @patch("langchain_agentkit.extensions.hitl.tools.ask_user.interrupt")
     def test_handles_non_dict_response(self, mock_interrupt):
         mock_interrupt.return_value = "unexpected"
         ext = HITLExtension(tools=True)
@@ -659,7 +659,7 @@ class TestAskUserTool:
 
         assert "No answer provided" in result
 
-    @patch("langchain_agentkit.extensions.hitl.tools.interrupt")
+    @patch("langchain_agentkit.extensions.hitl.tools.ask_user.interrupt")
     def test_interrupt_payload_has_no_context(self, mock_interrupt):
         """ask_user questions should not include tool-approval context."""
         mock_interrupt.return_value = {"answers": {"Q?": "A"}}

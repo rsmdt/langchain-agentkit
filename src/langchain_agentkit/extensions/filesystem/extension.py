@@ -28,11 +28,11 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from langchain_core.tools import StructuredTool, ToolException
-from pydantic import BaseModel, Field
 
 from langchain_agentkit.backends.os import OSBackend
 from langchain_agentkit.extension import Extension
 from langchain_agentkit.extensions.filesystem.tools import create_filesystem_tools
+from langchain_agentkit.extensions.filesystem.tools.bash import _build_bash_tool
 from langchain_agentkit.permissions.types import (
     PermissionOperation,
     PermissionRuleset,
@@ -92,6 +92,8 @@ class FilesystemExtension(Extension):
         permissions: Optional permission ruleset. When ``None``, all
             operations are allowed (no gating).
     """
+
+    prompt_cache_scope = "static"
 
     def __init__(
         self,
@@ -187,82 +189,44 @@ class FilesystemExtension(Extension):
         state: dict[str, Any],
         runtime: ToolRuntime | None = None,
     ) -> str | None:
-        """Return filesystem prompt section."""
-        root = ""
-        if isinstance(self._backend, OSBackend):
-            root = f" rooted at `{self._backend._root}`"
-        has_bash = any(t.name == "Bash" for t in self.tools)
-        tools_str = "Read, Write, Edit, Glob, Grep"
-        if has_bash:
-            tools_str += ", Bash"
-        return (
-            f"## Filesystem\n\n"
-            f"You have access to a filesystem{root}.\n\n"
-            f"Use the {tools_str} tools to interact with files."
-        )
+        """Return a minimal filesystem-root line when the backend's root
+        differs from the current working directory; otherwise ``None``.
+
+        Tool-name guidance lives in each tool's ``description``.
+        """
+        from pathlib import Path
+
+        root = _backend_root(self._backend)
+        if root is None:
+            return None
+        try:
+            cwd = Path.cwd().resolve()
+        except OSError:
+            return f"Filesystem root: {root}"
+        if Path(root) == cwd:
+            return None
+        return f"Filesystem root: {root}"
 
 
 # ---------------------------------------------------------------------------
-# Tool builders
+# Backend root discovery
 # ---------------------------------------------------------------------------
 
 
-class _BashInput(BaseModel):
-    command: str = Field(
-        description="The command to execute.",
-    )
-    timeout: int | None = Field(
-        default=None,
-        description="Optional timeout in seconds.",
-    )
-    description: str | None = Field(
-        default=None,
-        description=(
-            "Clear, concise description of what this command does. "
-            "Keep it brief (5-10 words) for simple commands."
-        ),
-    )
+def _backend_root(backend: BackendProtocol) -> str | None:
+    """Return the backend's filesystem root path, if exposed.
 
-
-def _build_bash_tool(backend: BackendProtocol) -> BaseTool:
-    """Build the Bash tool for shell command execution."""
-
-    async def _bash(
-        command: str,
-        timeout: int | None = None,
-        description: str | None = None,
-    ) -> tuple[str, dict[str, Any]]:
-        result = await backend.execute(command, timeout=timeout)
-        stdout = result.get("output", "")
-        stderr = result.get("stderr", "")
-        exit_code = result.get("exit_code", -1)
-        truncated = result.get("truncated", False)
-        if truncated:
-            stdout += "\n... (output truncated)"
-
-        artifact: dict[str, Any] = {
-            "stdout": stdout,
-            "stderr": stderr,
-            "exitCode": exit_code,
-            "interrupted": truncated,
-        }
-
-        if exit_code != 0:
-            return f"Exit code {exit_code}\n{stdout}", artifact
-        return stdout, artifact
-
-    return StructuredTool.from_function(
-        coroutine=_bash,
-        name="Bash",
-        description=(
-            "Execute a shell command and return its output. "
-            "Use for system commands, running scripts, installing packages, "
-            "or any operation that requires a shell."
-        ),
-        args_schema=_BashInput,
-        response_format="content_and_artifact",
-        handle_tool_error=True,
-    )
+    Checks ``OSBackend._root`` and Daytona-style ``workdir`` / ``_workdir``
+    attributes. Returns ``None`` when the backend doesn't expose a root.
+    """
+    root = getattr(backend, "_root", None)
+    if root is None:
+        root = getattr(backend, "workdir", None)
+    if root is None:
+        root = getattr(backend, "_workdir", None)
+    if root is None:
+        return None
+    return str(root)
 
 
 # ---------------------------------------------------------------------------

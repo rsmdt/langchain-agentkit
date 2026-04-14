@@ -11,14 +11,14 @@ from langchain_agentkit.extensions.tasks.state import _merge_task_pair, _merge_t
 from langchain_agentkit.extensions.tasks.tools import (
     Task,
     TaskStatus,
-    _compute_blocks,
-    _task_create,
-    _task_get,
-    _task_list,
-    _task_stop,
-    _task_update,
     create_task_tools,
 )
+from langchain_agentkit.extensions.tasks.tools._shared import _compute_blocks
+from langchain_agentkit.extensions.tasks.tools.task_create import _task_create
+from langchain_agentkit.extensions.tasks.tools.task_get import _task_get
+from langchain_agentkit.extensions.tasks.tools.task_list import _task_list
+from langchain_agentkit.extensions.tasks.tools.task_stop import _task_stop
+from langchain_agentkit.extensions.tasks.tools.task_update import _task_update
 
 FAKE_TOOL_CALL_ID = "call_abc123"
 
@@ -90,8 +90,8 @@ class TestCreateTaskTools:
         by_name = {t.name: t for t in tools}
 
         assert "proactively" in by_name["TaskCreate"].description
-        assert "ONLY mark completed" in by_name["TaskUpdate"].description
-        assert "Teammate workflow" in by_name["TaskList"].description
+        assert "ONLY mark a task completed" in by_name["TaskUpdate"].description
+        assert "Shared-queue workflow" in by_name["TaskList"].description
         assert "dependencies" in by_name["TaskGet"].description
         assert "running" in by_name["TaskStop"].description.lower()
 

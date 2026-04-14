@@ -1,6 +1,5 @@
 """Tests for WebSearchExtension."""
 
-from pathlib import Path
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
@@ -155,11 +154,10 @@ class TestDefaultProvider:
         mw = WebSearchExtension(providers=[])
         assert len(mw.tools) == 1
 
-    def test_default_provider_prompt_mentions_qwant(self):
-        """Default provider's name appears in the prompt."""
+    def test_default_provider_prompt_returns_none(self):
+        """WebSearchExtension contributes no system prompt."""
         mw = WebSearchExtension()
-        prompt = mw.prompt({}, MagicMock())
-        assert "qwant" in prompt.lower()
+        assert mw.prompt({}, MagicMock()) is None
 
 
 class TestWebSearchExtensionTools:
@@ -183,41 +181,20 @@ class TestWebSearchExtensionTools:
 
 
 class TestWebSearchExtensionPrompt:
-    def test_prompt_mentions_provider_names(self):
+    def test_prompt_returns_none(self):
+        """All guidance lives on the WebSearch tool description."""
         mock_tool = _make_mock_tool("brave_search")
         mw = WebSearchExtension(providers=[mock_tool])
 
-        result = mw.prompt({}, _TEST_RUNTIME)
+        assert mw.prompt({}, _TEST_RUNTIME) is None
 
-        assert "brave_search" in result
-
-    def test_prompt_returns_string(self):
-        mock_tool = _make_mock_tool("test_search")
-        mw = WebSearchExtension(providers=[mock_tool])
-
-        result = mw.prompt({}, _TEST_RUNTIME)
-
-        assert isinstance(result, str)
-
-    def test_prompt_with_custom_template(self):
+    def test_prompt_returns_none_with_custom_template(self):
+        """Custom template no longer affects the (empty) prompt output."""
         mock_tool = _make_mock_tool("test_search")
         custom_template = "Use {provider_names} for all web searches."
         mw = WebSearchExtension(providers=[mock_tool], prompt_template=custom_template)
 
-        result = mw.prompt({}, _TEST_RUNTIME)
-
-        assert isinstance(result, str)
-        assert result is not None
-
-    def test_prompt_with_custom_template_path(self, tmp_path: Path):
-        template_file = tmp_path / "prompt.txt"
-        template_file.write_text("Search using {provider_names} to find answers.")
-        mock_tool = _make_mock_tool("test_search")
-        mw = WebSearchExtension(providers=[mock_tool], prompt_template=template_file)
-
-        result = mw.prompt({}, _TEST_RUNTIME)
-
-        assert isinstance(result, str)
+        assert mw.prompt({}, _TEST_RUNTIME) is None
 
 
 class TestWebSearchToolExecution:
