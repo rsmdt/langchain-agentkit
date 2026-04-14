@@ -9,6 +9,22 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.21.0] — 2026-04-15
+
+### Added
+
+- **MemoryExtension** gains a `backend` field for remote-filesystem reads. When set, async `setup()` primes the cached body and `before_model` refreshes it each turn; local-filesystem mode keeps its sync-per-turn semantics.
+- **TeamExtension** accepts `agents` as a programmatic list, a directory path, or a path + `BackendProtocol` — mirroring `AgentsExtension`. `AgentConfig`-based teammates are compiled on demand with resolved model, filtered parent tools, merged skills, and bus-proxied task tools.
+
+### Changed
+
+- **BREAKING:** `MemoryExtension` no longer accepts a `loader` callable. Use `backend` for remote reads; local reads continue to use `path`.
+- **BREAKING:** `TeamExtension.setup()` is now `async`. Callers composing kits via `AgentKit` are unaffected (setup is awaited through `run_extension_setup`); direct callers must `await team.setup(...)`.
+
+### Fixed
+
+- Agent tool coroutines are now introspectable by LangGraph's `ToolNode`. `functools.partial` wrappers caused `typing.get_type_hints` to reject injected tools; they are replaced with a plain async closure that preserves the injectable-argument contract.
+
 ## [0.20.0] — 2026-04-14
 
 ### Added
