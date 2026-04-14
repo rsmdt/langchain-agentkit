@@ -118,7 +118,7 @@ def _build_ask_user_agent():
 
     async def agent_node(state: dict) -> dict:
         bound = llm.bind_tools(kit.tools)
-        system = SystemMessage(content=prompt_text + (kit.prompt(state) or ""))
+        system = SystemMessage(content=prompt_text + kit.compose(state).joined)
         msgs = [system] + state["messages"]
         return {"messages": [await bound.ainvoke(msgs)]}
 
@@ -217,7 +217,7 @@ class TestAskUserSelectionEval:
     )
     def test_uses_ask_user(self, entry):
         with patch(
-            "langchain_agentkit.extensions.hitl.tools.interrupt",
+            "langchain_agentkit.extensions.hitl.tools.ask_user.interrupt",
             side_effect=_mock_interrupt_handler,
         ):
             results = run_eval(self.agent, [entry])
@@ -239,7 +239,7 @@ class TestDirectActionEval:
     )
     def test_acts_directly(self, entry):
         with patch(
-            "langchain_agentkit.extensions.hitl.tools.interrupt",
+            "langchain_agentkit.extensions.hitl.tools.ask_user.interrupt",
             side_effect=_mock_interrupt_handler,
         ):
             results = run_eval(self.agent, [entry])
