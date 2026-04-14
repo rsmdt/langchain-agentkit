@@ -9,6 +9,39 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [Unreleased]
+
+### Changed
+
+- Tool descriptions now live on each tool function as module-level constants / docstrings, matching LangChain's convention. The per-tool `.md` fixture files under `src/langchain_agentkit/extensions/<ext>/descriptions/` and the `_descriptions.py` loader have been deleted. Description content is byte-identical to the previous fixtures.
+- The `Skill` tool description is now static. The per-skill roster is delivered through AgentKit's built-in reminder channel — `SkillsExtension.prompt()` returns `{"prompt": <static framing>, "reminder": <roster>}` and AgentKit appends the `reminder` value under a `# SkillsExtension` block inside the `<system-reminder>` envelope.
+- **BREAKING:** Reminders are now a built-in, non-configurable capability. `AgentKit.compose(state, runtime).reminder` always emits today's date (`# currentDate`). Extensions contribute additional reminder content by returning `{"reminder": <text>}` from `prompt()`; AgentKit concatenates them under a per-extension `# <ClassName>` header inside the envelope.
+- **BREAKING:** Removed the built-in `AGENTS.md` walker. AgentKit no longer auto-discovers `AGENTS.md` files from `cwd` upward or from `~/.agents/AGENTS.md`. Inject project context explicitly via `AgentKit(prompt=Path("AGENTS.md"))` or a list such as `prompt=[Path("AGENTS.md"), Path("~/.agents/AGENTS.md").expanduser()]` — `prompt` already accepts `str | Path | list[str | Path] | None` and loads file paths transparently.
+- **BREAKING:** `AgentKit.compose(state, runtime)` now returns a frozen `PromptComposition(static, dynamic, reminder)` dataclass instead of a `(prompt, system_reminder)` tuple. Use `composition.joined` to obtain the combined `static + "\n\n" + dynamic` system prompt. Callers that tuple-unpacked the previous return must be updated.
+- **BREAKING:** Extension `prompt()` may now return `str | None | dict[str, str]`. The recognized dict keys are `"prompt"` (routed by `prompt_cache_scope`) and `"reminder"` (appended to the built-in reminder channel). The previous `{"static", "dynamic"}` dict shape is no longer recognized; unknown keys are silently ignored.
+- **BREAKING:** Existing extensions' `prompt()` output has been trimmed and realigned. Callers that asserted on specific prompt strings must update:
+  - `FilesystemExtension` now emits only a minimal `Filesystem root: <path>` line when the backend root differs from `cwd`, otherwise `None`. Tool-name guidance (Read/Write/Edit/Glob/Grep/Bash) moved to each tool's `description`. Declared `prompt_cache_scope = "static"`.
+  - `SkillsExtension` keeps the dynamic skill roster plus progressive-disclosure framing but drops generic per-step guidance (migrated to the `Skill` tool description). Declared `prompt_cache_scope = "static"`.
+  - `AgentsExtension` keeps the dynamic agent roster and ephemeral/conciseness notes but drops the "Delegation Guidelines" / "When (Not) to Delegate" prose (migrated to the `Agent` tool description). Declared `prompt_cache_scope = "static"`.
+  - `TeamExtension` retains its "Team Coordination" framing; declared `prompt_cache_scope = "dynamic"`.
+  - `WebSearchExtension.prompt()` now returns `None` — all guidance migrates to the `WebSearch` tool description.
+  - `TasksExtension` declared `prompt_cache_scope = "dynamic"`.
+- Every AgentKit tool's `description` is now loaded at import time from a frozen fixture under `src/langchain_agentkit/extensions/<ext>/descriptions/<tool_name>.md`. Each fixture begins with an HTML provenance comment declaring source and adaptation notes. Verbatim adoptions from the reference harness: `Read`, `Write`, `Edit`, `Glob`, `Grep`, `Skill`, `WebSearch`, `ask_user`. Reference text adapted for provider- and domain-neutrality: `Bash` (shell safety and tool-preference hints kept; git-commit and PR-creation protocols dropped), `Agent` (delegation rationale and prompt-writing guidance kept; SE-specific examples replaced with research-triage and document-analysis examples), `TaskCreate`/`TaskUpdate`/`TaskList`/`TaskGet`/`TaskStop`, `TeamCreate`/`TeamMessage`/`TeamStatus`/`TeamDissolve`.
+
+### Added
+
+- `AgentKit(preset="full", ...)` — batteries-included preset that prepends `CoreBehaviorExtension`, `TasksExtension`, and `MemoryExtension(path="~/.agents/memory")` ahead of any user-supplied `extensions=[...]`. `preset=None` (default) leaves the extension list untouched; unknown preset strings raise `ValueError`.
+- `Extension.prompt_cache_scope: Literal["static", "dynamic"]` class attribute (default `"dynamic"`) that routes plain-string `prompt()` returns into the matching scope of `PromptComposition` for prompt-cache reuse.
+- `CoreBehaviorExtension` (`langchain_agentkit.extensions.core_behavior`) — contributes domain-neutral universal agent guidance (static) plus an auto-detected `<env>` block (dynamic) covering cwd, git status, worktree, platform, shell, and OS version. Configurable via `cwd` callable and `include_env` toggle; no other config surface.
+- `MemoryExtension` (`langchain_agentkit.extensions.memory`) — surfaces persistent memory content to the agent each turn. Defaults to a per-project layout at `~/.agents/memory/<sanitized-cwd>/MEMORY.md` via a ported `sanitize_path()` helper, with full escape hatches (`project_key_fn`, `loader`, `extra_sources`) for custom layouts. Applies line- and byte-caps, expands `~` and env vars on each call, and never performs filesystem I/O during construction.
+
+### Removed
+
+- **BREAKING:** `AgentKit.prompt(state, runtime)` helper. Use `AgentKit.compose(state, runtime).joined` instead.
+- **BREAKING:** `BASE_AGENT_PROMPT` constant and `base_agent_prompt.md` file removed from `langchain_agentkit.extensions.tasks`. Universal agent guidance now lives in `CoreBehaviorExtension`. `TasksExtension.prompt()` now emits only task-specific guidance and the current task list. The task-management prompt wording has been made domain-neutral (no coding-specific examples).
+- **BREAKING:** `ReminderConfig` and the `reminders=` parameter on `AgentKit.__init__` have been removed. The reminder channel is now a built-in capability of `compose()` — AGENTS.md discovery and today's date always fire, and extensions contribute by returning a `"reminder"` key from `prompt()`. `SkillsExtension.build_reminder_source()` is gone.
+- **BREAKING:** `AgentKit.full(...)` classmethod has been removed. Use `AgentKit(preset="full", ...)` instead — the preset prepends `[CoreBehaviorExtension(), TasksExtension(), MemoryExtension(path="~/.agents/memory")]` and leaves all other optional extensions as explicit user-supplied entries.
+
 ## [0.18.0] — 2026-04-11
 
 ### Added
@@ -88,7 +121,7 @@ Version bump only — no code changes.
 - **Task proxy protocol** for teammate-to-lead task operations: teammates create/update/list/get shared tasks via structured JSON messages routed over the `TeamMessageBus`, with proxies wired into both ephemeral and predefined teammates.
 - **Task coordination v2**: dependency enforcement, claim validation, auto-owner assignment, deletion cascade, resolved-blocker filtering, internal task hiding, assignment notifications, completion nudge, task-based agent status, and task cleanup on team dissolution.
 - **Type-aware `Read` tool**: dispatches by extension to return multimodal image blocks (PNG/JPG/GIF/WebP), extract PDF pages, render notebook cells with outputs, and reject unknown binaries with a clear message. Adds `read_bytes` to `BackendProtocol`.
-- **Structured output on all file tools** via `content_and_artifact`, aligning `Read`, `Write`, `Edit`, `Glob`, `Grep`, and `Bash` input schemas, output messages, and behavior with the Claude Code reference (file-unchanged dedup, structured patches, quote normalization, context precedence, pagination, multiline/type filters, etc.).
+- **Structured output on all file tools** via `content_and_artifact`, aligning `Read`, `Write`, `Edit`, `Glob`, `Grep`, and `Bash` input schemas, output messages, and behavior (file-unchanged dedup, structured patches, quote normalization, context precedence, pagination, multiline/type filters, etc.).
 - **Extension enhancements**: skills budget controls (`budget_percent`, `max_description_chars`, `context_window`) with plain-text description format; agent roster showing per-agent tool access; owner display in task context; richer HITL `ask_user` with `Option.preview`.
 - **`stderr` field on `ExecuteResponse`** so downstream consumers can distinguish error output from stdout.
 - **`BackendProtocol` integration conformance suite**: parameterized matrix runs the full protocol contract against `OSBackend` always, and `DaytonaBackend` when `DAYTONA_API_URL` is set.
@@ -115,7 +148,7 @@ Version bump only — no code changes.
 
 ### Added
 - **Extension hook system**: new `Extension` base class with `before`/`after`/`wrap` decorators for model, tool, and run lifecycle events. `HookRunner` composes hooks onion-style and supports `jump_to` routing and `process_history` pipelines, wired end-to-end into graph execution.
-- **Backends package**: 6-method `BackendProtocol` (Read, Write, Edit, Glob, Grep, Execute) mirroring the Claude Code tool surface. `BaseSandbox` ABC implements file ops via shell so new providers only implement `execute()`. First provider is `DaytonaSandbox` (~75 lines), with a full integration example covering filesystem, skills, and agent discovery on a remote sandbox.
+- **Backends package**: 6-method `BackendProtocol` (Read, Write, Edit, Glob, Grep, Execute). `BaseSandbox` ABC implements file ops via shell so new providers only implement `execute()`. First provider is `DaytonaSandbox` (~75 lines), with a full integration example covering filesystem, skills, and agent discovery on a remote sandbox.
 - **Permission system** with registration and per-call gates (allow/deny/ask), four presets (DEFAULT, READONLY, PERMISSIVE, STRICT), and HITL-driven approval prompts on `ask`.
 - **Unified `Agent` tool** with shape-based discrimination (`{id}` for predefined, `{prompt}` for ephemeral) and a matching `AgentTeam` schema, plus `TeamAgent` (SocietyOfMind-style) that exposes a lead + teammates as a single `AgentLike`.
 - **`AgentConfig`** carrying `tools`, `model`, `skills`, and `max_turns` parsed from frontmatter, accepted directly in `agents=` lists alongside compiled graphs. `AgentKit` auto-wires `model_resolver` and `skills_resolver` to sibling extensions.
@@ -149,11 +182,11 @@ Version bump only — no code changes.
 ### Added
 - New examples showcasing the middleware layer: `filesystem`, `shared_filesystem`, `tasks`, and `web_search`.
 - `Glob` tool now accepts a `path` parameter to scope searches to a specific directory.
-- `Grep` tool gains Claude Code-aligned options: `output_mode` (`files_with_matches`, `content`, `count`), context lines, and `head_limit`.
+- `Grep` tool gains aligned options: `output_mode` (`files_with_matches`, `content`, `count`), context lines, and `head_limit`.
 
 ### Changed
 - **BREAKING**: `Grep` default `output_mode` is now `files_with_matches` (previously returned matching content). Callers relying on content output must pass `output_mode="content"` explicitly.
-- `Read`, `Write`, and `Edit` tool descriptions realigned with the Claude Code tool spec for consistent agent behavior.
+- `Read`, `Write`, and `Edit` tool descriptions for consistent agent behavior.
 - Existing examples modernized to use the `agent` decorator with simplified state handling.
 - Filesystem middleware and VFS expanded with broader test coverage.
 

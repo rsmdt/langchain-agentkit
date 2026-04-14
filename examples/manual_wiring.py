@@ -40,7 +40,7 @@ bound_llm = llm.bind_tools(all_tools)
 
 async def researcher(state: dict) -> dict:
     """Research node that uses skills for methodology."""
-    prompt = kit.prompt(state)
+    prompt = kit.compose(state).joined
     messages = [SystemMessage(content=prompt)] + state["messages"]
     response = await bound_llm.ainvoke(messages)
     return {"messages": [response]}

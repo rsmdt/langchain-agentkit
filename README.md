@@ -102,7 +102,7 @@ graph = kit.compile(handler)          # uncompiled StateGraph
 app = graph.compile()                 # compiled, ready to invoke
 ```
 
-For **full manual control** over graph topology (custom routing, multi-node graphs, shared `ToolNode`), access `kit.tools`, `kit.prompt(state)`, `kit.model`, `kit.state_schema`, and `kit.hooks` directly:
+For **full manual control** over graph topology (custom routing, multi-node graphs, shared `ToolNode`), access `kit.tools`, `kit.compose(state)`, `kit.model`, `kit.state_schema`, and `kit.hooks` directly:
 
 ```python
 from langchain_core.messages import HumanMessage, SystemMessage
@@ -122,7 +122,7 @@ all_tools = kit.tools
 bound_llm = llm.bind_tools(all_tools)
 
 def agent_node(state):
-    prompt = kit.prompt(state)
+    prompt = kit.compose(state).joined
     messages = [SystemMessage(content=prompt)] + state["messages"]
     return {"messages": [bound_llm.invoke(messages)]}
 
