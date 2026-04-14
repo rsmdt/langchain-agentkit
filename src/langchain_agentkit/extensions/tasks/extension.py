@@ -17,10 +17,8 @@ if TYPE_CHECKING:
 
 _PROMPTS_DIR = Path(__file__).parent
 
-_base_agent_prompt = PromptTemplate.from_file(_PROMPTS_DIR / "base_agent_prompt.md")
 _task_management_prompt = PromptTemplate.from_file(_PROMPTS_DIR / "prompt.md")
 
-BASE_AGENT_PROMPT = _base_agent_prompt.format()
 TASK_MANAGEMENT_PROMPT = _task_management_prompt.format()
 
 _STATUS_ICONS = {
@@ -66,6 +64,8 @@ class TasksExtension(Extension):
         formatter: Optional custom function to format tasks into a prompt section.
     """
 
+    prompt_cache_scope = "dynamic"
+
     def __init__(
         self,
         *,
@@ -109,7 +109,5 @@ class TasksExtension(Extension):
         return self._tools  # type: ignore[return-value]
 
     def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
-        sections = [BASE_AGENT_PROMPT]
         tasks = state.get("tasks") or []
-        sections.append(self._formatter(tasks))
-        return "\n\n".join(sections)
+        return self._formatter(tasks)

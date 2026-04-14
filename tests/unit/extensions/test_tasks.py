@@ -8,7 +8,6 @@ from langgraph.prebuilt import ToolRuntime
 
 from langchain_agentkit.agent_kit import run_extension_setup
 from langchain_agentkit.extensions.tasks import (
-    BASE_AGENT_PROMPT,
     TASK_MANAGEMENT_PROMPT,
     TasksExtension,
     format_task_context,
@@ -55,21 +54,19 @@ class TestTasksExtensionTools:
 
 
 class TestTasksExtensionPrompt:
-    def test_prompt_with_no_tasks_includes_base_and_task_management(self):
+    def test_prompt_with_no_tasks_includes_task_management(self):
         mw = TasksExtension()
 
         result = mw.prompt({"tasks": []}, _TEST_RUNTIME)
 
-        assert BASE_AGENT_PROMPT in result
         assert TASK_MANAGEMENT_PROMPT in result
 
-    def test_prompt_with_tasks_includes_base_and_formatted_context(self):
+    def test_prompt_with_tasks_includes_formatted_context(self):
         mw = TasksExtension()
         tasks = [{"subject": "Write tests", "status": "in_progress"}]
 
         result = mw.prompt({"tasks": tasks}, _TEST_RUNTIME)
 
-        assert BASE_AGENT_PROMPT in result
         assert "Write tests" in result
         assert TASK_MANAGEMENT_PROMPT not in result
 
@@ -78,7 +75,6 @@ class TestTasksExtensionPrompt:
 
         result = mw.prompt({}, _TEST_RUNTIME)
 
-        assert BASE_AGENT_PROMPT in result
         assert TASK_MANAGEMENT_PROMPT in result
 
     def test_prompt_always_returns_string(self):

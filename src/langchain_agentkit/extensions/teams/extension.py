@@ -59,6 +59,8 @@ class TeamExtension(Extension):
             an LLM instance for model-accurate counting.
     """
 
+    prompt_cache_scope = "dynamic"
+
     def __init__(
         self,
         *,
@@ -344,7 +346,7 @@ class TeamExtension(Extension):
         from langchain_agentkit._graph_builder import build_ephemeral_graph
         from langchain_agentkit.composability import AgentLike
         from langchain_agentkit.extensions.teams.task_proxy import create_task_proxy_tools
-        from langchain_agentkit.extensions.teams.tools import (
+        from langchain_agentkit.extensions.teams.tools._shared import (
             _TEAMMATE_ADDENDUM,
             _compile_with_proxy_tasks,
         )
@@ -551,7 +553,10 @@ class TeamExtension(Extension):
         The team metadata persists across turns precisely so
         rehydration works; only ``TeamDissolve`` clears it.
         """
-        from langchain_agentkit.extensions.teams.tools import _cleanup_bus, _shutdown_team_tasks
+        from langchain_agentkit.extensions.teams.tools._shared import (
+            _cleanup_bus,
+            _shutdown_team_tasks,
+        )
 
         remaining = list(self._capture_buffer)
         self._capture_buffer.clear()

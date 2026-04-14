@@ -278,34 +278,41 @@ class TestBackendMode:
 
 
 class TestPrompt:
-    def test_returns_string_containing_skills_header(self):
+    def test_returns_dict_with_prompt_and_reminder(self):
         mw = SkillsExtension(skills=_make_configs())
 
         result = mw.prompt({}, _TEST_RUNTIME)
 
-        assert isinstance(result, str)
-        assert "## Skills" in result
+        assert isinstance(result, dict)
+        assert "## Skills" in result["prompt"]
+        assert "reminder" in result
+        assert "- market-sizing:" in result["reminder"]
 
     def test_includes_available_skill_names(self):
         mw = SkillsExtension(skills=_make_configs())
 
         result = mw.prompt({}, _TEST_RUNTIME)
 
-        assert "market-sizing" in result
+        assert "market-sizing" in result["prompt"]
 
     def test_includes_progressive_disclosure_instructions(self):
         mw = SkillsExtension(skills=_make_configs())
 
         result = mw.prompt({}, _TEST_RUNTIME)
 
-        assert "progressive disclosure" in result
+        assert "progressive disclosure" in result["prompt"]
 
     def test_no_skills_available_returns_marker(self):
         mw = SkillsExtension(skills=[])
 
         result = mw.prompt({}, _TEST_RUNTIME)
 
-        assert "(No skills available)" in result
+        assert "(No skills available)" in result["prompt"]
+        # No reminder section when no skills configured.
+        assert "reminder" not in result or not result.get("reminder")
+
+    def test_prompt_cache_scope_is_static(self):
+        assert SkillsExtension.prompt_cache_scope == "static"
 
 
 class TestStateSchema:
@@ -328,7 +335,7 @@ class TestSkillBudget:
 
         result = mw.prompt({}, _TEST_RUNTIME)
 
-        assert "A very long description that should not be truncated" in result
+        assert "A very long description that should not be truncated" in result["prompt"]
 
     def test_max_description_chars_truncates(self):
         configs = [
@@ -342,8 +349,8 @@ class TestSkillBudget:
 
         result = mw.prompt({}, _TEST_RUNTIME)
 
-        assert "This is a very long " in result
-        assert "exceeds the limit" not in result
+        assert "This is a very long " in result["prompt"]
+        assert "exceeds the limit" not in result["prompt"]
 
     def test_budget_percent_limits_listing(self):
         configs = [
@@ -354,8 +361,8 @@ class TestSkillBudget:
 
         result = mw.prompt({}, _TEST_RUNTIME)
 
-        assert "... and" in result
-        assert "more skills" in result
+        assert "... and" in result["prompt"]
+        assert "more skills" in result["prompt"]
 
     def test_budget_params_default_to_none(self):
         mw = SkillsExtension(skills=_make_configs())

@@ -25,7 +25,10 @@ from langchain_agentkit.extension import Extension
 from langchain_agentkit.extensions.skills.discovery import (
     discover_skills_from_directory,
 )
-from langchain_agentkit.extensions.skills.tools import build_skill_tool
+from langchain_agentkit.extensions.skills.tools import (
+    build_skill_tool,
+    render_skills_roster,
+)
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
@@ -47,6 +50,8 @@ class SkillsExtension(Extension):
         backend: Optional BackendProtocol for remote filesystem discovery.
             When provided with a path, discovery is deferred to ``setup()``.
     """
+
+    prompt_cache_scope = "static"
 
     def __init__(
         self,
@@ -110,10 +115,20 @@ class SkillsExtension(Extension):
             ]
         return self._tools_cache
 
-    def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
-        return _skills_system_prompt.format(
+    def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> dict[str, str]:
+        static_prompt = _skills_system_prompt.format(
             skills_list=self._format_skills_list(),
         )
+        out: dict[str, str] = {"prompt": static_prompt}
+        roster = render_skills_roster(
+            self._configs,
+            budget_percent=self._budget_percent,
+            max_description_chars=self._max_description_chars,
+            context_window=self._context_window,
+        )
+        if roster:
+            out["reminder"] = roster.lstrip("\n")
+        return out
 
     def _format_skills_list(self) -> str:
         if not self._configs:

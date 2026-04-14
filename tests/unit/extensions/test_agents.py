@@ -283,13 +283,16 @@ class TestPrompt:
         assert "coder" in result
         assert "Code specialist" in result
 
-    def test_prompt_includes_delegation_guidelines(self):
+    def test_prompt_includes_parallel_note(self):
         agent_a = _make_mock_agent("researcher", "Research specialist")
 
         mw = AgentsExtension(agents=[agent_a])
         result = mw.prompt({})
 
-        assert "Delegation Guidelines" in result
+        assert "concurrently" in result.lower()
+
+    def test_prompt_cache_scope_is_static(self):
+        assert AgentsExtension.prompt_cache_scope == "static"
 
     def test_prompt_references_agent_tool(self):
         agent_a = _make_mock_agent("researcher")

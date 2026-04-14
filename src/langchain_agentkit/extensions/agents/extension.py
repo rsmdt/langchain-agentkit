@@ -34,12 +34,13 @@ _CONCISENESS_DIRECTIVE = (
     "Synthesize the key findings — don't repeat the subagent's full response verbatim."
 )
 
-_DYNAMIC_SECTION = """\
-**To a custom agent** — define its role with a system prompt:
-```
-Agent(agent={prompt: "You are a legal expert..."}, message="...")
-```
-Custom agents are reasoning-only — they cannot use tools."""
+_DYNAMIC_SECTION = (
+    "\nEphemeral custom agents are supported — provide a system prompt "
+    "instead of a roster id. Ephemeral agents are reasoning-only and "
+    "cannot use tools."
+)
+
+_PARALLEL_NOTE = "\nMultiple Agent calls issued in the same turn run concurrently."
 
 
 def _get_tools_description(agent: Any) -> str:
@@ -96,6 +97,8 @@ class AgentsExtension(Extension):
         default_conciseness: Append conciseness directive.
         delegation_timeout: Max seconds to wait for a subagent response.
     """
+
+    prompt_cache_scope = "static"
 
     def __init__(
         self,
@@ -248,6 +251,7 @@ class AgentsExtension(Extension):
             agent_roster=roster,
             dynamic_section=dynamic_section,
         )
+        result += _PARALLEL_NOTE
         if self._default_conciseness:
             result += _CONCISENESS_DIRECTIVE
         return result

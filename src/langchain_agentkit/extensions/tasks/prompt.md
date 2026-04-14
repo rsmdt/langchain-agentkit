@@ -13,7 +13,7 @@ Use task tools when:
 Do NOT create tasks when:
 - The objective is a single action or a few tool calls
 - It's a conversational question or explanation
-- Delegating to tasks adds overhead without benefit (e.g., "fix this typo")
+- Delegating to tasks adds overhead without benefit (e.g., a trivial edit)
 - You already know exactly what to do and it takes under 30 seconds
 
 ### How to Decompose
@@ -36,29 +36,29 @@ When creating tasks:
 ### Examples
 
 <example>
-User: "Research React, Vue, and Svelte, then recommend one for our project"
+User: "Research three options and recommend one."
 
 Good decomposition:
-1. "Research React ecosystem" (no dependencies)
-2. "Research Vue ecosystem" (no dependencies)
-3. "Research Svelte ecosystem" (no dependencies)
-4. "Compare frameworks and recommend" (blocked_by: 1, 2, 3)
+1. "Research option A" (no dependencies)
+2. "Research option B" (no dependencies)
+3. "Research option C" (no dependencies)
+4. "Compare options and recommend" (blocked_by: 1, 2, 3)
 
 Tasks 1-3 are independent — work them in parallel. Task 4 depends on all three.
 </example>
 
 <example>
-User: "Add a logout button to the navbar"
+User: "Make a small adjustment to this document."
 
 Do NOT create tasks. This is a single, clear action. Just do it.
 </example>
 
 <example>
-User: "Set up CI/CD for this project"
+User: "Plan and execute a multi-stage rollout."
 
 Good decomposition:
-1. "Analyze project structure and test setup" (no dependencies)
-2. "Create GitHub Actions workflow for tests and lint" (blocked_by: 1)
-3. "Add build and deploy steps" (blocked_by: 2)
-4. "Verify pipeline runs successfully" (blocked_by: 3)
+1. "Assess current state and constraints" (no dependencies)
+2. "Draft rollout plan with milestones" (blocked_by: 1)
+3. "Execute rollout steps" (blocked_by: 2)
+4. "Verify outcome against success criteria" (blocked_by: 3)
 </example>

@@ -13,6 +13,11 @@ from langchain_agentkit.agent import agent
 from langchain_agentkit.extensions.history import HistoryExtension
 
 
+def _strip_reminders(messages: list[Any]) -> list[Any]:
+    """Filter out the system-reminder HumanMessage injected by AgentKit."""
+    return [m for m in messages if "<system-reminder>" not in (m.content or "")]
+
+
 def _make_llm(response: AIMessage | None = None) -> MagicMock:
     """Create a mock LLM that returns a canned response."""
     mock = MagicMock()
@@ -46,9 +51,12 @@ class TestHistoryExtensionGraphIntegration:
         messages = [HumanMessage(content=f"msg-{i}") for i in range(10)]
         await compiled.ainvoke({"messages": messages})
 
-        # Handler should have received only the last 3 messages
-        assert len(received) == 3
-        assert [m.content for m in received] == ["msg-7", "msg-8", "msg-9"]
+        # Handler should have received only the last 3 messages (reminder is
+        # injected AFTER truncation and so does not count toward the window
+        # seen during truncation).
+        received_no_reminder = _strip_reminders(received)
+        assert len(received_no_reminder) == 3
+        assert [m.content for m in received_no_reminder] == ["msg-7", "msg-8", "msg-9"]
 
     @pytest.mark.asyncio
     async def test_result_contains_truncated_window_plus_response(self):
@@ -127,9 +135,11 @@ class TestHistoryExtensionGraphIntegration:
         ]
         await compiled.ainvoke({"messages": messages})
 
-        # Should have truncated to fit within 10 tokens
-        assert len(received) == 2
-        assert [m.content for m in received] == ["bbbb", "cccc"]
+        # Should have truncated to fit within 10 tokens (strip the reminder
+        # HumanMessage injected at handler-entry).
+        received_no_reminder = _strip_reminders(received)
+        assert len(received_no_reminder) == 2
+        assert [m.content for m in received_no_reminder] == ["bbbb", "cccc"]
 
     @pytest.mark.asyncio
     async def test_custom_strategy_integration(self):
@@ -228,7 +238,7 @@ class TestHistoryExtensionCheckpointerPersistence:
 
         # Handler on turn 2 should see last 3 of (persisted-lean + new) =
         # ["a-2","a-3","a-4","reply-1","b-0","b-1"] → ["reply-1","b-0","b-1"]
-        turn2_seen = [m.content for m in received_per_turn[1]]
+        turn2_seen = [m.content for m in _strip_reminders(received_per_turn[1])]
         assert turn2_seen == ["reply-1", "b-0", "b-1"]
 
         # And the checkpointer still holds only kept window + reply-2
