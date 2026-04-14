@@ -51,8 +51,6 @@ class SkillsExtension(Extension):
             When provided with a path, discovery is deferred to ``setup()``.
     """
 
-    prompt_cache_scope = "static"
-
     def __init__(
         self,
         *,

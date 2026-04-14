@@ -59,8 +59,6 @@ class TeamExtension(Extension):
             an LLM instance for model-accurate counting.
     """
 
-    prompt_cache_scope = "dynamic"
-
     def __init__(
         self,
         *,

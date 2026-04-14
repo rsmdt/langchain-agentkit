@@ -18,7 +18,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, ClassVar, Literal
+from typing import TYPE_CHECKING, Any
 
 from langchain_agentkit.extension import Extension
 
@@ -71,8 +71,6 @@ class MemoryExtension(Extension):
         "Memory records may be stale. Verify facts against current state before acting on them."
     )
     loader: Callable[[], str | None] | None = None
-
-    prompt_cache_scope: ClassVar[Literal["static", "dynamic"]] = "dynamic"
 
     # ``Extension.__init_subclass__`` populates this at class-definition
     # time on subclasses; when we add ``@dataclass`` the base class's

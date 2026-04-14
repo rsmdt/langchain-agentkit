@@ -9,9 +9,7 @@ from langchain_agentkit.extension import Extension
 from langchain_agentkit.prompt_composition import PromptComposition
 
 
-class _StaticExt(Extension):
-    prompt_cache_scope = "static"
-
+class _StrExt(Extension):
     def __init__(self, text: str) -> None:
         self._text = text
 
@@ -19,33 +17,7 @@ class _StaticExt(Extension):
         return self._text
 
 
-class _DynamicExt(Extension):
-    # default prompt_cache_scope is "dynamic"
-    def __init__(self, text: str) -> None:
-        self._text = text
-
-    def prompt(self, state, runtime=None):
-        return self._text
-
-
-class _StaticDictExt(Extension):
-    prompt_cache_scope = "static"
-
-    def __init__(self, *, prompt: str = "", reminder: str = "") -> None:
-        self._prompt = prompt
-        self._reminder = reminder
-
-    def prompt(self, state, runtime=None):
-        out: dict[str, str] = {}
-        if self._prompt:
-            out["prompt"] = self._prompt
-        if self._reminder:
-            out["reminder"] = self._reminder
-        return out
-
-
-class _DynamicDictExt(Extension):
-    # default scope = dynamic
+class _DictExt(Extension):
     def __init__(self, *, prompt: str = "", reminder: str = "") -> None:
         self._prompt = prompt
         self._reminder = reminder
@@ -65,8 +37,6 @@ class _NoneExt(Extension):
 
 
 class _EmptyStrExt(Extension):
-    prompt_cache_scope = "static"
-
     def prompt(self, state, runtime=None):
         return ""
 
@@ -75,35 +45,14 @@ class TestPromptCompositionDataclass:
     def test_is_frozen(self):
         from dataclasses import FrozenInstanceError
 
-        comp = PromptComposition(static="a", dynamic="b", reminder="c")
+        comp = PromptComposition(prompt="a", reminder="b")
         with pytest.raises(FrozenInstanceError):
-            comp.static = "x"  # type: ignore[misc]
+            comp.prompt = "x"  # type: ignore[misc]
 
     def test_default_fields_are_empty(self):
         comp = PromptComposition()
-        assert comp.static == ""
-        assert comp.dynamic == ""
+        assert comp.prompt == ""
         assert comp.reminder == ""
-
-    def test_joined_concatenates_with_double_newline(self):
-        comp = PromptComposition(static="A", dynamic="B")
-        assert comp.joined == "A\n\nB"
-
-    def test_joined_filters_empty_static(self):
-        comp = PromptComposition(static="", dynamic="B")
-        assert comp.joined == "B"
-
-    def test_joined_filters_empty_dynamic(self):
-        comp = PromptComposition(static="A", dynamic="")
-        assert comp.joined == "A"
-
-    def test_joined_all_empty(self):
-        comp = PromptComposition()
-        assert comp.joined == ""
-
-    def test_joined_excludes_reminder(self):
-        comp = PromptComposition(static="A", dynamic="B", reminder="R")
-        assert "R" not in comp.joined
 
 
 class TestComposeReturnType:
@@ -114,123 +63,63 @@ class TestComposeReturnType:
         assert isinstance(result, PromptComposition)
 
 
-class TestBasePromptRoutesToStatic:
-    def test_base_prompt_goes_to_static(self):
+class TestComposePromptJoining:
+    def test_base_prompt_only(self):
         kit = AgentKit(extensions=[], prompt="Base prompt")
         result = kit.compose({}, None)
-        assert result.static == "Base prompt"
-        assert result.dynamic == ""
+        assert result.prompt == "Base prompt"
 
-    def test_empty_base_prompt_no_static(self):
+    def test_empty_base_prompt(self):
         kit = AgentKit(extensions=[])
         result = kit.compose({}, None)
-        assert result.static == ""
+        assert result.prompt == ""
 
-
-class TestPromptCacheScope:
-    def test_default_scope_is_dynamic(self):
-        assert Extension.prompt_cache_scope == "dynamic"
-
-    def test_str_return_routed_to_static_when_declared(self):
-        kit = AgentKit(extensions=[_StaticExt("stable")])
+    def test_base_plus_extension_joined_with_double_newline(self):
+        kit = AgentKit(extensions=[_StrExt("Section A")], prompt="Base")
         result = kit.compose({}, None)
-        assert result.static == "stable"
-        assert result.dynamic == ""
+        assert result.prompt == "Base\n\nSection A"
 
-    def test_str_return_routed_to_dynamic_by_default(self):
-        kit = AgentKit(extensions=[_DynamicExt("live")])
+    def test_sections_joined_in_declaration_order(self):
+        kit = AgentKit(
+            extensions=[_StrExt("first"), _StrExt("second")],
+            prompt="Base",
+        )
         result = kit.compose({}, None)
-        assert result.static == ""
-        assert result.dynamic == "live"
-
-    def test_base_prompt_and_static_extension_combined(self):
-        kit = AgentKit(extensions=[_StaticExt("stable")], prompt="Base")
-        result = kit.compose({}, None)
-        assert result.static == "Base\n\nstable"
+        assert result.prompt == "Base\n\nfirst\n\nsecond"
 
 
 class TestDictReturn:
-    def test_dict_prompt_key_routed_by_scope_static(self):
-        kit = AgentKit(extensions=[_StaticDictExt(prompt="S")])
+    def test_dict_prompt_routed_to_prompt_channel(self):
+        kit = AgentKit(extensions=[_DictExt(prompt="P")])
         result = kit.compose({}, None)
-        assert result.static == "S"
-        assert result.dynamic == ""
-
-    def test_dict_prompt_key_routed_by_scope_dynamic(self):
-        kit = AgentKit(extensions=[_DynamicDictExt(prompt="D")])
-        result = kit.compose({}, None)
-        assert result.static == ""
-        assert result.dynamic == "D"
+        assert result.prompt == "P"
 
     def test_dict_reminder_appended_to_reminder_channel(self, tmp_path, monkeypatch):
         monkeypatch.chdir(tmp_path)
-        kit = AgentKit(extensions=[_DynamicDictExt(reminder="R")])
+        kit = AgentKit(extensions=[_DictExt(reminder="R")])
         result = kit.compose({}, None)
+        assert "# _DictExt" in result.reminder
         assert "R" in result.reminder
 
     def test_dict_unknown_keys_ignored(self):
         class _WeirdExt(Extension):
-            prompt_cache_scope = "static"
-
             def prompt(self, state, runtime=None):
-                return {"prompt": "S", "other": "x", "static": "ignored", "dynamic": "ignored"}
+                return {"prompt": "P", "other": "x", "static": "ignored", "dynamic": "ignored"}
 
         kit = AgentKit(extensions=[_WeirdExt()])
         result = kit.compose({}, None)
-        assert result.static == "S"
-        assert result.dynamic == ""
-        assert "ignored" not in result.static
-        assert "ignored" not in result.dynamic
-
-    def test_dict_static_dynamic_keys_no_longer_recognized(self):
-        """The legacy ``{static, dynamic}`` dict shape is ignored now."""
-
-        class _LegacyExt(Extension):
-            prompt_cache_scope = "static"
-
-            def prompt(self, state, runtime=None):
-                return {"static": "legacy-static", "dynamic": "legacy-dynamic"}
-
-        kit = AgentKit(extensions=[_LegacyExt()])
-        result = kit.compose({}, None)
-        assert "legacy-static" not in result.static
-        assert "legacy-dynamic" not in result.dynamic
+        assert result.prompt == "P"
+        assert "ignored" not in result.prompt
+        assert "ignored" not in result.reminder
 
 
 class TestEmptyAndNoneReturns:
     def test_none_contributes_nothing(self):
         kit = AgentKit(extensions=[_NoneExt()], prompt="Base")
         result = kit.compose({}, None)
-        assert result.static == "Base"
-        assert result.dynamic == ""
+        assert result.prompt == "Base"
 
     def test_empty_string_contributes_nothing(self):
         kit = AgentKit(extensions=[_EmptyStrExt()], prompt="Base")
         result = kit.compose({}, None)
-        assert result.static == "Base"
-
-
-class TestSectionOrdering:
-    def test_sections_joined_in_declaration_order(self):
-        kit = AgentKit(
-            extensions=[_StaticExt("first"), _StaticExt("second")],
-            prompt="Base",
-        )
-        result = kit.compose({}, None)
-        assert result.static == "Base\n\nfirst\n\nsecond"
-
-    def test_dynamic_sections_joined_in_order(self):
-        kit = AgentKit(
-            extensions=[_DynamicExt("one"), _DynamicExt("two")],
-        )
-        result = kit.compose({}, None)
-        assert result.dynamic == "one\n\ntwo"
-
-    def test_mixed_scopes_preserved(self):
-        kit = AgentKit(
-            extensions=[_DynamicExt("D1"), _StaticExt("S1"), _DynamicExt("D2")],
-            prompt="Base",
-        )
-        result = kit.compose({}, None)
-        assert result.static == "Base\n\nS1"
-        assert result.dynamic == "D1\n\nD2"
+        assert result.prompt == "Base"

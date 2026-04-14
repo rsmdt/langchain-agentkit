@@ -4,4 +4,5 @@ Is a git repository: {is_git}
 Platform: {platform}
 Shell: {shell}
 OS Version: {os_version}
-{worktree_line}</env>
+{worktree_line}
+</env>

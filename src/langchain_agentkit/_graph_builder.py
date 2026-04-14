@@ -147,7 +147,7 @@ def build_graph(  # noqa: C901
         # NOTE: called per-step intentionally. Extension prompts are dynamic —
         # they render current state (task list, team status). Do NOT hoist this.
         composition = kit.compose(handler_state, runtime)
-        composed_prompt = composition.joined
+        composed_prompt = composition.prompt
 
         # NOTE: tool binding is the handler's responsibility. The framework
         # injects the raw ``llm`` and the composed ``tools`` list; the handler

@@ -20,7 +20,7 @@ Advanced case — decorators with per-tool filtering::
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any, ClassVar, Literal
+from typing import Any
 
 # Named method patterns recognized as hooks
 _NAMED_HOOK_METHODS: dict[str, tuple[str, str]] = {
@@ -53,16 +53,6 @@ class Extension:
 
     _decorated_hooks: dict[tuple[str, str], list[Any]]
 
-    #: Cache scope for this extension's default ``prompt()`` contribution.
-    #:
-    #: When ``prompt()`` returns a plain string (not a ``dict``), the string is
-    #: routed to either the ``static`` or ``dynamic`` section of the composed
-    #: system prompt according to this attribute. Extensions that emit stable,
-    #: rarely-changing content should set this to ``"static"`` to maximize
-    #: prompt-cache reuse; extensions whose prompts render live state should
-    #: leave the default of ``"dynamic"``.
-    prompt_cache_scope: ClassVar[Literal["static", "dynamic"]] = "dynamic"
-
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         hooks: dict[tuple[str, str], list[Any]] = defaultdict(list)
@@ -88,11 +78,10 @@ class Extension:
         Called on every LLM invocation. May return:
 
         - ``None`` or ``""`` — contribute nothing.
-        - ``str`` — contribute a single section, routed to the scope declared
-          by :attr:`prompt_cache_scope` (``"static"`` or ``"dynamic"``).
+        - ``str`` — appended to the system prompt in declaration order.
         - ``dict`` with any of the keys ``"prompt"`` and ``"reminder"``:
 
-          * ``"prompt"`` is routed by :attr:`prompt_cache_scope`.
+          * ``"prompt"`` is appended to the system prompt.
           * ``"reminder"`` is appended to AgentKit's ``<system-reminder>``
             envelope under a ``# <ExtensionClassName>`` header.
 

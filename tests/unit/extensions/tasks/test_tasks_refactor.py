@@ -67,9 +67,6 @@ class TestTasksExtensionPromptContent:
         assert "Write tests" in result
         assert "Core Behavior" not in result
 
-    def test_prompt_cache_scope_is_dynamic(self):
-        assert TasksExtension.prompt_cache_scope == "dynamic"
-
 
 class TestTaskManagementPromptIsDomainNeutral:
     @pytest.mark.parametrize(

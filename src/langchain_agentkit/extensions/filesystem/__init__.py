@@ -1,4 +1,4 @@
-"""Filesystem extension — Claude Code-aligned file tools."""
+"""Filesystem extension — standard file tools."""
 
 from langchain_agentkit.extensions.filesystem.extension import FilesystemExtension
 from langchain_agentkit.extensions.filesystem.tools import create_filesystem_tools

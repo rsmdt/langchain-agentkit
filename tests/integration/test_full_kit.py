@@ -33,18 +33,18 @@ class _StubExtension:
 
 
 class TestFullPresetDefaults:
-    def test_preset_full_seeds_core_behavior_tasks_memory(self) -> None:
+    def test_preset_full_seeds_core_behavior_and_tasks(self) -> None:
         kit = AgentKit(preset="full")
         types = [type(e) for e in kit.extensions]
         assert CoreBehaviorExtension in types
         assert TasksExtension in types
-        assert MemoryExtension in types
+        assert MemoryExtension not in types
 
-    def test_preset_full_order_is_core_tasks_memory(self) -> None:
+    def test_preset_full_order_is_core_then_tasks(self) -> None:
         kit = AgentKit(preset="full")
         types = [type(e) for e in kit.extensions]
-        seeded = [t for t in types if t in {CoreBehaviorExtension, TasksExtension, MemoryExtension}]
-        assert seeded == [CoreBehaviorExtension, TasksExtension, MemoryExtension]
+        seeded = [t for t in types if t in {CoreBehaviorExtension, TasksExtension}]
+        assert seeded == [CoreBehaviorExtension, TasksExtension]
 
     def test_no_preset_leaves_extensions_empty(self) -> None:
         kit = AgentKit()
@@ -62,15 +62,15 @@ class TestFullPresetDefaults:
         composition = kit.compose({})
         today = _dt.date.today().strftime("%Y-%m-%d")
         assert today in composition.reminder
-        assert composition.static  # non-empty static section
+        assert composition.prompt  # non-empty prompt section
 
-    def test_compose_has_non_empty_static(
+    def test_compose_has_non_empty_prompt(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         monkeypatch.chdir(tmp_path)
         kit = AgentKit(preset="full")
         composition = kit.compose({})
-        assert composition.static.strip()
+        assert composition.prompt.strip()
 
     def test_base_prompt_forwarded(self) -> None:
         kit = AgentKit(preset="full", prompt="You are a code reviewer.")

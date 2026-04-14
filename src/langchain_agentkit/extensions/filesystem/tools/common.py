@@ -8,7 +8,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, Field
 
 # ---------------------------------------------------------------------------
-# File type constants (ported from Claude Code constants/files.ts)
+# File type constants
 # ---------------------------------------------------------------------------
 
 BINARY_EXTENSIONS: frozenset[str] = frozenset(

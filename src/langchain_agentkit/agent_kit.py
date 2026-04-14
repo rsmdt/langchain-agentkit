@@ -19,7 +19,7 @@ surface. ``compile(handler)`` builds a complete ReAct graph with hooks wired.
 
     kit = AgentKit(extensions=exts)
     kit.tools                     # merged user + extension tools
-    kit.compose(state, runtime)   # PromptComposition(static, dynamic, reminder)
+    kit.compose(state, runtime)   # PromptComposition(prompt, reminder)
     kit.model                     # resolved BaseChatModel
     kit.state_schema   # composed TypedDict from extensions
     kit.hooks          # HookRunner for manual lifecycle wiring
@@ -67,9 +67,8 @@ class AgentKit:
         name: Graph node name (default ``"agent"``).
         preset: Optional preset that seeds a curated extension stack.
             When ``"full"``, the kit prepends
-            ``[CoreBehaviorExtension(), TasksExtension(),
-            MemoryExtension(path="~/.agents/memory")]`` ahead of any
-            user-supplied ``extensions=[...]``. ``None`` (default)
+            ``[CoreBehaviorExtension(), TasksExtension()]`` ahead of
+            any user-supplied ``extensions=[...]``. ``None`` (default)
             leaves the extension list untouched. Unknown preset
             strings raise :class:`ValueError`.
 
@@ -254,24 +253,16 @@ class AgentKit:
     def compose(
         self, state: dict[str, Any], runtime: ToolRuntime | None = None
     ) -> PromptComposition:
-        """Compose the per-step system prompt into static/dynamic/reminder scopes.
+        """Compose the per-step system prompt and reminder envelope.
 
-        Iterates each extension's ``prompt()`` exactly once and routes
-        every contribution to the matching channel of the returned
-        :class:`PromptComposition`:
+        Iterates each extension's ``prompt()`` exactly once:
 
-        - The kit-level base prompt is routed to ``static``.
-        - ``str`` returns are routed to the scope declared by the
-          extension's :attr:`Extension.prompt_cache_scope` attribute
-          (defaults to ``"dynamic"``).
-        - ``dict`` returns may carry the keys ``"prompt"`` and
-          ``"reminder"``:
-
-            * ``"prompt"`` is routed by ``prompt_cache_scope``.
-            * ``"reminder"`` is appended to the reminder channel as a
-              ``# <ext-class-name>`` section.
-
-          Unknown keys are silently ignored.
+        - The kit-level base prompt is emitted first.
+        - ``str`` returns are appended to the prompt channel.
+        - ``dict`` returns may carry ``"prompt"`` and ``"reminder"`` keys.
+          ``"prompt"`` is appended to the prompt channel; ``"reminder"``
+          is appended to the reminder channel as a
+          ``# <ext-class-name>`` section. Unknown keys are ignored.
         - ``None`` and empty-string returns contribute nothing.
 
         The reminder channel always starts with AgentKit's built-in
@@ -279,11 +270,10 @@ class AgentKit:
         When every source is empty, the ``reminder`` field is the
         empty string.
 
-        Sections within each scope are joined with ``"\\n\\n"`` in
-        extension declaration order.
+        Prompt sections are joined with ``"\\n\\n"`` in extension
+        declaration order.
         """
-        static_parts: list[str] = [self._prompt] if self._prompt else []
-        dynamic_parts: list[str] = []
+        prompt_parts: list[str] = [self._prompt] if self._prompt else []
         reminder_sections: list[str] = []
 
         for ext in self._extensions:
@@ -291,13 +281,12 @@ class AgentKit:
             if result is None:
                 continue
             if isinstance(result, str):
-                if not result:
-                    continue
-                self._route_scoped(ext, result, static_parts, dynamic_parts)
+                if result:
+                    prompt_parts.append(result)
             elif isinstance(result, dict):
                 prompt_piece = result.get("prompt")
                 if isinstance(prompt_piece, str) and prompt_piece:
-                    self._route_scoped(ext, prompt_piece, static_parts, dynamic_parts)
+                    prompt_parts.append(prompt_piece)
                 reminder_piece = result.get("reminder")
                 if isinstance(reminder_piece, str) and reminder_piece:
                     key = type(ext).__name__
@@ -305,23 +294,9 @@ class AgentKit:
 
         reminder = assemble_builtin_reminder(reminder_sections)
         return PromptComposition(
-            static="\n\n".join(static_parts),
-            dynamic="\n\n".join(dynamic_parts),
+            prompt="\n\n".join(prompt_parts),
             reminder=reminder,
         )
-
-    @staticmethod
-    def _route_scoped(
-        ext: Any,
-        piece: str,
-        static_parts: list[str],
-        dynamic_parts: list[str],
-    ) -> None:
-        scope = getattr(ext, "prompt_cache_scope", "dynamic")
-        if scope == "static":
-            static_parts.append(piece)
-        else:
-            dynamic_parts.append(piece)
 
     def system_reminder(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
         """Return the reminder channel from :meth:`compose`."""
@@ -336,13 +311,11 @@ def _seed_preset_extensions(preset: str | None) -> list[Any]:
         raise ValueError(f"Unknown preset {preset!r}. Valid presets: {sorted(_VALID_PRESETS)!r}.")
     if preset == "full":
         from langchain_agentkit.extensions.core_behavior import CoreBehaviorExtension
-        from langchain_agentkit.extensions.memory import MemoryExtension
         from langchain_agentkit.extensions.tasks import TasksExtension
 
         return [
             CoreBehaviorExtension(),
             TasksExtension(),
-            MemoryExtension(path="~/.agents/memory"),
         ]
     return []  # pragma: no cover — guarded by _VALID_PRESETS
 

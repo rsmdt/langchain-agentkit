@@ -291,9 +291,6 @@ class TestPrompt:
 
         assert "concurrently" in result.lower()
 
-    def test_prompt_cache_scope_is_static(self):
-        assert AgentsExtension.prompt_cache_scope == "static"
-
     def test_prompt_references_agent_tool(self):
         agent_a = _make_mock_agent("researcher")
 

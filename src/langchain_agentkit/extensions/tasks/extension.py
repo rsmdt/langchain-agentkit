@@ -64,8 +64,6 @@ class TasksExtension(Extension):
         formatter: Optional custom function to format tasks into a prompt section.
     """
 
-    prompt_cache_scope = "dynamic"
-
     def __init__(
         self,
         *,

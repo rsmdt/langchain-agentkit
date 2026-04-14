@@ -1,7 +1,7 @@
 """Filesystem tools operating on a BackendProtocol.
 
 Provides five tools: ``Read``, ``Write``, ``Edit``, ``Glob``, ``Grep``.
-Parameters and descriptions match the Claude Code tool API.
+Parameters and descriptions follow a standard file-tool API.
 
 Usage::
 

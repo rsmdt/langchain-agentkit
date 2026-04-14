@@ -68,7 +68,7 @@ async def _invoke_once(
 ) -> AIMessage:
     """Run one LLM turn the way the compiled graph does.
 
-    Builds the system message from ``kit.compose(state).joined`` and
+    Builds the system message from ``kit.compose(state).prompt`` and
     appends the reminder as a HumanMessage just before the user input —
     mirrors ``_graph_builder._inject_system_reminder`` so reminder-
     channel evals are faithful.
@@ -79,8 +79,8 @@ async def _invoke_once(
 
     composition = kit.compose(state)
     messages: list[Any] = []
-    if composition.joined:
-        messages.append(SystemMessage(content=composition.joined))
+    if composition.prompt:
+        messages.append(SystemMessage(content=composition.prompt))
     messages.extend(state["messages"])
     if composition.reminder:
         messages.append(HumanMessage(content=composition.reminder))
@@ -459,7 +459,7 @@ class TestCoreBehaviorTerseReplies:
         from langchain_agentkit.extensions.core_behavior import CoreBehaviorExtension
 
         def trial() -> tuple[bool, str]:
-            kit = _make_kit(extensions=[CoreBehaviorExtension(include_env=False)])
+            kit = _make_kit(extensions=[CoreBehaviorExtension()])
             msg = _run(_invoke_once(kit, "What is 2+2?"))
             text = msg.content if isinstance(msg.content, str) else str(msg.content)
             if len(text.strip()) <= 50 and "4" in text:
@@ -481,7 +481,7 @@ class TestCoreBehaviorParallelToolCalls:
             keep = {"Read", "Grep", "Glob"}
             tools = [t for t in fs.tools if t.name in keep]
             kit = _make_kit(
-                extensions=[CoreBehaviorExtension(include_env=False)],
+                extensions=[CoreBehaviorExtension()],
                 tools=tools,
             )
             msg = _run(
@@ -511,7 +511,7 @@ class TestCoreBehaviorPreferDedicatedTools:
         def trial() -> tuple[bool, str]:
             fs = FilesystemExtension(root=str(repo_fixture))
             kit = _make_kit(
-                extensions=[CoreBehaviorExtension(include_env=False)],
+                extensions=[CoreBehaviorExtension()],
                 tools=list(fs.tools),
             )
             msg = _run(_invoke_once(kit, "Search for all usages of class_name `Foo`."))
@@ -857,7 +857,7 @@ class TestCurrentDateInReminderUsedByAgent:
         year = str(_dt.date.today().year)
 
         def trial() -> tuple[bool, str]:
-            kit = _make_kit(extensions=[CoreBehaviorExtension(include_env=False)])
+            kit = _make_kit(extensions=[CoreBehaviorExtension()])
             msg = _run(_invoke_once(kit, "What is today's date?"))
             text = msg.content if isinstance(msg.content, str) else str(msg.content)
             if year in text:
@@ -879,9 +879,9 @@ class TestPresetFullSmoke:
         kit = _make_kit(extensions=[], preset="full", model=_llm())
 
         # The preset must seed CoreBehavior + Tasks + Memory, so the
-        # static channel is non-empty.
+        # prompt channel is non-empty.
         composition = kit.compose({"messages": []})
-        assert composition.static, "preset='full' should seed a non-empty static prompt"
+        assert composition.prompt, "preset='full' should seed a non-empty prompt"
 
         msg = _run(_invoke_once(kit, "Give me a one-sentence greeting."))
         text = msg.content if isinstance(msg.content, str) else str(msg.content)

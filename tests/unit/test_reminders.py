@@ -53,14 +53,12 @@ class TestExtensionReminderContribution:
         monkeypatch.chdir(tmp_path)
 
         class _Ext(Extension):
-            prompt_cache_scope = "static"
-
             def prompt(self, state, runtime=None):
                 return {"prompt": "S", "reminder": "R"}
 
         kit = AgentKit(extensions=[_Ext()])
         result = kit.compose({}, None)
-        assert "S" in result.static
+        assert "S" in result.prompt
         assert "R" in result.reminder
 
     def test_empty_reminder_value_skipped(self, tmp_path, monkeypatch):

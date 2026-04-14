@@ -75,7 +75,7 @@ def _build_agent(extensions_list):
     bound_llm = llm.bind_tools(kit.tools)
 
     async def agent_node(state: dict) -> dict:
-        system = SystemMessage(content=kit.compose(state).joined)
+        system = SystemMessage(content=kit.compose(state).prompt)
         messages = [system] + state["messages"]
         return {"messages": [await bound_llm.ainvoke(messages)]}
 

@@ -132,9 +132,6 @@ class TestPrompt:
             for name in ("Read", "Write", "Edit", "Glob", "Grep", "Bash"):
                 assert name not in result
 
-    def test_prompt_cache_scope_is_static(self):
-        assert FilesystemExtension.prompt_cache_scope == "static"
-
 
 class TestStateSchema:
     def test_returns_none(self):

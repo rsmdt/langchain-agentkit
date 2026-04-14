@@ -72,7 +72,7 @@ class ExecuteResponse(TypedDict):
 class BackendProtocol(Protocol):
     """The 7-method async interface for agent environments.
 
-    All methods are coroutines. Mirrors the Claude Code tool surface:
+    All methods are coroutines. Covers the standard tool surface:
     - ``read`` → Read
     - ``write`` → Write
     - ``edit`` → Edit

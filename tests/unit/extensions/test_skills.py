@@ -311,9 +311,6 @@ class TestPrompt:
         # No reminder section when no skills configured.
         assert "reminder" not in result or not result.get("reminder")
 
-    def test_prompt_cache_scope_is_static(self):
-        assert SkillsExtension.prompt_cache_scope == "static"
-
 
 class TestStateSchema:
     def test_state_schema_is_none(self):

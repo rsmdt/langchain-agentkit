@@ -29,7 +29,7 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
 # ---------------------------------------------------------------------------
-# Quote normalization constants (ported from Claude Code utils.ts)
+# Quote normalization constants
 # ---------------------------------------------------------------------------
 
 _LEFT_SINGLE_CURLY = "\u2018"  # '

@@ -118,7 +118,7 @@ def _build_ask_user_agent():
 
     async def agent_node(state: dict) -> dict:
         bound = llm.bind_tools(kit.tools)
-        system = SystemMessage(content=prompt_text + kit.compose(state).joined)
+        system = SystemMessage(content=prompt_text + kit.compose(state).prompt)
         msgs = [system] + state["messages"]
         return {"messages": [await bound.ainvoke(msgs)]}
 

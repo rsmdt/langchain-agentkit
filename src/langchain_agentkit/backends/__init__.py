@@ -5,7 +5,7 @@ Two backends are provided:
 - ``OSBackend`` — native local filesystem via Python stdlib.
 - ``DaytonaBackend`` — Daytona cloud sandbox via shell commands.
 
-Both implement the ``BackendProtocol`` which mirrors the Claude Code
+Both implement the ``BackendProtocol`` covering the standard
 tool surface: Read, Write, Edit, Glob, Grep, Bash.
 
 Usage::

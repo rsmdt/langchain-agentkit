@@ -124,7 +124,7 @@ class TestAgentKitPrompt:
         mw2 = StubExtension(prompt_text="Section B")
 
         kit = AgentKit(extensions=[mw1, mw2])
-        result = kit.compose({}, None).joined
+        result = kit.compose({}, None).prompt
 
         assert result == "Section A\n\nSection B"
 
@@ -133,13 +133,13 @@ class TestAgentKitPrompt:
         mw2 = StubExtension(prompt_text=None)
 
         kit = AgentKit(extensions=[mw1, mw2])
-        result = kit.compose({}, None).joined
+        result = kit.compose({}, None).prompt
 
         assert result == "Only section"
 
     def test_empty_extensions_returns_empty_string(self):
         kit = AgentKit(extensions=[])
-        result = kit.compose({}, None).joined
+        result = kit.compose({}, None).prompt
 
         assert result == ""
 
@@ -147,13 +147,13 @@ class TestAgentKitPrompt:
         mw = StubExtension(prompt_text="extensions section")
 
         kit = AgentKit(extensions=[mw], prompt="System template")
-        result = kit.compose({}, None).joined
+        result = kit.compose({}, None).prompt
 
         assert result == "System template\n\nextensions section"
 
     def test_template_from_inline_string(self):
         kit = AgentKit(extensions=[], prompt="Inline prompt")
-        result = kit.compose({}, None).joined
+        result = kit.compose({}, None).prompt
 
         assert result == "Inline prompt"
 
@@ -161,7 +161,7 @@ class TestAgentKitPrompt:
         fixture_path = FIXTURES / "prompts" / "nodes" / "researcher.md"
 
         kit = AgentKit(extensions=[], prompt=fixture_path)
-        result = kit.compose({}, None).joined
+        result = kit.compose({}, None).prompt
 
         assert "Research Assistant" in result
 
@@ -170,7 +170,7 @@ class TestAgentKitPrompt:
         analyst = FIXTURES / "prompts" / "nodes" / "analyst.md"
 
         kit = AgentKit(extensions=[], prompt=[researcher, analyst])
-        result = kit.compose({}, None).joined
+        result = kit.compose({}, None).prompt
 
         assert "Research Assistant" in result
         assert "data analyst" in result
@@ -178,14 +178,14 @@ class TestAgentKitPrompt:
 
     def test_template_list_with_inline_strings(self):
         kit = AgentKit(extensions=[], prompt=["Part one", "Part two"])
-        result = kit.compose({}, None).joined
+        result = kit.compose({}, None).prompt
 
         assert result == "Part one\n\nPart two"
 
     def test_nonexistent_path_treated_as_inline_string(self):
         """A string that looks like a path but doesn't exist is treated as inline."""
         kit = AgentKit(extensions=[], prompt="nonexistent/path/prompt.md")
-        result = kit.compose({}, None).joined
+        result = kit.compose({}, None).prompt
 
         assert result == "nonexistent/path/prompt.md"
 
@@ -203,7 +203,7 @@ class TestAgentKitIntegration:
         assert kit.tools[0].name == "tool_a"
         assert kit.tools[1].name == "tool_b"
 
-        prompt = kit.compose({}, None).joined
+        prompt = kit.compose({}, None).prompt
         assert prompt == "You are an agent.\n\nUse tool_a for X\n\nUse tool_b for Y"
 
 
@@ -241,7 +241,7 @@ class TestDictPromptReturn:
         mw = StubExtension(prompt_text="Hello")
         kit = AgentKit(extensions=[mw])
 
-        result = kit.compose({}, None).joined
+        result = kit.compose({}, None).prompt
 
         assert result == "Hello"
 
@@ -249,7 +249,7 @@ class TestDictPromptReturn:
         mw = DictPromptExtension(prompt_text="Live")
         kit = AgentKit(extensions=[mw])
 
-        result = kit.compose({}, None).joined
+        result = kit.compose({}, None).prompt
 
         assert "Live" in result
 
@@ -257,7 +257,7 @@ class TestDictPromptReturn:
         mw = DictPromptExtension(prompt_text="")
         kit = AgentKit(extensions=[mw])
 
-        result = kit.compose({}, None).joined
+        result = kit.compose({}, None).prompt
 
         assert result == ""
 
@@ -268,15 +268,15 @@ class TestDictPromptReturn:
 
         composition = kit.compose({}, None)
 
-        assert "String section" in composition.dynamic
-        assert "Dict section" in composition.dynamic
+        assert "String section" in composition.prompt
+        assert "Dict section" in composition.prompt
 
     def test_none_return_handled(self):
         mw1 = NoneExtension()
         mw2 = StubExtension(prompt_text="Valid")
         kit = AgentKit(extensions=[mw1, mw2])
 
-        result = kit.compose({}, None).joined
+        result = kit.compose({}, None).prompt
 
         assert result == "Valid"
 

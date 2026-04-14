@@ -46,7 +46,6 @@ def test_init_no_filesystem_io(tmp_path: Path) -> None:
     ext = MemoryExtension(path=tmp_path / "nonexistent", project_discovery=False)
     assert ext.tools == []
     assert ext.state_schema is None
-    assert ext.prompt_cache_scope == "dynamic"
 
 
 def test_prompt_returns_none_when_no_file(tmp_path: Path) -> None:

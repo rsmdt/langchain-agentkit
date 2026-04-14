@@ -98,8 +98,6 @@ class AgentsExtension(Extension):
         delegation_timeout: Max seconds to wait for a subagent response.
     """
 
-    prompt_cache_scope = "static"
-
     def __init__(
         self,
         *,

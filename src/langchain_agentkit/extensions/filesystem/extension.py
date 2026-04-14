@@ -1,4 +1,4 @@
-"""FilesystemExtension — Claude Code-aligned file tools for LangGraph agents.
+"""FilesystemExtension — standard file tools for LangGraph agents.
 
 Tools: Read, Write, Edit, Glob, Grep, and optionally Bash.
 Gated by a ``PermissionRuleset`` with two enforcement gates:
@@ -71,7 +71,7 @@ _TOOL_TARGET_ARG: dict[str, str] = {
 
 
 class FilesystemExtension(Extension):
-    """Extension providing Claude Code-aligned filesystem tools.
+    """Extension providing standard filesystem tools.
 
     Tools: Read, Write, Edit, Glob, Grep. When the backend supports
     ``execute()``, a Bash tool is also included (gated by permissions).
@@ -92,8 +92,6 @@ class FilesystemExtension(Extension):
         permissions: Optional permission ruleset. When ``None``, all
             operations are allowed (no gating).
     """
-
-    prompt_cache_scope = "static"
 
     def __init__(
         self,
