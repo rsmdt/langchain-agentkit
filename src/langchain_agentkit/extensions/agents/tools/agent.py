@@ -8,7 +8,6 @@ out of the box.
 from __future__ import annotations
 
 import asyncio
-from functools import partial
 from typing import TYPE_CHECKING, Annotated, Any
 
 from langchain_core.messages import HumanMessage, ToolMessage
@@ -472,17 +471,28 @@ def create_agent_tools(
 
     schema = _AgentDynamicInput if ephemeral else _AgentInput
 
-    bound = partial(
-        _agent_tool,
-        agents_by_name=agents_by_name,
-        compiled_cache=compiled_cache,
-        delegation_timeout=delegation_timeout,
-        parent_tools_getter=parent_tools_getter,
-        ephemeral=ephemeral,
-        parent_llm_getter=parent_llm_getter,
-        model_resolver=model_resolver,
-        skills_resolver=skills_resolver,
-    )
+    # Use a real async function (not ``functools.partial``) so LangGraph's
+    # ``ToolNode._get_all_injected_args`` can introspect it via
+    # ``typing.get_type_hints``. ``get_type_hints`` rejects ``functools.partial``
+    # with ``TypeError: is not a module, class, method, or function.``
+    #
+    # We intentionally do NOT use ``functools.wraps(_agent_tool)`` here: that
+    # would copy ``_agent_tool``'s ``__annotations__`` (which contain
+    # ``Callable[...]`` forward refs that aren't resolvable at runtime under
+    # ``from __future__ import annotations``) and break ``get_type_hints``
+    # with ``NameError: name 'Callable' is not defined``.
+    async def bound(**llm_kwargs: Any) -> Any:
+        return await _agent_tool(
+            agents_by_name=agents_by_name,
+            compiled_cache=compiled_cache,
+            delegation_timeout=delegation_timeout,
+            parent_tools_getter=parent_tools_getter,
+            ephemeral=ephemeral,
+            parent_llm_getter=parent_llm_getter,
+            model_resolver=model_resolver,
+            skills_resolver=skills_resolver,
+            **llm_kwargs,
+        )
 
     tool = StructuredTool.from_function(
         coroutine=bound,

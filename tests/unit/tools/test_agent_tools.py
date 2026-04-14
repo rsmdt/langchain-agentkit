@@ -472,3 +472,56 @@ class TestCreateAgentTools:
         )
 
         assert tools[0].args_schema is _AgentDynamicInput
+
+    @pytest.mark.parametrize("ephemeral", [False, True])
+    def test_coroutine_accepts_get_type_hints(self, ephemeral: bool):
+        """Regression: LangGraph's ``ToolNode.__init__`` calls
+        ``typing.get_type_hints`` on every tool's ``.coroutine``.
+
+        A ``functools.partial`` fails that call with ``TypeError``, and a
+        closure decorated with ``functools.wraps(_agent_tool)`` fails with
+        ``NameError`` because ``_agent_tool``'s string annotations reference
+        ``Callable``, which is only imported under ``TYPE_CHECKING``.
+
+        The tool's async handler must therefore be a plain ``FunctionType``
+        with annotations that resolve at runtime.
+        """
+        from typing import get_type_hints
+
+        tools = create_agent_tools(
+            agents_by_name={"researcher": MagicMock()},
+            compiled_cache={},
+            delegation_timeout=30.0,
+            parent_tools_getter=None,
+            ephemeral=ephemeral,
+            parent_llm_getter=(lambda: MagicMock()) if ephemeral else None,
+        )
+
+        coroutine = tools[0].coroutine
+        assert coroutine is not None
+        # Must not raise: TypeError (partial rejected) or NameError
+        # (unresolved forward refs copied via ``functools.wraps``).
+        get_type_hints(coroutine, include_extras=True)
+
+    @pytest.mark.parametrize("ephemeral", [False, True])
+    def test_tool_is_accepted_by_langgraph_toolnode(self, ephemeral: bool):
+        """Regression: the full path that originally blew up.
+
+        ``ToolNode.__init__`` builds ``_injected_args`` for every tool it
+        receives, which calls ``_get_all_injected_args`` → ``get_type_hints``
+        on ``tool.coroutine``. This test guards against any agentkit tool
+        wrapper that is incompatible with that introspection.
+        """
+        from langgraph.prebuilt import ToolNode
+
+        tools = create_agent_tools(
+            agents_by_name={"researcher": MagicMock()},
+            compiled_cache={},
+            delegation_timeout=30.0,
+            parent_tools_getter=None,
+            ephemeral=ephemeral,
+            parent_llm_getter=(lambda: MagicMock()) if ephemeral else None,
+        )
+
+        node = ToolNode(tools)
+        assert "Agent" in node._injected_args

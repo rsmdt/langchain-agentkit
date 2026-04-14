@@ -499,6 +499,18 @@ class MyExtension(Extension):
         return None  # or a TypedDict mixin
 ```
 
+### Lifecycle hooks
+
+Extensions intercept the run/model/tool lifecycle via three decorators:
+
+| Decorator | `run` | `model` | `tool` |
+|---|---|---|---|
+| `@before(point)` | ✓ | ✓ | ✓ |
+| `@after(point)` | ✓ | ✓ | ✓ |
+| `@wrap(point)` | — | ✓ | ✓ |
+
+`wrap_run` is intentionally not supported. `before_run` and `after_run` are implemented as langgraph nodes (not Runnable-boundary wrappers), so they participate in checkpointing: on resume from a mid-graph checkpoint, `before_run` does not re-fire and `after_run` only fires at real completion. This is the behavior snapshot-style hooks (e.g. `MessagePersistenceExtension`) depend on, and it falls out naturally from reducer-based state updates. An onion wrap cannot be expressed as a graph node — so rather than adopting divergent semantics that would re-fire on every resume, run-scoped wrapping is omitted. Use `before_run` + `after_run` for setup/teardown; use `wrap_model` or `wrap_tool` when try/finally-shaped control flow is required.
+
 ### Sibling-aware configuration via `setup()`
 
 When an extension needs to react to other extensions in the kit (e.g. enabling a feature only when a particular sibling is present), override `setup()`:
