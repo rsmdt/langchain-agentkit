@@ -128,6 +128,66 @@ def _require_member(ext: TeamExtension, member_name: str) -> None:
 _TASK_TOOL_NAMES = frozenset({"TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"})
 
 
+def _compile_config_with_proxy_tasks(
+    config: Any,
+    bus: Any,
+    member_name: str,
+    *,
+    parent_tools_getter: Any,
+    parent_llm_getter: Any,
+    model_resolver: Any,
+    skills_resolver: Any,
+) -> Any:
+    """Compile an ``AgentConfig``-based teammate into a ready-to-run graph.
+
+    Mirrors :func:`_compile_with_proxy_tasks` for pre-compiled graphs,
+    but builds an ephemeral graph from the config:
+
+    * Resolves the model (``model_resolver`` or ``parent_llm_getter``).
+    * Filters the lead's tool roster down to ``config.tools`` (if set).
+    * Strips built-in task tools and substitutes bus-proxied versions.
+    * Concatenates resolved skill prompts into the system prompt.
+    * Prepends the teammate-communication addendum.
+    """
+    from langchain_agentkit._graph_builder import build_ephemeral_graph
+    from langchain_agentkit.extensions.teams.task_proxy import create_task_proxy_tools
+
+    if config.model and model_resolver:
+        llm = model_resolver(config.model)
+    elif parent_llm_getter is not None:
+        llm = parent_llm_getter()
+    else:
+        raise ToolException(
+            f"Agent definition '{config.name}' requires a model but no "
+            "parent LLM or model_resolver is available."
+        )
+
+    agent_tools: list[Any] = []
+    if config.tools is not None and parent_tools_getter is not None:
+        parent_tools = parent_tools_getter()
+        allowed = set(config.tools)
+        agent_tools = [t for t in parent_tools if t.name in allowed]
+
+    filtered_user_tools = [t for t in agent_tools if t.name not in _TASK_TOOL_NAMES]
+    proxy_tools = create_task_proxy_tools(bus, member_name)
+    user_tools = filtered_user_tools + proxy_tools
+
+    prompt = config.prompt
+    if config.skills and skills_resolver:
+        skill_content = skills_resolver(config.skills)
+        if skill_content:
+            prompt = prompt + "\n\n" + skill_content
+    prompt = _TEAMMATE_ADDENDUM + prompt
+
+    return build_ephemeral_graph(
+        name=config.name,
+        llm=llm,
+        prompt=prompt,
+        user_tools=user_tools,
+        max_turns=config.max_turns,
+    )
+
+
 def _compile_with_proxy_tasks(
     agent_graph: Any,
     bus: Any,

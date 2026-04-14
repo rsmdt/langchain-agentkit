@@ -520,22 +520,24 @@ class TestTwoTurnScenario:
 
 
 class TestHookOrderingEnforcement:
-    def test_setup_raises_if_history_precedes_team(self):
+    @pytest.mark.asyncio
+    async def test_setup_raises_if_history_precedes_team(self):
         from langchain_agentkit.extensions.history.extension import HistoryExtension
 
         team = TeamExtension(agents=[_make_mock_agent("researcher")])
         history = HistoryExtension(strategy="count", max_messages=50)
 
         with pytest.raises(ValueError, match="TeamExtension must be listed before"):
-            team.setup(extensions=[history, team])
+            await team.setup(extensions=[history, team])
 
-    def test_setup_passes_if_team_precedes_history(self):
+    @pytest.mark.asyncio
+    async def test_setup_passes_if_team_precedes_history(self):
         from langchain_agentkit.extensions.history.extension import HistoryExtension
 
         team = TeamExtension(agents=[_make_mock_agent("researcher")])
         history = HistoryExtension(strategy="count", max_messages=50)
 
-        team.setup(extensions=[team, history])  # Must not raise
+        await team.setup(extensions=[team, history])  # Must not raise
 
 
 class TestDissolveClearsStateThroughReducer:

@@ -3,11 +3,18 @@
 Reads a memory file from a configurable location and contributes its
 contents to the system prompt.  Discovery mirrors a per-project layout
 by default: ``<path>/<sanitized-cwd>/<filename>``.  Custom layouts are
-supported via ``project_key_fn`` or a full ``loader`` override.
+supported via ``project_key_fn``.
 
-No filesystem I/O happens during construction — all reads occur in
-``prompt()``.  Missing files are not errors; they simply contribute
-nothing.
+Two modes:
+
+1. **Local filesystem** (``backend=None``) — reads synchronously inside
+   ``prompt()`` via ``pathlib.Path``. No async setup needed.
+2. **Backend-driven** (``backend=<BackendProtocol>``) — reads
+   asynchronously. An initial load runs in ``setup()``; each turn's
+   ``before_model`` hook refreshes a cached body that ``prompt()``
+   returns synchronously.
+
+Missing files are not errors; they simply contribute nothing.
 """
 
 from __future__ import annotations
@@ -24,6 +31,8 @@ from langchain_agentkit.extension import Extension
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from langchain_agentkit.backends.protocol import BackendProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +65,13 @@ class MemoryExtension(Extension):
 
     All parameters are keyword-only and defaulted.  See module docstring
     for resolution order.
+
+    Args:
+        backend: Optional :class:`BackendProtocol` for remote filesystem
+            reads. When provided, ``setup()`` performs the initial async
+            load and ``before_model`` refreshes the cached body every
+            turn. When ``None``, ``prompt()`` reads the local filesystem
+            synchronously each turn.
     """
 
     path: str | Path = "~/.agents/memory"
@@ -70,12 +86,10 @@ class MemoryExtension(Extension):
     trust_footer: str = (
         "Memory records may be stale. Verify facts against current state before acting on them."
     )
-    loader: Callable[[], str | None] | None = None
+    backend: BackendProtocol | None = None
 
-    # ``Extension.__init_subclass__`` populates this at class-definition
-    # time on subclasses; when we add ``@dataclass`` the base class's
-    # ``__init_subclass__`` still runs for ``MemoryExtension`` itself.
-    # No decorator hooks are declared here, so it will simply be ``{}``.
+    def __post_init__(self) -> None:
+        self._cached_body: str | None = None
 
     # --- Extension protocol ---
 
@@ -87,8 +101,24 @@ class MemoryExtension(Extension):
     def state_schema(self) -> type | None:
         return None
 
+    async def setup(self, **_: Any) -> None:  # type: ignore[override]
+        """Prime the backend cache so the first turn sees a body."""
+        if self.backend is not None:
+            self._cached_body = await self._load_body_async()
+
+    async def before_model(
+        self,
+        *,
+        state: dict[str, Any],
+        runtime: Any,
+    ) -> None:
+        """Refresh the cached memory body per turn when a backend is set."""
+        if self.backend is not None:
+            self._cached_body = await self._load_body_async()
+        return None
+
     def prompt(self, state: dict[str, Any], runtime: Any | None = None) -> str | None:
-        body = self._load_body()
+        body = self._get_body()
         extras = self._collect_extras()
 
         if body is None and not extras:
@@ -106,6 +136,11 @@ class MemoryExtension(Extension):
         return "\n".join(sections)
 
     # --- Internals ---
+
+    def _get_body(self) -> str | None:
+        if self.backend is not None:
+            return self._cached_body
+        return self._load_body_sync()
 
     def _resolve_base_path(self) -> Path:
         raw = str(self.path)
@@ -134,37 +169,41 @@ class MemoryExtension(Extension):
             return None
         return stripped
 
-    def _load_body(self) -> str | None:
-        if self.loader is not None:
-            raw = self.loader()
-            if raw is None or raw == "":
-                return None
-            return self._apply_caps(raw)
-
+    def _candidate_paths(self) -> list[Path]:
         base = self._resolve_base_path()
         key = self._resolve_project_key()
-
-        candidate: Path
+        candidates: list[Path] = []
         if key is not None:
-            candidate = base / key / self.filename
+            candidates.append(base / key / self.filename)
+        candidates.append(base / self.filename)
+        return candidates
+
+    def _load_body_sync(self) -> str | None:
+        for candidate in self._candidate_paths():
             if not candidate.is_file():
-                # Fall back to non-project path if project-specific file
-                # does not exist.
-                candidate = base / self.filename
-        else:
-            candidate = base / self.filename
+                continue
+            try:
+                raw = candidate.read_text(encoding="utf-8")
+            except OSError:
+                logger.debug("MemoryExtension: failed to read %s", candidate, exc_info=True)
+                continue
+            if raw:
+                return self._apply_caps(raw)
+        return None
 
-        if not candidate.is_file():
-            return None
-
-        try:
-            raw = candidate.read_text(encoding="utf-8")
-        except OSError:
-            logger.debug("MemoryExtension: failed to read %s", candidate, exc_info=True)
-            return None
-        if not raw:
-            return None
-        return self._apply_caps(raw)
+    async def _load_body_async(self) -> str | None:
+        assert self.backend is not None  # guarded by callers
+        for candidate in self._candidate_paths():
+            try:
+                raw = await self.backend.read(str(candidate), limit=self.max_lines + 1)
+            except Exception:
+                logger.debug(
+                    "MemoryExtension: backend read failed for %s", candidate, exc_info=True
+                )
+                continue
+            if raw:
+                return self._apply_caps(raw)
+        return None
 
     def _apply_caps(self, text: str) -> str:
         truncated = False

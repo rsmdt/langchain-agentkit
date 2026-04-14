@@ -172,30 +172,113 @@ def test_prompt_applies_max_bytes_cap(tmp_path: Path) -> None:
     assert x_count <= 100
 
 
-# --- Loader override ---
+# --- Backend mode ---
 
 
-def test_prompt_loader_overrides_file(tmp_path: Path) -> None:
-    (tmp_path / "MEMORY.md").write_text("ignored")
-    ext = MemoryExtension(
-        path=tmp_path,
-        project_discovery=False,
-        loader=lambda: "loaded body",
-    )
+class _FakeBackend:
+    """Minimal BackendProtocol stand-in for memory-read tests."""
+
+    def __init__(self, files: dict[str, str]) -> None:
+        self.files = files
+        self.reads: list[str] = []
+
+    async def read(self, path: str, offset: int = 0, limit: int = 2000) -> str:
+        self.reads.append(path)
+        if path not in self.files:
+            raise FileNotFoundError(path)
+        return self.files[path]
+
+    async def read_bytes(self, path: str) -> bytes:  # pragma: no cover — unused here
+        raise NotImplementedError
+
+    async def write(self, path: str, content):  # pragma: no cover
+        raise NotImplementedError
+
+    async def edit(self, path, old_string, new_string, replace_all=False):  # pragma: no cover
+        raise NotImplementedError
+
+    async def glob(self, pattern, path="/"):  # pragma: no cover
+        raise NotImplementedError
+
+    async def grep(self, pattern, path=None, glob=None, ignore_case=False):  # pragma: no cover
+        raise NotImplementedError
+
+    async def execute(self, command, timeout=None, workdir=None):  # pragma: no cover
+        raise NotImplementedError
+
+
+@pytest.mark.asyncio
+async def test_setup_primes_cache_from_backend(tmp_path: Path) -> None:
+    target = str(tmp_path / "MEMORY.md")
+    backend = _FakeBackend({target: "backend body"})
+    ext = MemoryExtension(path=tmp_path, project_discovery=False, backend=backend)
+
+    # Before setup, no body cached.
+    assert ext.prompt({}, None) is None
+
+    await ext.setup()
     result = ext.prompt({}, None)
     assert result is not None
-    assert "loaded body" in result
-    assert "ignored" not in result
+    assert "backend body" in result
 
 
-def test_prompt_loader_returns_none_falls_through_to_none(tmp_path: Path) -> None:
-    ext = MemoryExtension(
-        path=tmp_path,
-        project_discovery=False,
-        loader=lambda: None,
-    )
-    # loader returning None means no body, no file either → None overall
+@pytest.mark.asyncio
+async def test_before_model_refreshes_cache(tmp_path: Path) -> None:
+    target = str(tmp_path / "MEMORY.md")
+    backend = _FakeBackend({target: "v1"})
+    ext = MemoryExtension(path=tmp_path, project_discovery=False, backend=backend)
+    await ext.setup()
+    assert "v1" in (ext.prompt({}, None) or "")
+
+    backend.files[target] = "v2"
+    await ext.before_model(state={}, runtime=None)
+    result = ext.prompt({}, None)
+    assert result is not None
+    assert "v2" in result
+    assert "v1" not in result
+
+
+@pytest.mark.asyncio
+async def test_backend_falls_back_to_base_when_project_specific_missing(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    project_cwd = tmp_path / "workspace" / "proj-x"
+    project_cwd.mkdir(parents=True)
+    monkeypatch.chdir(project_cwd)
+
+    base = tmp_path / "mem"
+    # Only the non-project base file exists in the backend.
+    backend = _FakeBackend({str(base / "MEMORY.md"): "fallback content"})
+    ext = MemoryExtension(path=base, backend=backend)
+    await ext.setup()
+
+    # Both candidates were attempted; project-specific first, then base.
+    assert len(backend.reads) == 2
+    result = ext.prompt({}, None)
+    assert result is not None
+    assert "fallback content" in result
+
+
+@pytest.mark.asyncio
+async def test_backend_returns_none_when_no_file_found(tmp_path: Path) -> None:
+    backend = _FakeBackend({})
+    ext = MemoryExtension(path=tmp_path, project_discovery=False, backend=backend)
+    await ext.setup()
     assert ext.prompt({}, None) is None
+
+
+@pytest.mark.asyncio
+async def test_backend_applies_caps(tmp_path: Path) -> None:
+    target = str(tmp_path / "MEMORY.md")
+    body = "\n".join(f"line-{i}" for i in range(500))
+    backend = _FakeBackend({target: body})
+    ext = MemoryExtension(path=tmp_path, project_discovery=False, backend=backend, max_lines=10)
+    await ext.setup()
+    result = ext.prompt({}, None)
+    assert result is not None
+    assert "line-9" in result
+    assert "line-10" not in result
+    assert "... [truncated]" in result
 
 
 # --- extra_sources ---

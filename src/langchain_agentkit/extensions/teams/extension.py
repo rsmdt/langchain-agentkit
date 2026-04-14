@@ -12,10 +12,14 @@ from langchain_core.prompts import PromptTemplate
 from langchain_agentkit.extension import Extension
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from langchain_core.language_models import BaseChatModel
     from langchain_core.messages import BaseMessage
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
 
+    from langchain_agentkit.backends.protocol import BackendProtocol
     from langchain_agentkit.extensions.teams.bus import (
         ActiveTeam,
         TeamMessage,
@@ -46,8 +50,23 @@ class TeamExtension(Extension):
     buffer) is per-turn only — created at turn start via
     ``_rehydrate_if_needed`` and torn down at turn end via ``after_run``.
 
+    Three input modes for ``agents``:
+
+    * **List** — programmatic objects (StateGraph / AgentLike / AgentConfig).
+    * **Path** — a string or Path to a directory scanned for agent
+      ``.md`` files via :func:`discover_agents_from_directory`.
+    * **Path + backend** — discovery deferred to async ``setup()`` and
+      performed via :func:`discover_agents_from_backend`.
+
+    Config-based teammates are compiled on-demand at team-spawn time
+    using the kit's ``model_resolver``, the lead's tool roster (filtered
+    by ``AgentConfig.tools``) and a sibling ``SkillsExtension`` (if
+    present, for ``AgentConfig.skills`` resolution).
+
     Args:
-        agents: List of StateGraph objects with ``.name`` and ``.description``.
+        agents: Member roster — see modes above.
+        backend: Optional :class:`BackendProtocol` for async directory
+            discovery.
         ephemeral: Enable dynamic (on-the-fly) team agents.
         max_team_size: Maximum number of team members allowed.
         router_timeout: Seconds to wait for messages in the Router Node.
@@ -62,7 +81,8 @@ class TeamExtension(Extension):
     def __init__(
         self,
         *,
-        agents: list[Any],
+        agents: list[Any] | str | Path,
+        backend: BackendProtocol | None = None,
         ephemeral: bool = False,
         max_team_size: int = 5,
         router_timeout: float = 30.0,
@@ -70,11 +90,35 @@ class TeamExtension(Extension):
         token_counter: Any = "approximate",
     ) -> None:
         from langchain_agentkit.extensions.agents.refs import validate_agent_list
+        from langchain_agentkit.extensions.agents.types import (
+            _AgentConfigProxy,
+            _wrap_agents,
+        )
 
         if max_team_size < 1:
             raise ValueError("max_team_size must be >= 1")
 
-        self._agents_by_name: dict[str, Any] = validate_agent_list(agents)
+        self._backend = backend
+        self._deferred_path: str | None = None
+
+        if isinstance(agents, list):
+            wrapped = _wrap_agents(agents)
+            self._agents_by_name: dict[str, Any] = validate_agent_list(wrapped)
+        elif isinstance(agents, (str, Path)):
+            if backend is not None:
+                self._deferred_path = str(agents)
+                self._agents_by_name = {}
+            else:
+                from langchain_agentkit.extensions.agents.discovery import (
+                    discover_agents_from_directory,
+                )
+
+                defs = discover_agents_from_directory(Path(agents))
+                proxies = [_AgentConfigProxy(d) for d in defs]
+                self._agents_by_name = validate_agent_list(proxies) if proxies else {}
+        else:
+            raise TypeError(f"agents must be list, str, or Path, got {type(agents).__name__}")
+
         self._ephemeral = ephemeral
         self._max_team_size = max_team_size
         self._router_timeout = router_timeout
@@ -83,6 +127,9 @@ class TeamExtension(Extension):
         self._active_team: ActiveTeam | None = None
         self._team_lock: asyncio.Lock = asyncio.Lock()
         self._parent_llm_getter: Any = None
+        self._parent_tools_getter: Any = list
+        self._model_resolver: Any = None
+        self._skills_resolver: Any = None
         # Per-turn mutable list populated by teammate loops, drained by
         # the before_model hook.  A new list is allocated on each turn
         # during rehydration so the tasks spawned on that turn bind to
@@ -95,6 +142,21 @@ class TeamExtension(Extension):
 
     def set_parent_llm_getter(self, getter: Any) -> None:
         self._parent_llm_getter = getter
+
+    def set_parent_tools_getter(self, getter: Any) -> None:
+        self._parent_tools_getter = getter
+
+    @property
+    def model_resolver(self) -> Callable[[str], BaseChatModel] | None:
+        return self._model_resolver  # type: ignore[no-any-return]
+
+    @property
+    def parent_tools_getter(self) -> Any:
+        return self._parent_tools_getter
+
+    @property
+    def skills_resolver(self) -> Any:
+        return self._skills_resolver
 
     # --- Public accessors for tool implementations ---
 
@@ -196,8 +258,10 @@ class TeamExtension(Extension):
 
         return [TasksExtension()]
 
-    def setup(self, **kwargs: Any) -> None:
-        """Validate sibling-extension ordering.
+    async def setup(  # type: ignore[override]
+        self, *, extensions: list[Extension], model_resolver: Any = None, **_: Any
+    ) -> None:
+        """Validate sibling ordering, run deferred discovery, wire cross-extension hooks.
 
         ``TeamExtension`` must appear before any ``HistoryExtension`` in
         the ``AgentKit(extensions=[...])`` list so that its ``wrap_model``
@@ -207,8 +271,7 @@ class TeamExtension(Extension):
         """
         from langchain_agentkit.extensions.history.extension import HistoryExtension
 
-        extensions: list[Extension] = kwargs.get("extensions", [])
-
+        # --- Sibling ordering check ---
         my_index: int | None = None
         history_index: int | None = None
         for i, ext in enumerate(extensions):
@@ -216,14 +279,61 @@ class TeamExtension(Extension):
                 my_index = i
             elif isinstance(ext, HistoryExtension) and history_index is None:
                 history_index = i
-        if my_index is None:
-            return  # shouldn't happen but be defensive
-        if history_index is not None and history_index < my_index:
+        if my_index is not None and history_index is not None and history_index < my_index:
             raise ValueError(
                 "TeamExtension must be listed before HistoryExtension in the "
                 "AgentKit extensions list so its wrap_model filter runs outermost. "
                 f"TeamExtension is at index {my_index}, HistoryExtension at {history_index}."
             )
+
+        # --- Pick up kit-level model_resolver ---
+        if model_resolver is not None and self._model_resolver is None:
+            self._model_resolver = model_resolver
+
+        # --- Deferred backend discovery ---
+        await self._run_deferred_discovery()
+
+        # --- Skills resolver (for AgentConfig.skills on config-based teammates) ---
+        self._wire_skills_resolver(extensions)
+
+    async def _run_deferred_discovery(self) -> None:
+        if self._deferred_path is None or self._backend is None:
+            return
+        from langchain_agentkit.extensions.agents.discovery import (
+            discover_agents_from_backend,
+        )
+        from langchain_agentkit.extensions.agents.refs import validate_agent_list
+        from langchain_agentkit.extensions.agents.types import _AgentConfigProxy
+
+        defs = await discover_agents_from_backend(self._backend, self._deferred_path)
+        proxies = [_AgentConfigProxy(d) for d in defs]
+        self._agents_by_name = validate_agent_list(proxies) if proxies else {}
+        self._deferred_path = None
+
+    def _wire_skills_resolver(self, extensions: list[Extension]) -> None:
+        from langchain_agentkit.extensions.skills import SkillsExtension
+
+        skills_ext = next(
+            (e for e in extensions if isinstance(e, SkillsExtension)),
+            None,
+        )
+        if skills_ext is None:
+            return
+        configs = skills_ext.configs
+
+        def _resolve_skills(
+            names: list[str],
+            _configs: list[Any] = configs,
+        ) -> str:
+            index = {c.name: c for c in _configs}
+            parts = []
+            for name in names:
+                config = index.get(name)
+                if config:
+                    parts.append(config.prompt)
+            return "\n\n".join(parts)
+
+        self._skills_resolver = _resolve_skills
 
     @property
     def state_schema(self) -> type:
@@ -343,9 +453,11 @@ class TeamExtension(Extension):
 
         from langchain_agentkit._graph_builder import build_ephemeral_graph
         from langchain_agentkit.composability import AgentLike
+        from langchain_agentkit.extensions.agents.types import AgentConfig
         from langchain_agentkit.extensions.teams.task_proxy import create_task_proxy_tools
         from langchain_agentkit.extensions.teams.tools._shared import (
             _TEAMMATE_ADDENDUM,
+            _compile_config_with_proxy_tasks,
             _compile_with_proxy_tasks,
         )
 
@@ -355,6 +467,17 @@ class TeamExtension(Extension):
         if kind == "predefined":
             agent_id = spec["agent_id"]
             target = self._agents_by_name[agent_id]  # raises KeyError if missing
+            config = getattr(target, "_agent_config", None)
+            if isinstance(config, AgentConfig):
+                return _compile_config_with_proxy_tasks(
+                    config,
+                    bus,
+                    member_name,
+                    parent_tools_getter=self._parent_tools_getter,
+                    parent_llm_getter=self._parent_llm_getter,
+                    model_resolver=self._model_resolver,
+                    skills_resolver=self._skills_resolver,
+                )
             if isinstance(target, AgentLike):
                 return target
             return _compile_with_proxy_tasks(target, bus, member_name)
