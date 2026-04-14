@@ -9,6 +9,18 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.20.0] — 2026-04-14
+
+### Added
+
+- **ContextCompactionExtension** for long-running agents — automatically manages context window size to prevent token limit issues during extended conversations.
+- **EnvExtension** extracted as a standalone extension for environment detection, available for opt-in use outside presets.
+
+### Changed
+
+- **BREAKING:** Prompt composition simplified to two channels: `prompt` and `reminder`. The `prompt_cache_scope` and static-vs-dynamic routing layers have been removed — extensions should target one of the two channels directly.
+- **BREAKING:** The `"full"` preset now seeds only `CoreBehavior` and `Tasks`. Memory and environment detection are no longer included by default — add `MemoryExtension` and `EnvExtension` explicitly if needed.
+
 ## [0.19.0] — 2026-04-14
 
 ### Added
@@ -126,73 +138,28 @@ Version bump only — no code changes.
 - `_BashInput.timeout` description corrected from "milliseconds" to "seconds".
 - `_wrap_with_permission_check` now preserves `response_format` from the wrapped tool.
 
-## [0.12.0] — 2026-03-31
+## Older release history
 
-Version bump only — no code changes.
-
-## [0.11.0] — 2026-03-31
-
-### Added
-- **Extension hook system**: new `Extension` base class with `before`/`after`/`wrap` decorators for model, tool, and run lifecycle events. `HookRunner` composes hooks onion-style and supports `jump_to` routing and `process_history` pipelines, wired end-to-end into graph execution.
-- **Backends package**: 6-method `BackendProtocol` (Read, Write, Edit, Glob, Grep, Execute). `BaseSandbox` ABC implements file ops via shell so new providers only implement `execute()`. First provider is `DaytonaSandbox` (~75 lines), with a full integration example covering filesystem, skills, and agent discovery on a remote sandbox.
-- **Permission system** with registration and per-call gates (allow/deny/ask), four presets (DEFAULT, READONLY, PERMISSIVE, STRICT), and HITL-driven approval prompts on `ask`.
-- **Unified `Agent` tool** with shape-based discrimination (`{id}` for predefined, `{prompt}` for ephemeral) and a matching `AgentTeam` schema, plus `TeamAgent` (SocietyOfMind-style) that exposes a lead + teammates as a single `AgentLike`.
-- **`AgentConfig`** carrying `tools`, `model`, `skills`, and `max_turns` parsed from frontmatter, accepted directly in `agents=` lists alongside compiled graphs. `AgentKit` auto-wires `model_resolver` and `skills_resolver` to sibling extensions.
-- **Unified `Question` protocol** for `HITLExtension` with an opt-in `ask_user` tool that lets the LLM present structured choices during execution.
-- **Router Node** for message-driven team coordination, teammate checkpointing via `InMemorySaver`, and automatic extension dependency resolution (`AgentTeamExtension` pulls in `TasksExtension` for a shared task list).
-- New filesystem tool evals (Write, Edit, Glob, Grep, LS, MultiEdit) running against real temp directories.
-
-### Changed
-- **BREAKING**: `Middleware` renamed to `Extension` across the entire API — `*Middleware` classes, the `middleware=` parameter on `AgentKit` and the `agent` metaclass, and the `middleware/` package are all gone with no backward-compat shims.
-- **BREAKING**: `agent` metaclass renames `llm` → `model`; `model` now accepts a `BaseChatModel` directly or a string resolved via `AgentKit.model_resolver`. Adds `skills` and `max_turns` class attributes.
-- **BREAKING**: `SkillConfig.instructions` renamed to `.prompt` to align with `AgentConfig`; the `SKILL_NAME_PATTERN` alias has been removed.
-- **BREAKING**: Filesystem stack collapsed onto the OS by default — `VirtualFilesystem`, `MemoryBackend`, and `CompositeBackend` are removed, `LocalBackend` is renamed to `OSBackend`, and `FilesystemExtension` defaults to `OSBackend(root=".")`. External backends (e.g. Daytona) plug in via `BackendProtocol`.
-- **BREAKING**: `SpawnTeam` renamed to `AgentTeam`; web search and Qwant tools renamed to CamelCase (`WebSearch`, `QwantSearch`); agent graphs now expose `.name`/`.description` directly with the `agentkit_*` prefix removed from all consumers.
-- Skills and agents now discover from the real filesystem via `pathlib`, with an optional `backend` parameter for remote discovery through `BackendProtocol`.
-- Each extension (agents, filesystem, hitl, skills, tasks, teams, web_search) is now a cohesive package with dedicated modules for tools, logic, types, discovery, state, and prompts.
-- Graph builder extracted to `_graph_builder.py`, prompt templates cached at module level (previously re-read from disk every LLM turn), tool factories use `functools.partial`, and delegation observability metadata has moved out of graph state into the tracing layer.
-- README and examples rewritten to reflect the new `model` / `AgentConfig` / `SkillConfig` / `OSBackend` API; `CLAUDE.md` added with project commands and design decisions.
-
-### Fixed
-- **Qwant provider replaced with DuckDuckGo** as the default web search backend — Qwant's API was returning 403 for all programmatic requests. `DuckDuckGoSearchTool` is now the default; `QwantSearchTool` remains as a compatibility alias with a configurable `user_agent`.
-- `TeamExtension` is now safe under concurrent tool calls via an `asyncio.Lock` around create/dissolve, a non-blocking lead queue drain, and a dedicated shutdown sentinel.
-- `jump_to` routing moved from a shared mutable closure to per-invocation state, eliminating races across concurrent graph invocations.
-- `OSBackend` hardened with explicit UTF-8 encoding on all I/O, streamed reads via `itertools.islice`, and rejection of ambiguous single-replacement edits when multiple matches exist.
-- Delegation and extension error messages are now sanitized before reaching the LLM to avoid leaking internal exceptions.
-
-### Removed
-- 21 dead files from the hexagonal reorg: extension shims shadowed by package directories, orphaned `prompts/` duplicates, `tools/` shim modules, and the root `types.py` / `validate.py` shims. `SandboxProtocol` alias, redundant state re-exports, and `delegation_log` / `iteration_count` graph state fields also removed.
-
-## [0.10.0] — 2026-03-25
-
-### Added
-- New examples showcasing the middleware layer: `filesystem`, `shared_filesystem`, `tasks`, and `web_search`.
-- `Glob` tool now accepts a `path` parameter to scope searches to a specific directory.
-- `Grep` tool gains aligned options: `output_mode` (`files_with_matches`, `content`, `count`), context lines, and `head_limit`.
-
-### Changed
-- **BREAKING**: `Grep` default `output_mode` is now `files_with_matches` (previously returned matching content). Callers relying on content output must pass `output_mode="content"` explicitly.
-- `Read`, `Write`, and `Edit` tool descriptions for consistent agent behavior.
-- Existing examples modernized to use the `agent` decorator with simplified state handling.
-- Filesystem middleware and VFS expanded with broader test coverage.
-
-[0.18.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.18.0
-[0.17.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.17.0
-[0.16.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.16.0
-[0.15.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.15.0
-[0.14.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.14.0
-[0.13.1]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.13.1
-[0.13.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.13.0
-[0.12.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.12.0
-[0.11.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.11.0
-[0.10.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.10.0
-[0.9.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.9.0
-[0.8.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.8.0
-[0.7.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.7.0
-[0.6.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.6.0
-[0.5.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.5.0
-[0.4.1]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.4.1
-[0.4.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.4.0
-[0.3.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.3.0
-[0.2.1]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.2.1
-[0.2.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.2.0
+- [0.20.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.20.0
+- [0.19.1]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.19.1
+- [0.19.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.19.0
+- [0.18.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.18.0
+- [0.17.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.17.0
+- [0.16.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.16.0
+- [0.15.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.15.0
+- [0.14.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.14.0
+- [0.13.1]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.13.1
+- [0.13.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.13.0
+- [0.12.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.12.0
+- [0.11.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.11.0
+- [0.10.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.10.0
+- [0.9.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.9.0
+- [0.8.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.8.0
+- [0.7.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.7.0
+- [0.6.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.6.0
+- [0.5.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.5.0
+- [0.4.1]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.4.1
+- [0.4.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.4.0
+- [0.3.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.3.0
+- [0.2.1]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.2.1
+- [0.2.0]: https://github.com/rsmdt/langchain-agentkit/releases/tag/v0.2.0
