@@ -9,6 +9,18 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.21.2] — 2026-04-15
+
+### Added
+
+- **ResilienceExtension** (Layer 1 — write-time prevention). A new extension that wraps every tool call and converts any unhandled exception into a synthetic `ToolMessage` paired to the originating `tool_call_id`. Prevents the orphan-tool-call checkpoint state that causes the OpenAI Responses API to reject subsequent turns with `"No tool output found for function call"`. `ToolException` and `asyncio.CancelledError` are re-raised so typed error contracts and cancellation semantics are preserved. Emits `ToolErrorEvent` via a WARN log and an optional `on_tool_error_caught` callback for forwarding to metrics or incident sinks.
+
+## [0.21.1] — 2026-04-15
+
+### Fixed
+
+- **AgentsExtension / TeamExtension** now pick up kit-level `llm_getter` and `tools_getter` during `setup()`. Config-based agents without an explicit `model` previously crashed at tool-call time with `TypeError: 'NoneType' object is not callable` because `_parent_llm_getter` was never wired. Explicit `set_parent_*_getter()` calls still win.
+
 ## [0.21.0] — 2026-04-15
 
 ### Added
