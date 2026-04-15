@@ -179,6 +179,7 @@ extensions = [
     AgentsExtension(agents=[...]),                  # delegate-to-specialist tool
 
     # --- Hook-only layer (order shapes wrap onion, not prompt) ---
+    ResilienceExtension(),                          # outermost wrap_tool — catches unhandled tool errors
     HITLExtension(interrupt_on={"send_email": True}, tools=True),
     HistoryExtension(strategy="count", max_messages=50),
     ContextCompactionExtension(keep_recent=5),
@@ -201,17 +202,18 @@ Rationale for each slot:
 | 7 | `WebSearchExtension` | Leaf research tool; grouped with other first-party tool blocks, before coordination layers. |
 | 8 | `TeamExtension` | Peer coordination; depends on `TasksExtension` (auto-prepended if omitted). |
 | 9 | `AgentsExtension` | Delegation to specialists; placed last among tool blocks so the agent has full context of its own capabilities before deciding to hand off. |
-| 10 | `HITLExtension` | `wrap_tool` interceptor — declared outermost in the hook layer so approval gating wraps every tool call before other tool-layer hooks run. |
-| 11 | `HistoryExtension` | `wrap_model` message truncation; runs before compaction so truncation decides *which* messages survive, then compaction redacts within the survivors. |
-| 12 | `ContextCompactionExtension` | `wrap_model` eviction of old tool results, composing inside the history window. |
-| 13 | `MessagePersistenceExtension` | `before_run`/`after_run` — declared last so its snapshot captures state produced by all prior before_run hooks, and its after_run (which runs in reverse order) fires first to persist the full turn delta. |
+| 10 | `ResilienceExtension` | `wrap_tool` safety net — declared outermost so it wraps every other tool-layer hook (including HITL). Converts any unhandled tool exception into a synthetic error `ToolMessage`, preserving the `AIMessage`↔`ToolMessage` pairing invariant and keeping the ReAct loop alive. |
+| 11 | `HITLExtension` | `wrap_tool` approval gate — sits inside resilience so approvals apply to real tool invocations, but a raising approval flow still can't orphan a tool call. |
+| 12 | `HistoryExtension` | `wrap_model` message truncation; runs before compaction so truncation decides *which* messages survive, then compaction redacts within the survivors. |
+| 13 | `ContextCompactionExtension` | `wrap_model` eviction of old tool results, composing inside the history window. |
+| 14 | `MessagePersistenceExtension` | `before_run`/`after_run` — declared last so its snapshot captures state produced by all prior before_run hooks, and its after_run (which runs in reverse order) fires first to persist the full turn delta. |
 
 Notes:
 
 - **Dependencies are auto-resolved.** Missing dependencies are prepended automatically — e.g. omitting `TasksExtension` while using `TeamExtension` still produces a valid stack.
 - **`preset="full"` seeds the first two slots.** Passing `preset="full"` to `AgentKit(...)` prepends `CoreBehaviorExtension` and `TasksExtension` ahead of any user-declared extensions.
 - **Every extension listed is opt-in.** Include only what your agent needs. Hook-layer extensions (`HITL`, `History`, `ContextCompaction`, `MessagePersistence`) pay off in different scenarios: use `ContextCompaction` for sessions with many tool calls, `History` when raw message count grows faster than tool results, `HITL` when specific tools need approval, and `MessagePersistence` when turns must be mirrored to an external store.
-- **Wrap-hook ordering is an onion.** First declaration = outermost layer. If you need compaction to run before truncation (redact first, then drop), swap slots 11 and 12.
+- **Wrap-hook ordering is an onion.** First declaration = outermost layer. `ResilienceExtension` must stay ahead of any other `wrap_tool` extension so it can catch exceptions raised inside them; if you need compaction to run before truncation (redact first, then drop), swap slots 12 and 13.
 
 ### SkillsExtension
 

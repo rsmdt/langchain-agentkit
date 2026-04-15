@@ -9,6 +9,12 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.22.0] — 2026-04-15
+
+### Added
+
+- **ResilienceExtension** gains a `wrap_model` hook (Layer 2 — read-time repair). Before every LLM call, scans the message list for `AIMessage(tool_calls=[...])` whose `tool_call_id`s have no paired `ToolMessage` and injects synthetic ones so the request is always well-formed. Repairs orphans that pre-date the `wrap_tool` layer — e.g. from crashes before `0.21.2`, pod kills between checkpoint writes, transient checkpointer failures, or manual state edits. Only fires when entering the model node, so legitimate in-flight tool calls paused by HITL interrupts are never misidentified. Controlled via `repair_orphan_tool_calls` (default `True`), `orphan_repair_message`, and `on_orphan_repaired` callback. New public type: `OrphanRepairEvent`.
+
 ## [0.21.2] — 2026-04-15
 
 ### Added
