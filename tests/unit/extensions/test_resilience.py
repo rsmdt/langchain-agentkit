@@ -7,13 +7,25 @@ import logging
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import ToolException
 
 from langchain_agentkit.extensions.resilience import (
+    OrphanRepairEvent,
     ResilienceExtension,
     ToolErrorEvent,
 )
+
+
+def _ai_with_calls(*calls: tuple[str, str], content: str = "") -> AIMessage:
+    """AIMessage with structured tool_calls entries. ``calls`` is (id, name) pairs."""
+    return AIMessage(
+        content=content,
+        tool_calls=[
+            {"id": cid, "name": name, "args": {}, "type": "tool_call"}
+            for cid, name in calls
+        ],
+    )
 
 
 def _make_request(tool_name: str = "delegate", tool_call_id: str = "call_1") -> MagicMock:
@@ -201,3 +213,212 @@ class TestDefensiveExtraction:
 
         assert result.tool_call_id == "call_obj"
         assert result.name == "Agent"
+
+
+class TestOrphanRepair:
+    """Layer 2: read-time repair via wrap_model."""
+
+    async def test_passthrough_when_no_orphans(self):
+        ext = ResilienceExtension()
+        messages = [
+            HumanMessage(content="hi"),
+            _ai_with_calls(("call_1", "search")),
+            ToolMessage(content="result", tool_call_id="call_1", name="search"),
+        ]
+        captured: list = []
+
+        async def handler(state):
+            captured.append(state["messages"])
+            return {"messages": [AIMessage(content="done")]}
+
+        await ext.wrap_model(state={"messages": messages}, handler=handler, runtime=None)
+
+        assert captured[0] == messages
+
+    async def test_repairs_single_orphan(self):
+        ext = ResilienceExtension()
+        messages = [
+            HumanMessage(content="hi"),
+            _ai_with_calls(("call_lIRriSLL", "Agent")),
+            # No matching ToolMessage — orphan from a crashed prior run.
+            HumanMessage(content="next turn"),
+        ]
+        captured: list = []
+
+        async def handler(state):
+            captured.append(state["messages"])
+            return {"messages": [AIMessage(content="done")]}
+
+        await ext.wrap_model(state={"messages": messages}, handler=handler, runtime=None)
+
+        repaired = captured[0]
+        # Synthetic ToolMessage inserted between AIMessage and next HumanMessage.
+        assert len(repaired) == 4
+        assert isinstance(repaired[2], ToolMessage)
+        assert repaired[2].tool_call_id == "call_lIRriSLL"
+        assert repaired[2].name == "Agent"
+        assert repaired[2].status == "error"
+        assert repaired[2].additional_kwargs["agentkit"] == {
+            "synthesized": True,
+            "reason": "orphan",
+        }
+
+    async def test_reproduces_reported_failure(self):
+        """The exact scenario from the production 400 error."""
+        ext = ResilienceExtension()
+        messages = [
+            HumanMessage(content="user question"),
+            _ai_with_calls(("call_lIRriSLLlwDOztGc7VwqnUag", "Agent")),
+        ]
+        captured: list = []
+
+        async def handler(state):
+            captured.append(state["messages"])
+            return {"messages": []}
+
+        await ext.wrap_model(state={"messages": messages}, handler=handler, runtime=None)
+
+        # Pairing invariant now holds — LLM request will not 400.
+        ai = captured[0][1]
+        follow = captured[0][2]
+        assert ai.tool_calls[0]["id"] == follow.tool_call_id
+
+    async def test_repairs_partial_parallel_calls(self):
+        """AIMessage with 3 tool_calls, only 2 ToolMessages — synthesize the missing one."""
+        ext = ResilienceExtension()
+        messages = [
+            _ai_with_calls(("c1", "a"), ("c2", "b"), ("c3", "c")),
+            ToolMessage(content="r1", tool_call_id="c1", name="a"),
+            ToolMessage(content="r3", tool_call_id="c3", name="c"),
+        ]
+        captured: list = []
+
+        async def handler(state):
+            captured.append(state["messages"])
+            return {"messages": []}
+
+        await ext.wrap_model(state={"messages": messages}, handler=handler, runtime=None)
+
+        repaired = captured[0]
+        ids = [m.tool_call_id for m in repaired if isinstance(m, ToolMessage)]
+        assert set(ids) == {"c1", "c2", "c3"}
+
+        synthesized = [
+            m for m in repaired
+            if isinstance(m, ToolMessage)
+            and m.additional_kwargs.get("agentkit", {}).get("synthesized")
+        ]
+        assert len(synthesized) == 1
+        assert synthesized[0].tool_call_id == "c2"
+
+    async def test_leaves_future_paired_tool_messages_alone(self):
+        """Don't synthesize a repair for a tool_call_id whose ToolMessage
+        appears later in the list (HistoryExtension can reorder blocks)."""
+        ext = ResilienceExtension()
+        messages = [
+            _ai_with_calls(("c1", "a")),
+            HumanMessage(content="noise between AI and Tool"),
+            ToolMessage(content="r1", tool_call_id="c1", name="a"),
+        ]
+        captured: list = []
+
+        async def handler(state):
+            captured.append(state["messages"])
+            return {"messages": []}
+
+        await ext.wrap_model(state={"messages": messages}, handler=handler, runtime=None)
+
+        repaired = captured[0]
+        synthesized = [
+            m for m in repaired
+            if isinstance(m, ToolMessage)
+            and m.additional_kwargs.get("agentkit", {}).get("synthesized")
+        ]
+        assert synthesized == []
+
+    async def test_repair_disabled_passes_through(self):
+        ext = ResilienceExtension(repair_orphan_tool_calls=False)
+        messages = [_ai_with_calls(("c1", "a"))]
+        captured: list = []
+
+        async def handler(state):
+            captured.append(state["messages"])
+            return {"messages": []}
+
+        await ext.wrap_model(state={"messages": messages}, handler=handler, runtime=None)
+
+        assert captured[0] == messages  # unrepaired
+
+    async def test_custom_repair_message(self):
+        ext = ResilienceExtension(orphan_repair_message="CUSTOM")
+        messages = [_ai_with_calls(("c1", "a"))]
+        captured: list = []
+
+        async def handler(state):
+            captured.append(state["messages"])
+            return {"messages": []}
+
+        await ext.wrap_model(state={"messages": messages}, handler=handler, runtime=None)
+
+        assert captured[0][-1].content == "CUSTOM"
+
+    async def test_empty_messages_passthrough(self):
+        ext = ResilienceExtension()
+        captured: list = []
+
+        async def handler(state):
+            captured.append(state)
+            return {"messages": []}
+
+        await ext.wrap_model(state={"messages": []}, handler=handler, runtime=None)
+
+        assert captured[0] == {"messages": []}
+
+    async def test_multiple_orphan_ai_messages(self):
+        """Orphans can accumulate across turns — all must be repaired."""
+        ext = ResilienceExtension()
+        messages = [
+            _ai_with_calls(("c1", "a")),
+            _ai_with_calls(("c2", "b")),
+        ]
+        captured: list = []
+
+        async def handler(state):
+            captured.append(state["messages"])
+            return {"messages": []}
+
+        await ext.wrap_model(state={"messages": messages}, handler=handler, runtime=None)
+
+        repaired = captured[0]
+        ids = [m.tool_call_id for m in repaired if isinstance(m, ToolMessage)]
+        assert set(ids) == {"c1", "c2"}
+
+    async def test_repair_event_callback(self):
+        events: list[OrphanRepairEvent] = []
+        ext = ResilienceExtension(on_orphan_repaired=events.append)
+        messages = [_ai_with_calls(("c1", "a"), ("c2", "b"))]
+
+        async def handler(state):
+            return {"messages": []}
+
+        await ext.wrap_model(state={"messages": messages}, handler=handler, runtime=None)
+
+        assert [e.tool_call_id for e in events] == ["c1", "c2"]
+        assert events[0].tool_name == "a"
+
+    async def test_repair_callback_failure_does_not_break_execution(self):
+        def broken(e: OrphanRepairEvent) -> None:
+            raise RuntimeError("sink exploded")
+
+        ext = ResilienceExtension(on_orphan_repaired=broken)
+        messages = [_ai_with_calls(("c1", "a"))]
+        captured: list = []
+
+        async def handler(state):
+            captured.append(state["messages"])
+            return {"messages": []}
+
+        await ext.wrap_model(state={"messages": messages}, handler=handler, runtime=None)
+
+        # Repair still applied; handler still invoked.
+        assert len(captured[0]) == 2

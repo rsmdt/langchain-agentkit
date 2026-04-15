@@ -12,6 +12,9 @@ Future layers (not yet shipped):
 """
 
 from langchain_agentkit.extensions.resilience.extension import ResilienceExtension
-from langchain_agentkit.extensions.resilience.types import ToolErrorEvent
+from langchain_agentkit.extensions.resilience.types import (
+    OrphanRepairEvent,
+    ToolErrorEvent,
+)
 
-__all__ = ["ResilienceExtension", "ToolErrorEvent"]
+__all__ = ["OrphanRepairEvent", "ResilienceExtension", "ToolErrorEvent"]

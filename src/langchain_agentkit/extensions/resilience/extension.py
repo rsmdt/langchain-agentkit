@@ -1,4 +1,4 @@
-"""Write-time resilience for tool execution (Layer 1).
+"""Self-healing tool execution and message invariants (Layers 1 + 2).
 
 Rationale
 ---------
@@ -10,12 +10,26 @@ orphan — an assistant tool call with no paired ``ToolMessage``.
 
 On any subsequent turn, the OpenAI Responses API rejects the request
 with ``"No tool output found for function call <call_id>"`` because it
-enforces the pairing server-side.
+enforces the pairing server-side. Orphans also arise from causes this
+extension cannot prevent: pod kills between checkpoint writes,
+checkpointer transient failures, manual state edits, replays of
+half-finished turns.
 
-This extension attaches a ``wrap_tool`` hook that catches any unhandled
-exception and returns a synthetic ``ToolMessage`` with the same
-``tool_call_id``. The pairing invariant is preserved at write time; no
-orphan is ever checkpointed.
+Two hooks, one extension:
+
+* **Layer 1 — ``wrap_tool``**: catches any unhandled tool exception
+  and synthesizes a paired ``ToolMessage`` on the fly. Prevents new
+  orphans from ever being written.
+* **Layer 2 — ``wrap_model``**: before the LLM call, scans the message
+  list for ``AIMessage(tool_calls=[...])`` whose ``tool_call_id``s have
+  no matching ``ToolMessage`` and injects synthetic ones. Repairs
+  orphans that pre-existed (from earlier crashes, infrastructure
+  failures, or edits) so the model request is always well-formed.
+
+Layer 2 fires only from ``wrap_model`` — i.e. when the graph is
+entering the model node. Pending HITL interrupts pause the graph
+before the model node, so legitimate in-flight tool calls are never
+misidentified as orphans.
 
 Scope and safety
 ----------------
@@ -41,14 +55,17 @@ import logging
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
-from langchain_core.messages import ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.tools import ToolException
 
 from langchain_agentkit.extension import Extension
-from langchain_agentkit.extensions.resilience.types import ToolErrorEvent
+from langchain_agentkit.extensions.resilience.types import (
+    OrphanRepairEvent,
+    ToolErrorEvent,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Sequence
 
 _logger = logging.getLogger(__name__)
 
@@ -85,10 +102,18 @@ class ResilienceExtension(Extension):
         tool_error_template: Callable[[Exception, str], str] | None = None,
         on_tool_error_caught: Callable[[ToolErrorEvent], None] | None = None,
         include_exception_message: bool = True,
+        repair_orphan_tool_calls: bool = True,
+        orphan_repair_message: str = (
+            "[tool result unavailable — prior turn aborted before a response was recorded]"
+        ),
+        on_orphan_repaired: Callable[[OrphanRepairEvent], None] | None = None,
     ) -> None:
         self._template = tool_error_template or _default_error_template
         self._on_error = on_tool_error_caught
         self._include_exception_message = include_exception_message
+        self._repair_orphans = repair_orphan_tool_calls
+        self._orphan_message = orphan_repair_message
+        self._on_orphan = on_orphan_repaired
 
     async def wrap_tool(
         self,
@@ -148,6 +173,135 @@ class ResilienceExtension(Extension):
                 }
             },
         )
+
+    async def wrap_model(
+        self,
+        *,
+        state: Any,
+        handler: Callable[[Any], Awaitable[Any]],
+        runtime: Any,
+    ) -> Any:
+        """Repair orphan tool calls before the LLM sees the message list.
+
+        An orphan is an ``AIMessage(tool_calls=[...])`` whose
+        ``tool_call_id`` has no paired ``ToolMessage``. They originate
+        from crashed tool executions that pre-date the Layer 1 hook, pod
+        kills between checkpoint writes, or manual state edits. The
+        OpenAI Responses API rejects orphans with ``"No tool output
+        found for function call"``.
+
+        The repair inserts synthetic ``ToolMessage`` entries immediately
+        after each offending ``AIMessage``. Downstream extensions
+        (``HistoryExtension``, ``ContextCompactionExtension``) see the
+        repaired list and treat it as a complete turn.
+
+        This hook only fires from ``wrap_model`` — i.e. when the graph
+        is entering the model node. Pending HITL interrupts pause the
+        graph before the model node, so legitimate in-flight tool calls
+        are never misidentified as orphans.
+        """
+        if not self._repair_orphans:
+            return await handler(state)
+
+        messages = state.get("messages") if isinstance(state, dict) else None
+        if not messages:
+            return await handler(state)
+
+        repaired, repairs = self._repair_orphan_messages(messages)
+        if not repairs:
+            return await handler(state)
+
+        for repair in repairs:
+            self._emit_repair(repair)
+
+        return await handler({**state, "messages": repaired})
+
+    def _repair_orphan_messages(
+        self, messages: Sequence[BaseMessage]
+    ) -> tuple[list[BaseMessage], list[OrphanRepairEvent]]:
+        """Insert synthetic ToolMessages for unpaired AIMessage tool_calls.
+
+        Walks the list once. Maintains a set of ``tool_call_id``s already
+        satisfied by a ``ToolMessage`` seen *before* the current position.
+        When an ``AIMessage`` with ``tool_calls`` is encountered, any
+        ``tool_call_id`` not yet satisfied AND not appearing in a
+        ``ToolMessage`` later in the list is synthesized on the spot so
+        the pairing is contiguous (required by OpenAI Responses API and
+        by block-aware history strategies).
+        """
+        future_outputs = {
+            m.tool_call_id for m in messages if isinstance(m, ToolMessage)
+        }
+        out: list[BaseMessage] = []
+        repairs: list[OrphanRepairEvent] = []
+        satisfied: set[str] = set()
+
+        for msg in messages:
+            if isinstance(msg, ToolMessage):
+                satisfied.add(msg.tool_call_id)
+
+            out.append(msg)
+
+            if not (isinstance(msg, AIMessage) and msg.tool_calls):
+                continue
+
+            synthesized_here: list[ToolMessage] = []
+            for tc in msg.tool_calls:
+                call_id = tc.get("id") or ""
+                if not call_id or call_id in satisfied:
+                    continue
+                # If a matching ToolMessage exists *later* in the list,
+                # it will satisfy the pairing when we reach it. No repair
+                # needed now.
+                if call_id in future_outputs:
+                    continue
+                tool_name = tc.get("name") or ""
+                synthetic = ToolMessage(
+                    content=self._orphan_message,
+                    name=tool_name,
+                    tool_call_id=call_id,
+                    status="error",
+                    additional_kwargs={
+                        "agentkit": {
+                            "synthesized": True,
+                            "reason": "orphan",
+                        }
+                    },
+                )
+                synthesized_here.append(synthetic)
+                satisfied.add(call_id)
+                repairs.append(
+                    OrphanRepairEvent(
+                        tool_call_id=call_id,
+                        tool_name=tool_name,
+                        ai_message_id=msg.id,
+                        repaired_at=datetime.now(UTC),
+                    )
+                )
+            out.extend(synthesized_here)
+
+        return out, repairs
+
+    def _emit_repair(self, event: OrphanRepairEvent) -> None:
+        _logger.warning(
+            "resilience: repaired orphan tool call '%s' (tool=%s, ai_message_id=%s); "
+            "synthesized ToolMessage for the model request",
+            event.tool_call_id,
+            event.tool_name,
+            event.ai_message_id,
+            extra={
+                "tool_name": event.tool_name,
+                "tool_call_id": event.tool_call_id,
+                "ai_message_id": event.ai_message_id,
+                "reason": "orphan",
+            },
+        )
+        if self._on_orphan is None:
+            return
+        try:
+            self._on_orphan(event)
+        except Exception:
+            _logger.exception("resilience: on_orphan_repaired callback raised")
 
     def _emit_event(self, event: ToolErrorEvent, exc: Exception) -> None:
         _logger.warning(

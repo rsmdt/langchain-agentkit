@@ -24,3 +24,21 @@ class ToolErrorEvent:
     exc_type: str
     exc_message: str
     occurred_at: datetime
+
+
+@dataclass(frozen=True)
+class OrphanRepairEvent:
+    """Emitted when the resilience layer synthesizes a ToolMessage for an
+    orphan tool call found in state at model-call time.
+
+    An orphan is an ``AIMessage(tool_calls=[...])`` whose ``tool_call_id``
+    has no paired ``ToolMessage`` anywhere later in the message list.
+    Orphans originate from crashed tool executions, pod kills between
+    checkpoint writes, or manual state edits. The OpenAI Responses API
+    rejects them with ``"No tool output found for function call"``.
+    """
+
+    tool_call_id: str
+    tool_name: str
+    ai_message_id: str | None
+    repaired_at: datetime
