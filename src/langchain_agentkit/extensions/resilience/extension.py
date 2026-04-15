@@ -38,7 +38,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Any
 
 from langchain_core.messages import ToolMessage
@@ -131,7 +131,7 @@ class ResilienceExtension(Extension):
             tool_name=tool_name,
             exc_type=type(exc).__name__,
             exc_message=str(exc),
-            occurred_at=datetime.now(timezone.utc),
+            occurred_at=datetime.now(UTC),
         )
         self._emit_event(event, exc)
 
@@ -151,8 +151,7 @@ class ResilienceExtension(Extension):
 
     def _emit_event(self, event: ToolErrorEvent, exc: Exception) -> None:
         _logger.warning(
-            "resilience: tool '%s' raised %s; synthesized error ToolMessage "
-            "(tool_call_id=%s)",
+            "resilience: tool '%s' raised %s; synthesized error ToolMessage (tool_call_id=%s)",
             event.tool_name,
             event.exc_type,
             event.tool_call_id,
