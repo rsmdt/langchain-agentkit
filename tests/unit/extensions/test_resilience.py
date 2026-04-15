@@ -22,8 +22,7 @@ def _ai_with_calls(*calls: tuple[str, str], content: str = "") -> AIMessage:
     return AIMessage(
         content=content,
         tool_calls=[
-            {"id": cid, "name": name, "args": {}, "type": "tool_call"}
-            for cid, name in calls
+            {"id": cid, "name": name, "args": {}, "type": "tool_call"} for cid, name in calls
         ],
     )
 
@@ -304,7 +303,8 @@ class TestOrphanRepair:
         assert set(ids) == {"c1", "c2", "c3"}
 
         synthesized = [
-            m for m in repaired
+            m
+            for m in repaired
             if isinstance(m, ToolMessage)
             and m.additional_kwargs.get("agentkit", {}).get("synthesized")
         ]
@@ -330,7 +330,8 @@ class TestOrphanRepair:
 
         repaired = captured[0]
         synthesized = [
-            m for m in repaired
+            m
+            for m in repaired
             if isinstance(m, ToolMessage)
             and m.additional_kwargs.get("agentkit", {}).get("synthesized")
         ]

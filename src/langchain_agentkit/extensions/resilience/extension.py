@@ -229,9 +229,7 @@ class ResilienceExtension(Extension):
         the pairing is contiguous (required by OpenAI Responses API and
         by block-aware history strategies).
         """
-        future_outputs = {
-            m.tool_call_id for m in messages if isinstance(m, ToolMessage)
-        }
+        future_outputs = {m.tool_call_id for m in messages if isinstance(m, ToolMessage)}
         out: list[BaseMessage] = []
         repairs: list[OrphanRepairEvent] = []
         satisfied: set[str] = set()
