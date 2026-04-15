@@ -29,6 +29,17 @@ if TYPE_CHECKING:
 _PROMPT_FILE = Path(__file__).parent / "prompt.md"
 _agent_delegation_template = PromptTemplate.from_file(_PROMPT_FILE)
 
+
+def _default_tools_getter() -> list[Any]:
+    """Sentinel default for ``_parent_tools_getter``.
+
+    Identity-checked in ``setup()`` so kit-level wiring only overrides
+    the default — not a user-supplied getter that happens to equal
+    ``list``. Returns ``[]`` so unwired call sites stay safe.
+    """
+    return []
+
+
 _CONCISENESS_DIRECTIVE = (
     "\n\nWhen reporting delegation results, be concise. "
     "Synthesize the key findings — don't repeat the subagent's full response verbatim."
@@ -137,7 +148,7 @@ class AgentsExtension(Extension):
         self._delegation_timeout = delegation_timeout
         self._compiled_cache: dict[str, Any] = {}
 
-        self._parent_tools_getter: Any = list
+        self._parent_tools_getter: Any = _default_tools_getter
         self._parent_llm_getter: Any = None
         self._model_resolver: Any = None
         self._skills_resolver: Any = None
@@ -154,12 +165,28 @@ class AgentsExtension(Extension):
         return self._model_resolver  # type: ignore[no-any-return]
 
     async def setup(  # type: ignore[override]
-        self, *, extensions: list[Extension], model_resolver: Any = None, **_: Any
+        self,
+        *,
+        extensions: list[Extension],
+        model_resolver: Any = None,
+        llm_getter: Any = None,
+        tools_getter: Any = None,
+        **_: Any,
     ) -> None:
         """Run deferred discovery, pick up kit-level model_resolver, discover siblings."""
         # --- Pick up kit-level model_resolver ---
         if model_resolver is not None and self._model_resolver is None:
             self._model_resolver = model_resolver
+
+        # --- Wire kit-level parent LLM / tools getters ---
+        # Config-based agents without an explicit ``model`` inherit the
+        # parent LLM via ``parent_llm_getter``. Without this wiring,
+        # ``_delegate_agent_config`` would trip over a None getter at
+        # tool-call time.
+        if llm_getter is not None and self._parent_llm_getter is None:
+            self._parent_llm_getter = llm_getter
+        if tools_getter is not None and self._parent_tools_getter is _default_tools_getter:
+            self._parent_tools_getter = tools_getter
 
         # --- Deferred backend discovery ---
         if self._deferred_path is not None and self._backend is not None:

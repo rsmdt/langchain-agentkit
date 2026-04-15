@@ -32,6 +32,16 @@ _team_coordination_template = PromptTemplate.from_file(_PROMPT_FILE)
 _logger = logging.getLogger("langchain_agentkit.extensions.teams")
 
 
+def _default_tools_getter() -> list[Any]:
+    """Sentinel default for ``_parent_tools_getter``.
+
+    Identity-checked in ``setup()`` so kit-level wiring only overrides
+    the default — not a user-supplied getter that happens to equal
+    ``list``. Returns ``[]`` so unwired call sites stay safe.
+    """
+    return []
+
+
 class TeamExtension(Extension):
     """Extension providing message-driven team coordination.
 
@@ -127,7 +137,7 @@ class TeamExtension(Extension):
         self._active_team: ActiveTeam | None = None
         self._team_lock: asyncio.Lock = asyncio.Lock()
         self._parent_llm_getter: Any = None
-        self._parent_tools_getter: Any = list
+        self._parent_tools_getter: Any = _default_tools_getter
         self._model_resolver: Any = None
         self._skills_resolver: Any = None
         # Per-turn mutable list populated by teammate loops, drained by
@@ -259,7 +269,13 @@ class TeamExtension(Extension):
         return [TasksExtension()]
 
     async def setup(  # type: ignore[override]
-        self, *, extensions: list[Extension], model_resolver: Any = None, **_: Any
+        self,
+        *,
+        extensions: list[Extension],
+        model_resolver: Any = None,
+        llm_getter: Any = None,
+        tools_getter: Any = None,
+        **_: Any,
     ) -> None:
         """Validate sibling ordering, run deferred discovery, wire cross-extension hooks.
 
@@ -289,6 +305,16 @@ class TeamExtension(Extension):
         # --- Pick up kit-level model_resolver ---
         if model_resolver is not None and self._model_resolver is None:
             self._model_resolver = model_resolver
+
+        # --- Wire kit-level parent LLM / tools getters ---
+        # Ephemeral teammates and config-based teammates without an
+        # explicit ``model`` inherit the parent LLM via
+        # ``parent_llm_getter``. Tools-inheriting teammates resolve their
+        # parent tool set via ``parent_tools_getter``.
+        if llm_getter is not None and self._parent_llm_getter is None:
+            self._parent_llm_getter = llm_getter
+        if tools_getter is not None and self._parent_tools_getter is _default_tools_getter:
+            self._parent_tools_getter = tools_getter
 
         # --- Deferred backend discovery ---
         await self._run_deferred_discovery()

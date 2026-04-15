@@ -793,3 +793,102 @@ class TestRouterRunExitWiring:
         asyncio.run(compiled.ainvoke({"messages": [HumanMessage(content="hi")]}))
 
         assert after_run_calls == ["after_run"]
+
+
+class TestKitSetupWiring:
+    """setup() picks up kit-level llm_getter / tools_getter.
+
+    Without this wiring, teammates that inherit the parent LLM/tools
+    crash at tool-call time because ``_parent_llm_getter`` is None.
+    """
+
+    _AGENT_MD = """\
+---
+name: researcher
+description: Research specialist
+---
+You are a research assistant.
+"""
+
+    async def test_setup_wires_llm_getter(self):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "researcher.md").write_text(self._AGENT_MD)
+            ext = TeamExtension(agents=tmpdir)
+
+            sentinel_llm = object()
+            await ext.setup(extensions=[ext], llm_getter=lambda: sentinel_llm)
+
+            assert ext._parent_llm_getter is not None
+            assert ext._parent_llm_getter() is sentinel_llm
+
+    async def test_setup_wires_tools_getter(self):
+        import tempfile
+        from pathlib import Path
+
+        from langchain_agentkit.extensions.teams.extension import (
+            _default_tools_getter,
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "researcher.md").write_text(self._AGENT_MD)
+            ext = TeamExtension(agents=tmpdir)
+
+            sentinel_tools: list = []
+            await ext.setup(extensions=[ext], tools_getter=lambda: sentinel_tools)
+
+            assert ext._parent_tools_getter is not _default_tools_getter
+            assert ext._parent_tools_getter() is sentinel_tools
+
+    async def test_setup_does_not_override_explicit_getters(self):
+        import tempfile
+        from pathlib import Path
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "researcher.md").write_text(self._AGENT_MD)
+            ext = TeamExtension(agents=tmpdir)
+
+            explicit_llm = object()
+            explicit_tools: list = []
+            ext.set_parent_llm_getter(lambda: explicit_llm)
+            ext.set_parent_tools_getter(lambda: explicit_tools)
+
+            await ext.setup(
+                extensions=[ext],
+                llm_getter=lambda: "kit-level",
+                tools_getter=lambda: ["kit-level"],
+            )
+
+            assert ext._parent_llm_getter() is explicit_llm
+            assert ext._parent_tools_getter() is explicit_tools
+
+    async def test_run_extension_setup_wires_kit_model_into_team(self):
+        """Regression: config-based teammates used to crash at tool-call time.
+
+        Before kit-level wiring in ``run_extension_setup``, the
+        TeamExtension had ``_parent_llm_getter=None`` and teammate
+        spawning at ``extension.py:508`` raised ``TypeError: NoneType
+        object is not callable``.
+        """
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import MagicMock
+
+        from langchain_agentkit.agent_kit import AgentKit, run_extension_setup
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "researcher.md").write_text(self._AGENT_MD)
+            ext = TeamExtension(agents=tmpdir)
+
+            fake_llm = MagicMock(name="fake_llm")
+            kit = AgentKit(extensions=[ext], model=fake_llm)
+
+            await run_extension_setup(kit)
+
+            assert ext._parent_llm_getter is not None, (
+                "kit-level llm_getter was not wired into TeamExtension"
+            )
+            assert ext._parent_llm_getter() is fake_llm
+            assert ext._parent_tools_getter() == list(kit.tools)

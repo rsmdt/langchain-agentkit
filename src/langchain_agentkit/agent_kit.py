@@ -335,6 +335,12 @@ async def run_extension_setup(kit: AgentKit) -> None:
         "extensions": kit._extensions,
         "prompt": kit._prompt,
         "model_resolver": kit._model_resolver,
+        # Lazy getters so extensions that need the parent LLM or merged tool
+        # set (e.g. AgentsExtension, TeamExtension) don't have to import or
+        # know about AgentKit. Evaluated at tool-call time so they see the
+        # fully-resolved model and the final merged tool list.
+        "llm_getter": lambda: kit.model,
+        "tools_getter": lambda: kit.tools,
     }
     for ext in kit._extensions:
         setup = getattr(ext, "setup", None)

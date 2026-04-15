@@ -455,3 +455,94 @@ class TestExtensionProtocol:
         assert callable(mw.prompt)
         assert isinstance(mw.tools, (list, tuple))
         assert isinstance(mw.prompt({}), str)
+
+
+class TestKitSetupWiring:
+    """setup() picks up kit-level llm_getter / tools_getter.
+
+    Without this wiring, config-based agents that inherit the parent LLM
+    crash at tool-call time with ``TypeError: 'NoneType' object is not
+    callable`` because ``_parent_llm_getter`` was never set.
+    """
+
+    async def test_setup_wires_llm_getter(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "researcher.md").write_text(_AGENT_MD)
+            mw = AgentsExtension(agents=tmpdir)
+
+            sentinel_llm = object()
+            await mw.setup(
+                extensions=[mw],
+                llm_getter=lambda: sentinel_llm,
+            )
+
+            assert mw._parent_llm_getter is not None
+            assert mw._parent_llm_getter() is sentinel_llm
+
+    async def test_setup_wires_tools_getter(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "researcher.md").write_text(_AGENT_MD)
+            mw = AgentsExtension(agents=tmpdir)
+
+            sentinel_tools: list = []
+            await mw.setup(
+                extensions=[mw],
+                tools_getter=lambda: sentinel_tools,
+            )
+
+            from langchain_agentkit.extensions.agents.extension import (
+                _default_tools_getter,
+            )
+
+            assert mw._parent_tools_getter is not _default_tools_getter
+            assert mw._parent_tools_getter() is sentinel_tools
+
+    async def test_setup_does_not_override_explicit_getters(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "researcher.md").write_text(_AGENT_MD)
+            mw = AgentsExtension(agents=tmpdir)
+
+            explicit_llm = object()
+            explicit_tools: list = []
+            mw.set_parent_llm_getter(lambda: explicit_llm)
+            mw.set_parent_tools_getter(lambda: explicit_tools)
+
+            await mw.setup(
+                extensions=[mw],
+                llm_getter=lambda: "kit-level",
+                tools_getter=lambda: ["kit-level"],
+            )
+
+            assert mw._parent_llm_getter() is explicit_llm
+            assert mw._parent_tools_getter() is explicit_tools
+
+    async def test_run_extension_setup_wires_kit_model_into_delegation_tool(self):
+        """Regression: config-based agents used to crash at tool-call time.
+
+        Before kit-level ``llm_getter``/``tools_getter`` wiring in
+        ``run_extension_setup``, an AgentsExtension built from a
+        directory of config agents had ``_parent_llm_getter=None``.
+        When the delegation tool was invoked, the lambda at
+        ``extension.py:233`` called ``None()`` and raised
+        ``TypeError: 'NoneType' object is not callable``.
+
+        This test exercises the full path: build the kit, run setup,
+        then assert the delegation tool's parent getters resolve to
+        the kit's model and merged tools without raising.
+        """
+        from langchain_agentkit.agent_kit import AgentKit, run_extension_setup
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            (Path(tmpdir) / "researcher.md").write_text(_AGENT_MD)
+
+            fake_llm = MagicMock(name="fake_llm")
+            ext = AgentsExtension(agents=tmpdir)
+            kit = AgentKit(extensions=[ext], model=fake_llm)
+
+            await run_extension_setup(kit)
+
+            assert ext._parent_llm_getter is not None, (
+                "kit-level llm_getter was not wired into AgentsExtension"
+            )
+            assert ext._parent_llm_getter() is fake_llm
+            assert ext._parent_tools_getter() == list(kit.tools)
