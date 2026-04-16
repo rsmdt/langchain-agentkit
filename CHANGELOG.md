@@ -9,6 +9,19 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.23.0] — 2026-04-16
+
+### Added
+
+- **AgentsExtension `output_mode`** — subagent results now flow through a pluggable strategy. Three built-ins: `"last_message"` (a single ToolMessage with the final text, matches langgraph-supervisor/deepagents), `"full_history"` (all subagent AIMessages + final ToolMessage, matches supervisor's full-history mode), and `"trace_hidden"` *(new default)* which persists every subagent AIMessage tagged `{prefix}_hidden_from_llm=True` plus the terminal ToolMessage — so UIs reading `AIMessage.content` blocks render reasoning as thinking on reload while the parent LLM context stays lean. Consumers can pass a custom callable with signature `(SubagentOutput, StrategyContext) -> list[BaseMessage]`.
+- **Metadata tag namespace** — `AgentsExtension(metadata_prefix="agentkit")` controls the `response_metadata` keys written by the strategy (`{prefix}_subagent_tool_call_id`, `{prefix}_subagent_name`, `{prefix}_subagent_final`, `{prefix}_hidden_from_llm`). Overridable.
+- **HideSubagentTraceExtension** — paired `wrap_model` extension that strips messages flagged `{prefix}_hidden_from_llm=True` from the per-request message list. Place inner to History/Compaction so persistence (via `ReplaceMessages`) keeps the full trace while the LLM-facing view is filtered. Exported at the package root.
+- **Public API**: `SubagentOutput`, `StrategyContext`, `SubagentOutputStrategy`, `last_message_strategy`, `full_history_strategy`, `trace_hidden_strategy`, `resolve_output_strategy`, `strip_hidden_from_llm`, `DEFAULT_METADATA_PREFIX`.
+
+### Changed
+
+- **BREAKING (behavior)**: default output of `AgentsExtension` is now `"trace_hidden"` instead of a single JSON-stringified `ToolMessage`. Consumers who relied on the old JSON-dump shape should set `output_mode="last_message"` to restore a single plain-text `ToolMessage`. The private helper `_extract_final_response` has been removed; use `last_message_strategy` or call `BaseMessage.content` directly.
+
 ## [0.22.0] — 2026-04-15
 
 ### Added
