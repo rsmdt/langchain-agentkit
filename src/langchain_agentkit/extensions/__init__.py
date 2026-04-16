@@ -12,9 +12,6 @@ Each extension is a self-contained package under extensions/:
 """
 
 from langchain_agentkit.extensions.agents import AgentsExtension as AgentsExtension
-from langchain_agentkit.extensions.agents import (
-    HideSubagentTraceExtension as HideSubagentTraceExtension,
-)
 from langchain_agentkit.extensions.filesystem import (
     FilesystemExtension as FilesystemExtension,
 )
@@ -46,7 +43,6 @@ __all__ = [
     "DuckDuckGoSearchProvider",
     "FilesystemExtension",
     "HITLExtension",
-    "HideSubagentTraceExtension",
     "HistoryExtension",
     "MessagePersistenceExtension",
     "QwantSearchProvider",

@@ -137,6 +137,7 @@ class AgentsExtension(Extension):
         from langchain_agentkit.extensions.agents.output import (
             StrategyContext,
             resolve_output_strategy,
+            trace_hidden_strategy,
         )
 
         self._backend = backend
@@ -144,6 +145,16 @@ class AgentsExtension(Extension):
         self._output_strategy = resolve_output_strategy(output_mode)
         self._metadata_prefix = metadata_prefix
         self._strategy_context = StrategyContext(metadata_prefix=metadata_prefix)
+        # True when the resolved strategy tags subagent messages with
+        # ``{prefix}_hidden_from_llm=True``. Drives both the wrap_model
+        # filter and the setup() ordering check. Only the built-in
+        # ``trace_hidden_strategy`` does this today; custom strategies
+        # that tag messages should either reuse it or be documented to
+        # set a ``_tags_hidden_from_llm = True`` attribute on themselves.
+        self._strategy_tags_hidden = (
+            self._output_strategy is trace_hidden_strategy
+            or bool(getattr(self._output_strategy, "_tags_hidden_from_llm", False))
+        )
 
         if isinstance(agents, list):
             wrapped = _wrap_agents(agents)
@@ -198,6 +209,37 @@ class AgentsExtension(Extension):
         **_: Any,
     ) -> None:
         """Run deferred discovery, pick up kit-level model_resolver, discover siblings."""
+        # --- Ordering check: AgentsExtension must be inner to HistoryExtension ---
+        # when the configured output strategy tags subagent messages as
+        # hidden-from-LLM. Our wrap_model filter must run inside History's
+        # wrap_model so the ``ReplaceMessages(kept + response)`` commit sees
+        # the full, un-filtered state and persists the subagent trace.
+        # Mirrors TeamExtension's own ordering check.
+        if self._strategy_tags_hidden:
+            from langchain_agentkit.extensions.history.extension import HistoryExtension
+
+            my_index: int | None = None
+            history_index: int | None = None
+            for i, ext in enumerate(extensions):
+                if ext is self:
+                    my_index = i
+                elif isinstance(ext, HistoryExtension) and history_index is None:
+                    history_index = i
+            if (
+                my_index is not None
+                and history_index is not None
+                and my_index < history_index
+            ):
+                raise ValueError(
+                    "AgentsExtension must be declared AFTER HistoryExtension when "
+                    "output_mode='trace_hidden' (or any strategy that tags messages "
+                    f"with '{self._metadata_prefix}_hidden_from_llm'). The filter "
+                    "wrap_model hook must run inner to HistoryExtension so the "
+                    "subagent trace is retained in persisted state. "
+                    f"AgentsExtension is at index {my_index}, "
+                    f"HistoryExtension at index {history_index}."
+                )
+
         # --- Pick up kit-level model_resolver ---
         if model_resolver is not None and self._model_resolver is None:
             self._model_resolver = model_resolver
@@ -254,6 +296,39 @@ class AgentsExtension(Extension):
             return "\n\n".join(parts)
 
         self._skills_resolver = _resolve_skills
+
+    async def wrap_model(
+        self,
+        *,
+        state: Any,
+        handler: Any,
+        runtime: Any,
+    ) -> Any:
+        """Strip hidden-tagged subagent messages from the LLM request.
+
+        Activated only when the configured output strategy tags messages
+        with ``{metadata_prefix}_hidden_from_llm=True``. Filters the
+        per-request message list before passing to the handler; graph
+        state is not mutated.
+
+        Must run inner to any ``wrap_model`` hook that commits state
+        via ``ReplaceMessages`` (today: :class:`HistoryExtension`).
+        ``setup()`` enforces this ordering and raises ``ValueError`` at
+        kit-construction time if the user's extension list violates it.
+        """
+        if not self._strategy_tags_hidden:
+            return await handler(state)
+
+        messages = state.get("messages") if isinstance(state, dict) else None
+        if not messages:
+            return await handler(state)
+
+        from langchain_agentkit.extensions.agents.filter import strip_hidden_from_llm
+
+        filtered = strip_hidden_from_llm(messages, metadata_prefix=self._metadata_prefix)
+        if len(filtered) == len(messages):
+            return await handler(state)
+        return await handler({**state, "messages": filtered})
 
     def _create_tools(self) -> list[BaseTool]:
         from langchain_agentkit.extensions.agents.tools import create_agent_tools

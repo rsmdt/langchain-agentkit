@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+from unittest.mock import MagicMock
+
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from langchain_agentkit.extensions.agents import (
-    HideSubagentTraceExtension,
     StrategyContext,
     SubagentOutput,
     full_history_strategy,
@@ -214,27 +215,41 @@ class TestStripHiddenFromLlm:
         assert inputs == [hidden]
 
 
-class TestHideSubagentTraceExtension:
-    async def test_wrap_model_strips_hidden_messages(self):
-        ext = HideSubagentTraceExtension()
+class TestAgentsExtensionFilter:
+    """AgentsExtension.wrap_model strips hidden messages when trace_hidden."""
+
+    def _ext(self, **kwargs):
+        from langchain_agentkit.extensions.agents import AgentsExtension
+
+        agent = MagicMock()
+        agent.name = "researcher"
+        agent.description = "r"
+        agent.tools_inherit = False
+        return AgentsExtension(agents=[agent], **kwargs)
+
+    async def test_filters_hidden_when_trace_hidden_default(self):
+        ext = self._ext()  # trace_hidden is the default
         hidden = AIMessage(
-            content="hidden", response_metadata={"agentkit_hidden_from_llm": True}
+            content="h", response_metadata={"agentkit_hidden_from_llm": True}
         )
-        visible = AIMessage(content="visible")
-        state = {"messages": [visible, hidden]}
+        visible = AIMessage(content="v")
         captured: list = []
 
         async def handler(s):
             captured.append(s["messages"])
             return {}
 
-        await ext.wrap_model(state=state, handler=handler, runtime=None)
-
+        await ext.wrap_model(
+            state={"messages": [visible, hidden]}, handler=handler, runtime=None
+        )
         assert captured[0] == [visible]
 
-    async def test_wrap_model_passthrough_when_no_hidden(self):
-        ext = HideSubagentTraceExtension()
-        messages = [AIMessage(content="a"), AIMessage(content="b")]
+    async def test_passthrough_when_last_message_strategy(self):
+        """Non-hiding strategies skip the filter entirely."""
+        ext = self._ext(output_mode="last_message")
+        hidden = AIMessage(
+            content="h", response_metadata={"agentkit_hidden_from_llm": True}
+        )
         captured: list = []
 
         async def handler(s):
@@ -242,13 +257,26 @@ class TestHideSubagentTraceExtension:
             return {}
 
         await ext.wrap_model(
-            state={"messages": messages}, handler=handler, runtime=None
+            state={"messages": [hidden]}, handler=handler, runtime=None
         )
-        # Handler received the original state dict unchanged.
-        assert captured[0]["messages"] is messages
+        # Handler received the original state dict unchanged — fast path.
+        assert captured[0]["messages"] == [hidden]
 
-    async def test_custom_prefix(self):
-        ext = HideSubagentTraceExtension(metadata_prefix="myorg")
+    async def test_passthrough_when_full_history_strategy(self):
+        ext = self._ext(output_mode="full_history")
+        captured: list = []
+
+        async def handler(s):
+            captured.append(s)
+            return {}
+
+        await ext.wrap_model(
+            state={"messages": [AIMessage(content="x")]}, handler=handler, runtime=None
+        )
+        assert len(captured) == 1
+
+    async def test_custom_metadata_prefix(self):
+        ext = self._ext(metadata_prefix="myorg")
         hidden = AIMessage(
             content="h", response_metadata={"myorg_hidden_from_llm": True}
         )
@@ -263,3 +291,65 @@ class TestHideSubagentTraceExtension:
             state={"messages": [hidden, visible]}, handler=handler, runtime=None
         )
         assert captured[0] == [visible]
+
+    async def test_empty_messages_passthrough(self):
+        ext = self._ext()
+        captured: list = []
+
+        async def handler(s):
+            captured.append(s)
+            return {}
+
+        await ext.wrap_model(state={"messages": []}, handler=handler, runtime=None)
+        assert captured[0] == {"messages": []}
+
+
+class TestAgentsExtensionOrderingCheck:
+    """setup() raises when AgentsExtension is declared BEFORE HistoryExtension
+    with a message-tagging strategy. Mirrors TeamExtension's ordering check."""
+
+    def _make_ext(self, **kwargs):
+        from langchain_agentkit.extensions.agents import AgentsExtension
+
+        agent = MagicMock()
+        agent.name = "researcher"
+        agent.description = "r"
+        agent.tools_inherit = False
+        return AgentsExtension(agents=[agent], **kwargs)
+
+    async def test_raises_when_agents_declared_before_history(self):
+        from langchain_agentkit.extensions.history import HistoryExtension
+
+        agents_ext = self._make_ext()  # trace_hidden default
+        history_ext = HistoryExtension(strategy="count", max_messages=100)
+        extensions = [agents_ext, history_ext]  # wrong order
+
+        with pytest.raises(ValueError, match="must be declared AFTER HistoryExtension"):
+            await agents_ext.setup(extensions=extensions)
+
+    async def test_passes_when_agents_declared_after_history(self):
+        from langchain_agentkit.extensions.history import HistoryExtension
+
+        agents_ext = self._make_ext()
+        history_ext = HistoryExtension(strategy="count", max_messages=100)
+        extensions = [history_ext, agents_ext]  # correct order
+
+        # Should not raise.
+        await agents_ext.setup(extensions=extensions)
+
+    async def test_no_check_when_last_message_strategy(self):
+        """Non-hiding strategies don't need the ordering rule — no check fires."""
+        from langchain_agentkit.extensions.history import HistoryExtension
+
+        agents_ext = self._make_ext(output_mode="last_message")
+        history_ext = HistoryExtension(strategy="count", max_messages=100)
+        extensions = [agents_ext, history_ext]  # would be wrong for trace_hidden
+
+        # Should not raise — last_message doesn't tag, so ordering is irrelevant.
+        await agents_ext.setup(extensions=extensions)
+
+    async def test_no_check_when_history_absent(self):
+        """Without HistoryExtension, the ordering rule is vacuous."""
+        agents_ext = self._make_ext()
+        # No HistoryExtension in the list.
+        await agents_ext.setup(extensions=[agents_ext])

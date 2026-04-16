@@ -3,7 +3,6 @@
 from langchain_agentkit.extensions.agents.extension import AgentsExtension
 from langchain_agentkit.extensions.agents.filter import (
     DEFAULT_METADATA_PREFIX,
-    HideSubagentTraceExtension,
     strip_hidden_from_llm,
 )
 from langchain_agentkit.extensions.agents.output import (
@@ -22,7 +21,6 @@ __all__ = [
     "DEFAULT_METADATA_PREFIX",
     "AgentConfig",
     "AgentsExtension",
-    "HideSubagentTraceExtension",
     "StrategyContext",
     "SubagentOutput",
     "SubagentOutputStrategy",
