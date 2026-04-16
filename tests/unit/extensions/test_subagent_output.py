@@ -79,9 +79,7 @@ class TestLastMessageStrategy:
 
 class TestFullHistoryStrategy:
     def test_emits_all_ai_messages_plus_tool_message(self):
-        output = SubagentOutput(
-            _sample_subagent_messages(), None, "call_1", "researcher", None
-        )
+        output = SubagentOutput(_sample_subagent_messages(), None, "call_1", "researcher", None)
         msgs = full_history_strategy(output, _ctx())
 
         ais = [m for m in msgs if isinstance(m, AIMessage)]
@@ -92,9 +90,7 @@ class TestFullHistoryStrategy:
         assert tools[0].tool_call_id == "call_1"
 
     def test_tags_ai_messages_with_subagent_metadata(self):
-        output = SubagentOutput(
-            _sample_subagent_messages(), None, "call_xyz", "researcher", None
-        )
+        output = SubagentOutput(_sample_subagent_messages(), None, "call_xyz", "researcher", None)
         msgs = full_history_strategy(output, _ctx())
 
         ais = [m for m in msgs if isinstance(m, AIMessage)]
@@ -106,16 +102,13 @@ class TestFullHistoryStrategy:
         assert ais[0].response_metadata.get("agentkit_subagent_final") is not True
 
     def test_preserves_content_blocks(self):
-        output = SubagentOutput(
-            _sample_subagent_messages(), None, "call_1", "researcher", None
-        )
+        output = SubagentOutput(_sample_subagent_messages(), None, "call_1", "researcher", None)
         msgs = full_history_strategy(output, _ctx())
 
         ais = [m for m in msgs if isinstance(m, AIMessage)]
         # Reasoning blocks survive the strategy — they're not stringified.
         reasoning_blocks = [
-            b for b in ais[-1].content
-            if isinstance(b, dict) and b.get("type") == "reasoning"
+            b for b in ais[-1].content if isinstance(b, dict) and b.get("type") == "reasoning"
         ]
         assert reasoning_blocks
         assert reasoning_blocks[0]["reasoning"] == "now I finalize..."
@@ -123,9 +116,7 @@ class TestFullHistoryStrategy:
 
 class TestTraceHiddenStrategy:
     def test_tags_all_ai_messages_as_hidden(self):
-        output = SubagentOutput(
-            _sample_subagent_messages(), None, "call_1", "researcher", None
-        )
+        output = SubagentOutput(_sample_subagent_messages(), None, "call_1", "researcher", None)
         msgs = trace_hidden_strategy(output, _ctx())
 
         ais = [m for m in msgs if isinstance(m, AIMessage)]
@@ -133,9 +124,7 @@ class TestTraceHiddenStrategy:
             assert ai.response_metadata["agentkit_hidden_from_llm"] is True
 
     def test_tool_message_is_not_hidden(self):
-        output = SubagentOutput(
-            _sample_subagent_messages(), None, "call_1", "researcher", None
-        )
+        output = SubagentOutput(_sample_subagent_messages(), None, "call_1", "researcher", None)
         msgs = trace_hidden_strategy(output, _ctx())
 
         tools = [m for m in msgs if isinstance(m, ToolMessage)]
@@ -144,9 +133,7 @@ class TestTraceHiddenStrategy:
         assert meta.get("agentkit_hidden_from_llm") is not True
 
     def test_custom_metadata_prefix(self):
-        output = SubagentOutput(
-            _sample_subagent_messages(), None, "call_1", "researcher", None
-        )
+        output = SubagentOutput(_sample_subagent_messages(), None, "call_1", "researcher", None)
         msgs = trace_hidden_strategy(output, _ctx(prefix="myorg"))
 
         ais = [m for m in msgs if isinstance(m, AIMessage)]
@@ -207,9 +194,7 @@ class TestStripHiddenFromLlm:
         assert strip_hidden_from_llm(msgs) == msgs
 
     def test_does_not_mutate_input(self):
-        hidden = AIMessage(
-            content="x", response_metadata={"agentkit_hidden_from_llm": True}
-        )
+        hidden = AIMessage(content="x", response_metadata={"agentkit_hidden_from_llm": True})
         inputs = [hidden]
         strip_hidden_from_llm(inputs)
         assert inputs == [hidden]
@@ -229,9 +214,7 @@ class TestAgentsExtensionFilter:
 
     async def test_filters_hidden_when_trace_hidden_default(self):
         ext = self._ext()  # trace_hidden is the default
-        hidden = AIMessage(
-            content="h", response_metadata={"agentkit_hidden_from_llm": True}
-        )
+        hidden = AIMessage(content="h", response_metadata={"agentkit_hidden_from_llm": True})
         visible = AIMessage(content="v")
         captured: list = []
 
@@ -239,26 +222,20 @@ class TestAgentsExtensionFilter:
             captured.append(s["messages"])
             return {}
 
-        await ext.wrap_model(
-            state={"messages": [visible, hidden]}, handler=handler, runtime=None
-        )
+        await ext.wrap_model(state={"messages": [visible, hidden]}, handler=handler, runtime=None)
         assert captured[0] == [visible]
 
     async def test_passthrough_when_last_message_strategy(self):
         """Non-hiding strategies skip the filter entirely."""
         ext = self._ext(output_mode="last_message")
-        hidden = AIMessage(
-            content="h", response_metadata={"agentkit_hidden_from_llm": True}
-        )
+        hidden = AIMessage(content="h", response_metadata={"agentkit_hidden_from_llm": True})
         captured: list = []
 
         async def handler(s):
             captured.append(s)
             return {}
 
-        await ext.wrap_model(
-            state={"messages": [hidden]}, handler=handler, runtime=None
-        )
+        await ext.wrap_model(state={"messages": [hidden]}, handler=handler, runtime=None)
         # Handler received the original state dict unchanged — fast path.
         assert captured[0]["messages"] == [hidden]
 
@@ -277,9 +254,7 @@ class TestAgentsExtensionFilter:
 
     async def test_custom_metadata_prefix(self):
         ext = self._ext(metadata_prefix="myorg")
-        hidden = AIMessage(
-            content="h", response_metadata={"myorg_hidden_from_llm": True}
-        )
+        hidden = AIMessage(content="h", response_metadata={"myorg_hidden_from_llm": True})
         visible = AIMessage(content="v")
         captured: list = []
 
@@ -287,9 +262,7 @@ class TestAgentsExtensionFilter:
             captured.append(s["messages"])
             return {}
 
-        await ext.wrap_model(
-            state={"messages": [hidden, visible]}, handler=handler, runtime=None
-        )
+        await ext.wrap_model(state={"messages": [hidden, visible]}, handler=handler, runtime=None)
         assert captured[0] == [visible]
 
     async def test_empty_messages_passthrough(self):

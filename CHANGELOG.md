@@ -9,13 +9,23 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.23.1] — 2026-04-16
+
+### Changed
+
+- **AgentsExtension owns subagent trace filtering end-to-end.** The filter is now a `wrap_model` hook on `AgentsExtension` itself (active only when `output_mode` tags messages hidden-from-LLM — the built-in `trace_hidden` strategy, or custom strategies that set `_tags_hidden_from_llm=True`). Consumers who use `trace_hidden` must declare `AgentsExtension` **after** `HistoryExtension` in the extensions list; `setup()` raises `ValueError` at kit-construction time when the ordering is violated. Mirrors the ordering check already used by `TeamExtension`.
+
+### Removed
+
+- **`HideSubagentTraceExtension`** — removed. Its functionality is now provided by `AgentsExtension.wrap_model`. The low-level `strip_hidden_from_llm()` helper remains exported for advanced users writing custom strategies that bypass the standard onion.
+
 ## [0.23.0] — 2026-04-16
 
 ### Added
 
 - **AgentsExtension `output_mode`** — subagent results now flow through a pluggable strategy. Three built-ins: `"last_message"` (a single ToolMessage with the final text, matches langgraph-supervisor/deepagents), `"full_history"` (all subagent AIMessages + final ToolMessage, matches supervisor's full-history mode), and `"trace_hidden"` *(new default)* which persists every subagent AIMessage tagged `{prefix}_hidden_from_llm=True` plus the terminal ToolMessage — so UIs reading `AIMessage.content` blocks render reasoning as thinking on reload while the parent LLM context stays lean. Consumers can pass a custom callable with signature `(SubagentOutput, StrategyContext) -> list[BaseMessage]`.
 - **Metadata tag namespace** — `AgentsExtension(metadata_prefix="agentkit")` controls the `response_metadata` keys written by the strategy (`{prefix}_subagent_tool_call_id`, `{prefix}_subagent_name`, `{prefix}_subagent_final`, `{prefix}_hidden_from_llm`). Overridable.
-- **HideSubagentTraceExtension** — paired `wrap_model` extension that strips messages flagged `{prefix}_hidden_from_llm=True` from the per-request message list. Place inner to History/Compaction so persistence (via `ReplaceMessages`) keeps the full trace while the LLM-facing view is filtered. Exported at the package root.
+- **HideSubagentTraceExtension** — *(superseded in 0.23.1; functionality folded into `AgentsExtension`)*. Paired `wrap_model` extension that strips messages flagged `{prefix}_hidden_from_llm=True` from the per-request message list.
 - **Public API**: `SubagentOutput`, `StrategyContext`, `SubagentOutputStrategy`, `last_message_strategy`, `full_history_strategy`, `trace_hidden_strategy`, `resolve_output_strategy`, `strip_hidden_from_llm`, `DEFAULT_METADATA_PREFIX`.
 
 ### Changed

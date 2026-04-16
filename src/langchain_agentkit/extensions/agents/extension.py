@@ -151,9 +151,8 @@ class AgentsExtension(Extension):
         # ``trace_hidden_strategy`` does this today; custom strategies
         # that tag messages should either reuse it or be documented to
         # set a ``_tags_hidden_from_llm = True`` attribute on themselves.
-        self._strategy_tags_hidden = (
-            self._output_strategy is trace_hidden_strategy
-            or bool(getattr(self._output_strategy, "_tags_hidden_from_llm", False))
+        self._strategy_tags_hidden = self._output_strategy is trace_hidden_strategy or bool(
+            getattr(self._output_strategy, "_tags_hidden_from_llm", False)
         )
 
         if isinstance(agents, list):
@@ -209,42 +208,12 @@ class AgentsExtension(Extension):
         **_: Any,
     ) -> None:
         """Run deferred discovery, pick up kit-level model_resolver, discover siblings."""
-        # --- Ordering check: AgentsExtension must be inner to HistoryExtension ---
-        # when the configured output strategy tags subagent messages as
-        # hidden-from-LLM. Our wrap_model filter must run inside History's
-        # wrap_model so the ``ReplaceMessages(kept + response)`` commit sees
-        # the full, un-filtered state and persists the subagent trace.
-        # Mirrors TeamExtension's own ordering check.
         if self._strategy_tags_hidden:
-            from langchain_agentkit.extensions.history.extension import HistoryExtension
+            self._check_history_ordering(extensions)
 
-            my_index: int | None = None
-            history_index: int | None = None
-            for i, ext in enumerate(extensions):
-                if ext is self:
-                    my_index = i
-                elif isinstance(ext, HistoryExtension) and history_index is None:
-                    history_index = i
-            if (
-                my_index is not None
-                and history_index is not None
-                and my_index < history_index
-            ):
-                raise ValueError(
-                    "AgentsExtension must be declared AFTER HistoryExtension when "
-                    "output_mode='trace_hidden' (or any strategy that tags messages "
-                    f"with '{self._metadata_prefix}_hidden_from_llm'). The filter "
-                    "wrap_model hook must run inner to HistoryExtension so the "
-                    "subagent trace is retained in persisted state. "
-                    f"AgentsExtension is at index {my_index}, "
-                    f"HistoryExtension at index {history_index}."
-                )
-
-        # --- Pick up kit-level model_resolver ---
         if model_resolver is not None and self._model_resolver is None:
             self._model_resolver = model_resolver
 
-        # --- Wire kit-level parent LLM / tools getters ---
         # Config-based agents without an explicit ``model`` inherit the
         # parent LLM via ``parent_llm_getter``. Without this wiring,
         # ``_delegate_agent_config`` would trip over a None getter at
@@ -254,24 +223,56 @@ class AgentsExtension(Extension):
         if tools_getter is not None and self._parent_tools_getter is _default_tools_getter:
             self._parent_tools_getter = tools_getter
 
-        # --- Deferred backend discovery ---
         if self._deferred_path is not None and self._backend is not None:
-            from langchain_agentkit.extensions.agents.discovery import (
-                discover_agents_from_backend,
+            await self._discover_deferred_agents()
+
+        self._discover_skills_resolver(extensions)
+
+    def _check_history_ordering(self, extensions: list[Extension]) -> None:
+        """Enforce AgentsExtension-after-HistoryExtension when strategy hides messages.
+
+        Our ``wrap_model`` filter must run inner to ``HistoryExtension``'s so
+        the ``ReplaceMessages(kept + response)`` commit sees the un-filtered
+        state and persists the subagent trace. Mirrors TeamExtension's own
+        ordering check.
+        """
+        from langchain_agentkit.extensions.history.extension import HistoryExtension
+
+        my_index: int | None = None
+        history_index: int | None = None
+        for i, ext in enumerate(extensions):
+            if ext is self:
+                my_index = i
+            elif isinstance(ext, HistoryExtension) and history_index is None:
+                history_index = i
+        if my_index is not None and history_index is not None and my_index < history_index:
+            raise ValueError(
+                "AgentsExtension must be declared AFTER HistoryExtension when "
+                "output_mode='trace_hidden' (or any strategy that tags messages "
+                f"with '{self._metadata_prefix}_hidden_from_llm'). The filter "
+                "wrap_model hook must run inner to HistoryExtension so the "
+                "subagent trace is retained in persisted state. "
+                f"AgentsExtension is at index {my_index}, "
+                f"HistoryExtension at index {history_index}."
             )
 
-            defs = await discover_agents_from_backend(self._backend, self._deferred_path)
-            proxies = [_AgentConfigProxy(d) for d in defs]
-            if proxies:
-                self._agents_by_name = validate_agent_list(proxies)
-            else:
-                self._agents_by_name = {}
-            self._has_config_agents = bool(proxies)
-            self._deferred_path = None
-            # Rebuild tools with discovered agents
-            self._tools = tuple(self._create_tools())
+    async def _discover_deferred_agents(self) -> None:
+        """Resolve agents from the configured backend path and rebuild tools."""
+        from langchain_agentkit.extensions.agents.discovery import (
+            discover_agents_from_backend,
+        )
 
-        # --- Discover SkillsExtension sibling for skill preloading ---
+        assert self._deferred_path is not None
+        assert self._backend is not None
+        defs = await discover_agents_from_backend(self._backend, self._deferred_path)
+        proxies = [_AgentConfigProxy(d) for d in defs]
+        self._agents_by_name = validate_agent_list(proxies) if proxies else {}
+        self._has_config_agents = bool(proxies)
+        self._deferred_path = None
+        self._tools = tuple(self._create_tools())
+
+    def _discover_skills_resolver(self, extensions: list[Extension]) -> None:
+        """Wire a skills resolver from a sibling SkillsExtension if present."""
         from langchain_agentkit.extensions.skills import SkillsExtension
 
         skills_ext = next(

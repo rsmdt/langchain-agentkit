@@ -57,12 +57,9 @@ Tags live on ``response_metadata`` with a configurable prefix
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
 
 
 @dataclass(frozen=True)
@@ -318,8 +315,7 @@ def resolve_output_strategy(mode: Any) -> Any:
             known = ", ".join(sorted(_BUILTIN_STRATEGIES))
             raise ValueError(
                 f"Unknown output_mode '{mode}'. Expected one of: {known}, "
-                f"or a callable with signature (SubagentOutput, StrategyContext) -> list[BaseMessage]."
+                f"or a callable with signature "
+                f"(SubagentOutput, StrategyContext) -> list[BaseMessage]."
             ) from exc
-    raise TypeError(
-        f"output_mode must be a string or callable, got {type(mode).__name__}"
-    )
+    raise TypeError(f"output_mode must be a string or callable, got {type(mode).__name__}")
