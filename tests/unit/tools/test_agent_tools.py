@@ -16,7 +16,6 @@ from langchain_agentkit.extensions.agents.tools.agent import (
     _build_scoped_state,
     _delegate_dynamic,
     _delegate_predefined,
-    _extract_final_response,
 )
 
 FAKE_TOOL_CALL_ID = "call_test123"
@@ -83,29 +82,6 @@ class TestBuildScopedState:
 
 
 # ---------------------------------------------------------------------------
-# _extract_final_response
-# ---------------------------------------------------------------------------
-
-
-class TestExtractFinalResponse:
-    def test_extracts_content_from_ai_message(self):
-        result = {"messages": [AIMessage(content="hello world")]}
-
-        assert _extract_final_response(result) == "hello world"
-
-    def test_no_messages_returns_no_response(self):
-        assert _extract_final_response({"messages": []}) == "(no response)"
-
-    def test_missing_messages_key_returns_no_response(self):
-        assert _extract_final_response({}) == "(no response)"
-
-    def test_empty_content_returns_empty_response(self):
-        result = {"messages": [AIMessage(content="")]}
-
-        assert _extract_final_response(result) == "(empty response)"
-
-
-# ---------------------------------------------------------------------------
 # Agent reference types
 # ---------------------------------------------------------------------------
 
@@ -154,6 +130,9 @@ class TestInputSchemas:
 class TestDelegatePredefined:
     @pytest.mark.asyncio
     async def test_valid_agent_returns_command(self):
+        """Default trace_hidden strategy emits subagent AIMessages + a terminal ToolMessage."""
+        from langchain_core.messages import ToolMessage
+
         agent_graph = _make_mock_agent_graph("researcher", "research result")
 
         result = await _delegate_predefined(
@@ -167,8 +146,11 @@ class TestDelegatePredefined:
         )
 
         assert isinstance(result, Command)
-        assert result.update["messages"][0].content == "research result"
-        assert result.update["messages"][0].tool_call_id == FAKE_TOOL_CALL_ID
+        messages = result.update["messages"]
+        # Terminal ToolMessage carries the tool_call_id pairing.
+        tool_msg = next(m for m in messages if isinstance(m, ToolMessage))
+        assert tool_msg.content == "research result"
+        assert tool_msg.tool_call_id == FAKE_TOOL_CALL_ID
 
     @pytest.mark.asyncio
     async def test_unknown_agent_raises_tool_exception(self):

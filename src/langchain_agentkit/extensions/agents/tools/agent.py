@@ -82,14 +82,23 @@ def _build_scoped_state(message: str, sender: str = "parent") -> dict[str, Any]:
     }
 
 
-def _extract_final_response(result: dict[str, Any]) -> str:
-    """Extract the final AI message content from an invocation result."""
-    messages = result.get("messages", [])
-    if not messages:
-        return "(no response)"
-    last = messages[-1]
-    content = getattr(last, "content", str(last))
-    return content if content else "(empty response)"
+def _default_strategy_context() -> Any:
+    """Fallback StrategyContext when no configuration is provided.
+
+    Exists so direct callers of ``_run_delegation`` (e.g. older tests
+    or embedders) still behave correctly without threading a context
+    through.
+    """
+    from langchain_agentkit.extensions.agents.output import StrategyContext
+
+    return StrategyContext(metadata_prefix="agentkit")
+
+
+def _default_strategy() -> Any:
+    """Fallback strategy when none is configured — the documented default."""
+    from langchain_agentkit.extensions.agents.output import trace_hidden_strategy
+
+    return trace_hidden_strategy
 
 
 def _compile_or_resolve(
@@ -156,8 +165,16 @@ async def _run_delegation(
     agent: str,
     timeout: float,
     tool_call_id: str,
+    output_strategy: Any = None,
+    strategy_context: Any = None,
+    agent_config: Any = None,
 ) -> Any:
-    """Invoke a compiled graph with timeout and error handling."""
+    """Invoke a compiled graph, shape the result via ``output_strategy``.
+
+    On timeout / unexpected error, emits a single error ``ToolMessage``
+    so the parent's tool_call_id pairing invariant holds regardless of
+    the configured strategy.
+    """
     try:
         result = await asyncio.wait_for(compiled.ainvoke(scoped_state), timeout=timeout)
     except TimeoutError:
@@ -167,6 +184,8 @@ async def _run_delegation(
                     ToolMessage(
                         content=f"Delegation to '{agent}' timed out after {timeout}s",
                         tool_call_id=tool_call_id,
+                        name=agent,
+                        status="error",
                     ),
                 ],
             }
@@ -184,19 +203,28 @@ async def _run_delegation(
                     ToolMessage(
                         content=f"Delegation to '{agent}' failed due to an internal error.",
                         tool_call_id=tool_call_id,
+                        name=agent,
+                        status="error",
                     ),
                 ],
             }
         )
 
-    response = _extract_final_response(result)
-    return Command(
-        update={
-            "messages": [
-                ToolMessage(content=response, tool_call_id=tool_call_id),
-            ],
-        }
+    from langchain_agentkit.extensions.agents.output import SubagentOutput
+
+    strategy = output_strategy or _default_strategy()
+    ctx = strategy_context or _default_strategy_context()
+
+    subagent_output = SubagentOutput(
+        messages=list(result.get("messages", [])),
+        structured_response=result.get("structured_response"),
+        tool_call_id=tool_call_id,
+        subagent_name=agent,
+        agent_config=agent_config,
     )
+
+    messages = strategy(subagent_output, ctx)
+    return Command(update={"messages": messages})
 
 
 # ---------------------------------------------------------------------------
@@ -219,6 +247,8 @@ async def _agent_tool(
     parent_llm_getter: Callable[[], Any] | None,
     model_resolver: Callable[[str], Any] | None = None,
     skills_resolver: Callable[[list[str]], str] | None = None,
+    output_strategy: Any = None,
+    strategy_context: Any = None,
 ) -> Any:
     """Delegate a task to a pre-defined or dynamically created agent."""
     agent_ref = agent if isinstance(agent, dict) else agent.model_dump()
@@ -235,6 +265,8 @@ async def _agent_tool(
             parent_llm_getter=parent_llm_getter,
             model_resolver=model_resolver,
             skills_resolver=skills_resolver,
+            output_strategy=output_strategy,
+            strategy_context=strategy_context,
         )
 
     if "prompt" in agent_ref:
@@ -249,6 +281,8 @@ async def _agent_tool(
             delegation_timeout=delegation_timeout,
             parent_llm_getter=parent_llm_getter,
             tool_call_id=tool_call_id,
+            output_strategy=output_strategy,
+            strategy_context=strategy_context,
         )
 
     raise ToolException(
@@ -268,6 +302,8 @@ async def _delegate_predefined(
     parent_llm_getter: Callable[[], Any] | None = None,
     model_resolver: Callable[[str], Any] | None = None,
     skills_resolver: Callable[[list[str]], str] | None = None,
+    output_strategy: Any = None,
+    strategy_context: Any = None,
 ) -> Any:
     """Delegate a task to a named pre-defined agent."""
     target = resolve_agent_by_name(agent_id, agents_by_name)
@@ -285,6 +321,8 @@ async def _delegate_predefined(
             model_resolver=model_resolver,
             skills_resolver=skills_resolver,
             tool_call_id=tool_call_id,
+            output_strategy=output_strategy,
+            strategy_context=strategy_context,
         )
 
     compiled = _compile_or_resolve(target, compiled_cache, parent_tools_getter)
@@ -296,6 +334,9 @@ async def _delegate_predefined(
         agent=agent_id,
         timeout=delegation_timeout,
         tool_call_id=tool_call_id,
+        output_strategy=output_strategy,
+        strategy_context=strategy_context,
+        agent_config=None,
     )
 
 
@@ -308,6 +349,8 @@ async def _delegate_agent_config(
     model_resolver: Callable[[str], Any] | None,
     skills_resolver: Callable[[list[str]], str] | None,
     tool_call_id: str,
+    output_strategy: Any = None,
+    strategy_context: Any = None,
 ) -> Any:
     """Delegate to an AgentConfig — resolve model, tools, skills, max_turns."""
     if agent_config.model and model_resolver:
@@ -352,6 +395,9 @@ async def _delegate_agent_config(
         agent=agent_name,
         timeout=delegation_timeout,
         tool_call_id=tool_call_id,
+        output_strategy=output_strategy,
+        strategy_context=strategy_context,
+        agent_config=agent_config,
     )
 
 
@@ -361,6 +407,8 @@ async def _delegate_dynamic(
     delegation_timeout: float,
     parent_llm_getter: Callable[[], Any] | None,
     tool_call_id: str,
+    output_strategy: Any = None,
+    strategy_context: Any = None,
 ) -> Any:
     """Delegate a task to a dynamically created reasoning agent."""
     if not prompt or not prompt.strip():
@@ -389,6 +437,9 @@ async def _delegate_dynamic(
         agent=ephemeral_name,
         timeout=delegation_timeout,
         tool_call_id=tool_call_id,
+        output_strategy=output_strategy,
+        strategy_context=strategy_context,
+        agent_config=None,
     )
 
 
@@ -463,11 +514,27 @@ def create_agent_tools(
     parent_llm_getter: Callable[[], Any] | None,
     model_resolver: Callable[[str], Any] | None = None,
     skills_resolver: Callable[[list[str]], str] | None = None,
+    output_strategy: Any = None,
+    strategy_context: Any = None,
 ) -> list[BaseTool]:
     """Create the unified Agent tool for agent-to-agent delegation."""
     if ephemeral and parent_llm_getter is None:
         msg = "parent_llm_getter is required when ephemeral=True"
         raise ValueError(msg)
+
+    # Default to the trace_hidden strategy if the caller doesn't configure one.
+    # Keeps ``create_agent_tools`` directly invocable without forcing every
+    # caller to reach into the output module.
+    if output_strategy is None or strategy_context is None:
+        from langchain_agentkit.extensions.agents.output import (
+            StrategyContext,
+            trace_hidden_strategy,
+        )
+
+        if output_strategy is None:
+            output_strategy = trace_hidden_strategy
+        if strategy_context is None:
+            strategy_context = StrategyContext(metadata_prefix="agentkit")
 
     schema = _AgentDynamicInput if ephemeral else _AgentInput
 
@@ -491,6 +558,8 @@ def create_agent_tools(
             parent_llm_getter=parent_llm_getter,
             model_resolver=model_resolver,
             skills_resolver=skills_resolver,
+            output_strategy=output_strategy,
+            strategy_context=strategy_context,
             **llm_kwargs,
         )
 

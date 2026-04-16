@@ -107,6 +107,20 @@ class AgentsExtension(Extension):
         ephemeral: Enable dynamic (on-the-fly) agents.
         default_conciseness: Append conciseness directive.
         delegation_timeout: Max seconds to wait for a subagent response.
+        output_mode: Strategy that shapes the subagent's result when
+            merged into the parent graph's messages list. Accepts a
+            built-in name (``"last_message"`` / ``"full_history"`` /
+            ``"trace_hidden"``) or a callable with the signature
+            ``(SubagentOutput, StrategyContext) -> list[BaseMessage]``.
+            Defaults to ``"trace_hidden"``, which persists every
+            subagent AIMessage (tagged hidden-from-LLM) plus a plain
+            final ``ToolMessage``. See
+            :mod:`langchain_agentkit.extensions.agents.output` for the
+            strategy API and built-in shapes, and
+            :class:`HideSubagentTraceExtension` for the paired filter.
+        metadata_prefix: Namespace for the ``response_metadata`` tag
+            keys the strategy writes and the filter reads. Defaults to
+            ``"agentkit"``.
     """
 
     def __init__(
@@ -117,9 +131,19 @@ class AgentsExtension(Extension):
         ephemeral: bool = False,
         default_conciseness: bool = True,
         delegation_timeout: float = 300.0,
+        output_mode: Any = "trace_hidden",
+        metadata_prefix: str = "agentkit",
     ) -> None:
+        from langchain_agentkit.extensions.agents.output import (
+            StrategyContext,
+            resolve_output_strategy,
+        )
+
         self._backend = backend
         self._deferred_path: str | None = None
+        self._output_strategy = resolve_output_strategy(output_mode)
+        self._metadata_prefix = metadata_prefix
+        self._strategy_context = StrategyContext(metadata_prefix=metadata_prefix)
 
         if isinstance(agents, list):
             wrapped = _wrap_agents(agents)
@@ -248,6 +272,8 @@ class AgentsExtension(Extension):
             skills_resolver=(
                 lambda names: self._skills_resolver(names) if self._skills_resolver else None  # type: ignore[arg-type, return-value]
             ),
+            output_strategy=self._output_strategy,
+            strategy_context=self._strategy_context,
         )
 
     def set_parent_tools_getter(self, getter: Any) -> None:
@@ -255,6 +281,15 @@ class AgentsExtension(Extension):
 
     def set_parent_llm_getter(self, getter: Any) -> None:
         self._parent_llm_getter = getter
+
+    @property
+    def metadata_prefix(self) -> str:
+        """Prefix used on ``response_metadata`` keys for subagent tags.
+
+        Exposed so a sibling :class:`HideSubagentTraceExtension` can be
+        configured from the same source of truth.
+        """
+        return self._metadata_prefix
 
     @property
     def agents_by_name(self) -> dict[str, Any]:
