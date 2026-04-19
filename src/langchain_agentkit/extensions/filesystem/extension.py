@@ -247,7 +247,12 @@ def _wrap_with_permission_check(
     original_coro = tool.coroutine  # type: ignore[attr-defined]
 
     async def _checked(**kwargs: Any) -> Any:
-        target = kwargs.get(target_arg, "*")
+        if not target_arg or target_arg not in kwargs:
+            raise ToolException(
+                f"Permission check failed: tool '{tool.name}' invoked without "
+                f"a target argument. Expected argument: {target_arg!r}."
+            )
+        target = kwargs[target_arg]
         action = check_permission(permissions, operation, str(target))
 
         if action == "allow":

@@ -35,6 +35,23 @@ SECRETS_PATTERNS: list[str] = [
     "**/.gnupg/**",
 ]
 
+# Paths under AgentKit's runtime configuration tree (skills, subagents, prompts).
+# Host-seeded and consumed read-only; write/edit denied by default.
+AGENTKIT_PATTERNS: list[str] = [
+    "**/.agentkit",
+    "**/.agentkit/**",
+]
+
+# Shell-command patterns catching commands that reference .agentkit anywhere
+# in the command string. Matched against the raw command via the same glob
+# engine (``**`` without a trailing slash becomes ``.*``). Catches direct
+# references like ``echo x > .agentkit/foo`` or ``tee .agentkit/AGENTS.md``.
+# This is deliberately coarse — a determined agent can evade via variable
+# expansion or quoting tricks. A proper argv-level inspector is a follow-up.
+AGENTKIT_COMMAND_PATTERNS: list[str] = [
+    "**.agentkit**",
+]
+
 # Shell commands that should never be executed
 DANGEROUS_COMMANDS: list[str] = [
     "rm -rf /*",

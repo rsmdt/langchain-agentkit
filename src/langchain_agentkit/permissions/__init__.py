@@ -19,6 +19,8 @@ from langchain_agentkit.permissions.presets import (
     STRICT_RULESET,
 )
 from langchain_agentkit.permissions.types import (
+    AGENTKIT_COMMAND_PATTERNS,
+    AGENTKIT_PATTERNS,
     DANGEROUS_COMMANDS,
     SECRETS_PATTERNS,
     OperationPermissions,
@@ -44,6 +46,8 @@ __all__ = [
     "READONLY_RULESET",
     "STRICT_RULESET",
     # Constants
+    "AGENTKIT_COMMAND_PATTERNS",
+    "AGENTKIT_PATTERNS",
     "DANGEROUS_COMMANDS",
     "SECRETS_PATTERNS",
 ]

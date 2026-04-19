@@ -233,6 +233,141 @@ class TestPermissionGate2:
             result = await read_tool.ainvoke({"file_path": "/file.txt"})
             assert "Permission required" in result or "approval" in result.lower()
 
+    async def test_permissive_denies_write_under_agentkit(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ext = FilesystemExtension(root=tmpdir, permissions=PERMISSIVE_RULESET)
+            write_tool = next(t for t in ext.tools if t.name == "Write")
+            result = await write_tool.ainvoke(
+                {"file_path": "/workspace/.agentkit/skills/evil.md", "content": "x"}
+            )
+            assert "Permission denied" in result
+
+    async def test_permissive_denies_edit_under_agentkit(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ext = FilesystemExtension(root=tmpdir, permissions=PERMISSIVE_RULESET)
+            edit_tool = next(t for t in ext.tools if t.name == "Edit")
+            result = await edit_tool.ainvoke(
+                {
+                    "file_path": "/workspace/.agentkit/AGENTS.md",
+                    "old_string": "a",
+                    "new_string": "b",
+                }
+            )
+            assert "Permission denied" in result
+
+    async def test_permissive_denies_bash_agentkit_modification(self):
+        """Full enforcement path: Bash wrapped via FilesystemExtension must
+        deny commands referencing .agentkit before they reach the backend."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ext = FilesystemExtension(root=tmpdir, permissions=PERMISSIVE_RULESET)
+            bash_tool = next(t for t in ext.tools if t.name == "Bash")
+            result = await bash_tool.ainvoke({"command": "echo pwn > .agentkit/skills/evil.md"})
+            assert "Permission denied" in result
+
+    async def test_permissive_denies_bash_agentkit_read_via_shell(self):
+        """Coarse by design: even shell reads of .agentkit are denied under
+        the current glob. Documents the intentional over-denial."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ext = FilesystemExtension(root=tmpdir, permissions=PERMISSIVE_RULESET)
+            bash_tool = next(t for t in ext.tools if t.name == "Bash")
+            result = await bash_tool.ainvoke({"command": "cat .agentkit/AGENTS.md"})
+            assert "Permission denied" in result
+
+    async def test_permissive_allows_benign_bash(self):
+        """Regression guard: the new execute denies are targeted — benign
+        commands must still pass through PERMISSIVE."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ext = FilesystemExtension(root=tmpdir, permissions=PERMISSIVE_RULESET)
+            bash_tool = next(t for t in ext.tools if t.name == "Bash")
+            result = await bash_tool.ainvoke({"command": "echo hello"})
+            # Bash returns (content, artifact) — stdout appears in either form.
+            text = result if isinstance(result, str) else str(result)
+            assert "Permission denied" not in text
+
+
+# ---------------------------------------------------------------------------
+# Gate 2 — missing target argument defense-in-depth
+# ---------------------------------------------------------------------------
+
+
+class TestPermissionWrapperMissingTarget:
+    """``_wrap_with_permission_check`` must refuse to run its underlying
+    coroutine when the configured target_arg is not present in kwargs —
+    otherwise a malformed tool call would check permissions against the
+    literal string ``"*"`` and silently fall through to the operation
+    default, which is a defense-in-depth gap under PERMISSIVE."""
+
+    async def test_missing_target_arg_raises_tool_exception(self):
+        from langchain_core.tools import StructuredTool
+        from pydantic import BaseModel
+
+        from langchain_agentkit.extensions.filesystem.extension import (
+            _wrap_with_permission_check,
+        )
+
+        class _Schema(BaseModel):
+            foo: str
+            bar: str
+
+        async def _impl(foo: str, bar: str) -> str:
+            return f"{foo}+{bar}"
+
+        inner = StructuredTool.from_function(
+            coroutine=_impl,
+            name="StubTool",
+            description="stub",
+            args_schema=_Schema,
+            handle_tool_error=True,
+        )
+
+        wrapped = _wrap_with_permission_check(
+            tool=inner,
+            operation="write",
+            target_arg="nonexistent_arg",
+            permissions=PERMISSIVE_RULESET,
+            hitl_check=lambda: False,
+        )
+
+        # handle_tool_error=True converts ToolException into a string result.
+        result = await wrapped.ainvoke({"foo": "x", "bar": "y"})
+
+        assert "without a target argument" in result
+        assert "nonexistent_arg" in result
+
+    async def test_empty_target_arg_raises_tool_exception(self):
+        from langchain_core.tools import StructuredTool
+        from pydantic import BaseModel
+
+        from langchain_agentkit.extensions.filesystem.extension import (
+            _wrap_with_permission_check,
+        )
+
+        class _Schema(BaseModel):
+            foo: str
+
+        async def _impl(foo: str) -> str:
+            return foo
+
+        inner = StructuredTool.from_function(
+            coroutine=_impl,
+            name="StubTool",
+            description="stub",
+            args_schema=_Schema,
+            handle_tool_error=True,
+        )
+
+        wrapped = _wrap_with_permission_check(
+            tool=inner,
+            operation="write",
+            target_arg="",  # unconfigured tool — _TOOL_TARGET_ARG.get fallthrough
+            permissions=PERMISSIVE_RULESET,
+            hitl_check=lambda: False,
+        )
+
+        result = await wrapped.ainvoke({"foo": "x"})
+
+        assert "without a target argument" in result
+
 
 # ---------------------------------------------------------------------------
 # Prompt — Bash visibility
