@@ -9,6 +9,13 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.24.0] — 2026-04-19
+
+### Security
+
+- **BREAKING**: Default, permissive, and strict permission rulesets now deny writes and edits under `.agentkit/**` and block command execution referencing `.agentkit`, preventing agents from modifying their own configuration. Hosts that require self-editing agents must compose a custom `PermissionRuleset` without `AGENTKIT_PATTERNS` / `AGENTKIT_COMMAND_PATTERNS`.
+- Hardened the permission-check wrapper to raise `ToolException` when the configured `target_arg` is missing, closing a defense-in-depth gap where permissive rulesets could fall through to allow.
+
 ## [0.23.1] — 2026-04-16
 
 ### Changed
