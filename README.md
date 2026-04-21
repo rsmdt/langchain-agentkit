@@ -428,7 +428,7 @@ hitl = HITLExtension(interrupt_on={
 # Tools not listed in interrupt_on execute normally without interruption.
 ```
 
-**ask_user tool** — let the LLM ask structured questions:
+**AskUser tool** — let the LLM ask structured questions:
 
 ```python
 hitl = HITLExtension(tools=True)
