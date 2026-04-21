@@ -26,9 +26,8 @@ class TestBuildSkillTool:
         assert tool.name == "Skill"
 
     def test_description_does_not_list_roster(self):
-        """Roster is delivered through AgentKit's built-in reminder channel
-        (``SkillsExtension.prompt()`` returns a ``"reminder"`` dict entry),
-        not on the tool description."""
+        """Roster is delivered in the system prompt by
+        :meth:`SkillsExtension.prompt`, not on the tool description."""
         tool = build_skill_tool(_make_configs())
 
         assert "market-sizing" not in tool.description

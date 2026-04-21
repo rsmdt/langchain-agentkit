@@ -68,10 +68,9 @@ async def _invoke_once(
 ) -> AIMessage:
     """Run one LLM turn the way the compiled graph does.
 
-    Builds the system message from ``kit.compose(state).prompt`` and
-    appends the reminder as a HumanMessage just before the user input —
-    mirrors ``_graph_builder._inject_system_reminder`` so reminder-
-    channel evals are faithful.
+    Builds the system message from ``kit.compose(state).prompt``. The
+    reminder channel has been removed — all dynamic content now lives
+    in the system prompt, re-rendered per step.
     """
     state: dict[str, Any] = {"messages": [HumanMessage(content=user_text)]}
     if extra_state:
@@ -82,8 +81,6 @@ async def _invoke_once(
     if composition.prompt:
         messages.append(SystemMessage(content=composition.prompt))
     messages.extend(state["messages"])
-    if composition.reminder:
-        messages.append(HumanMessage(content=composition.reminder))
 
     bind_kwargs: dict[str, Any] = {}
     if tool_choice is not None:
@@ -179,7 +176,7 @@ def _contains_git_language(msg: AIMessage) -> str | None:
 
 
 # ---------------------------------------------------------------------------
-# Tool-description behavior (Bash / Read / Grep / Glob / Agent / WebSearch / ask_user)
+# Tool-description behavior (Bash / Read / Grep / Glob / Agent / WebSearch / AskUser)
 # ---------------------------------------------------------------------------
 
 
@@ -434,13 +431,13 @@ class TestAskUserInvokedOnAmbiguity:
                         "report.csv, notes.txt, and summary.md. Pick the right one and "
                         "process it. Rules: do NOT answer in plain text, do NOT guess, "
                         "do NOT ask me to upload anything — you MUST resolve the "
-                        "ambiguity by calling the ask_user tool with the three files "
+                        "ambiguity by calling the AskUser tool with the three files "
                         "as options."
                     ),
                 )
             )
             names = _tool_names(msg)
-            if "ask_user" in names:
+            if "AskUser" in names:
                 return True, ""
             return False, f"tool_calls={names}, content={msg.content!r}"
 
@@ -660,18 +657,18 @@ class TestTaskCreateTeamVariant:
 
 
 # ---------------------------------------------------------------------------
-# Skill roster delivered via system-reminder
+# Skill roster delivered in the system prompt
 # ---------------------------------------------------------------------------
 
 
 @pytest.mark.skipif(not _HAS_OPENAI, reason=SKIP_REASON)
-class TestSkillInvokedFromReminderRoster:
+class TestSkillInvokedFromSystemPromptRoster:
     def test_skill_tool_invoked(self, skills_extension: Any) -> None:
         def trial() -> tuple[bool, str]:
             kit = _make_kit(extensions=[skills_extension])
             # The skills fixture exposes a "market-sizing" skill; the user
-            # request matches its description.  The roster is delivered
-            # exclusively via the <system-reminder> channel.
+            # request matches its description. The roster is appended to
+            # the system prompt by SkillsExtension.prompt().
             msg = _run(
                 _invoke_once(
                     kit,
@@ -820,8 +817,8 @@ class TestAskUserNotInvokedWhenClear:
             kit = _make_kit(extensions=[HITLExtension(tools=True)])
             msg = _run(_invoke_once(kit, f"Read the file at {target}."))
             names = _tool_names(msg)
-            if "ask_user" in names:
-                return False, f"ask_user invoked; tool_calls={names}"
+            if "AskUser" in names:
+                return False, f"AskUser invoked; tool_calls={names}"
             return True, ""
 
         passes, comments = _best_of_three(trial)
@@ -834,35 +831,9 @@ class TestAskUserNotInvokedWhenClear:
             kit = _make_kit(extensions=[HITLExtension(tools=True)])
             msg = _run(_invoke_once(kit, "What is the capital of France?"))
             names = _tool_names(msg)
-            if "ask_user" in names:
-                return False, f"ask_user invoked; tool_calls={names}"
+            if "AskUser" in names:
+                return False, f"AskUser invoked; tool_calls={names}"
             return True, ""
-
-        passes, comments = _best_of_three(trial)
-        assert passes >= 2, f"{passes}/3 passed; {comments}"
-
-
-# ---------------------------------------------------------------------------
-# Built-in reminder: current date
-# ---------------------------------------------------------------------------
-
-
-@pytest.mark.skipif(not _HAS_OPENAI, reason=SKIP_REASON)
-class TestCurrentDateInReminderUsedByAgent:
-    def test_agent_knows_current_year(self) -> None:
-        import datetime as _dt
-
-        from langchain_agentkit.extensions.core_behavior import CoreBehaviorExtension
-
-        year = str(_dt.date.today().year)
-
-        def trial() -> tuple[bool, str]:
-            kit = _make_kit(extensions=[CoreBehaviorExtension()])
-            msg = _run(_invoke_once(kit, "What is today's date?"))
-            text = msg.content if isinstance(msg.content, str) else str(msg.content)
-            if year in text:
-                return True, ""
-            return False, f"no year {year} in content={text!r}"
 
         passes, comments = _best_of_three(trial)
         assert passes >= 2, f"{passes}/3 passed; {comments}"

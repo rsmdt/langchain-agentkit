@@ -117,7 +117,13 @@ class MemoryExtension(Extension):
             self._cached_body = await self._load_body_async()
         return None
 
-    def prompt(self, state: dict[str, Any], runtime: Any | None = None) -> str | None:
+    def prompt(
+        self,
+        state: dict[str, Any],
+        runtime: Any | None = None,
+        *,
+        tools: frozenset[str] = frozenset(),
+    ) -> str | None:
         body = self._get_body()
         extras = self._collect_extras()
 

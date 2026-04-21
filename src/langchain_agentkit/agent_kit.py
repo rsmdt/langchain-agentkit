@@ -32,8 +32,8 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
+from langchain_agentkit.core.model_registry import resolve_metadata
 from langchain_agentkit.prompt_composition import PromptComposition
-from langchain_agentkit.reminders import assemble_builtin_reminder
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -42,6 +42,7 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
 
+    from langchain_agentkit.core.model_metadata import ModelMetadata
     from langchain_agentkit.extension import Extension
 
 _logger = logging.getLogger(__name__)
@@ -90,6 +91,7 @@ class AgentKit:
         tools: list[BaseTool] | None = None,
         model: BaseChatModel | str | None = None,
         model_resolver: Callable[[str], BaseChatModel] | None = None,
+        model_metadata: ModelMetadata | None = None,
         name: str = "agent",
         preset: str | None = None,
     ) -> None:
@@ -100,6 +102,8 @@ class AgentKit:
         self._user_tools: list[BaseTool] = list(tools or [])
         self._model_raw = model
         self._model_resolver = model_resolver
+        self._model_metadata_override = model_metadata
+        self._model_metadata_cache: ModelMetadata | None = None
         self._name = name
         self._tools_cache: list[BaseTool] | None = None
 
@@ -235,6 +239,32 @@ class AgentKit:
         """Resolve a model reference to a BaseChatModel instance."""
         return self._resolve_model_internal(model)
 
+    @property
+    def model_metadata(self) -> ModelMetadata:
+        """Resolved :class:`ModelMetadata` for the configured model.
+
+        Resolution order:
+
+        1. An explicit ``model_metadata=...`` passed to the constructor.
+        2. Registry lookup keyed on the raw model string (when ``model`` is
+           a string) or the ``model_name`` / ``model`` attribute of a
+           ``BaseChatModel`` instance.
+        3. A conservative fallback (128k context window, 4k output) —
+           extensions that need real numbers should either register the
+           model via :func:`register_model` or pass ``model_metadata``
+           explicitly.
+
+        Cached after first resolution to avoid repeated attribute lookups
+        on the LLM instance.
+        """
+        if self._model_metadata_override is not None:
+            return self._model_metadata_override
+        if self._model_metadata_cache is not None:
+            return self._model_metadata_cache
+        key: Any = self._model_raw if isinstance(self._model_raw, str) else self.model
+        self._model_metadata_cache = resolve_metadata(key)
+        return self._model_metadata_cache
+
     def compile(self, handler: Any) -> Any:
         """Build the full ReAct graph with hooks wired."""
         from langchain_agentkit._graph_builder import build_graph
@@ -253,31 +283,43 @@ class AgentKit:
     def compose(
         self, state: dict[str, Any], runtime: ToolRuntime | None = None
     ) -> PromptComposition:
-        """Compose the per-step system prompt and reminder envelope.
+        """Compose the per-step system prompt.
 
-        Iterates each extension's ``prompt()`` exactly once:
+        Iterates each extension's ``prompt()`` exactly once per LLM call.
+        The returned string has two regions, always in this order:
 
-        - The kit-level base prompt is emitted first.
-        - ``str`` returns are appended to the prompt channel.
-        - ``dict`` returns may carry ``"prompt"`` and ``"reminder"`` keys.
-          ``"prompt"`` is appended to the prompt channel; ``"reminder"``
-          is appended to the reminder channel as a
-          ``# <ext-class-name>`` section. Unknown keys are ignored.
-        - ``None`` and empty-string returns contribute nothing.
+        1. **Durable prompt.** The kit-level base prompt, then each
+           extension's ``str`` return or ``dict["prompt"]`` contribution,
+           joined in declaration order.
+        2. **Current context.** Each extension's ``dict["reminder"]``
+           contribution, collected in declaration order and appended to
+           the tail of the system prompt under a ``## Current context``
+           heading with per-extension ``### <ClassName>`` subheaders.
+           Omitted entirely when no extension contributes a reminder.
 
-        The reminder channel always starts with AgentKit's built-in
-        source (today's date) followed by any extension contributions.
-        When every source is empty, the ``reminder`` field is the
-        empty string.
+        Both regions live in the single system-prompt channel — nothing
+        is injected as a user or tool message. Since ``compose()`` runs
+        per step, the reminder region reflects current state every turn
+        without any extra hook.
 
-        Prompt sections are joined with ``"\\n\\n"`` in extension
-        declaration order.
+        Extensions choose where content belongs:
+
+        - **Static guidance** (tool-use conventions, persona, style) →
+          return a ``str`` or ``dict["prompt"]``.
+        - **Dynamic state that changes turn-to-turn** (task list, team
+          status, compaction notices, skill roster) → return
+          ``dict["reminder"]``. The content lands at the tail of the
+          prompt where recent-attention effects are strongest.
+
+        Returns ``None`` / empty-string contributions are discarded
+        silently. Unknown dict keys are ignored.
         """
         prompt_parts: list[str] = [self._prompt] if self._prompt else []
         reminder_sections: list[str] = []
+        tool_names: frozenset[str] = frozenset(t.name for t in self.tools)
 
         for ext in self._extensions:
-            result = ext.prompt(state, runtime)
+            result = self._call_prompt(ext, state, runtime, tool_names)
             if result is None:
                 continue
             if isinstance(result, str):
@@ -290,17 +332,47 @@ class AgentKit:
                 reminder_piece = result.get("reminder")
                 if isinstance(reminder_piece, str) and reminder_piece:
                     key = type(ext).__name__
-                    reminder_sections.append(f"# {key}\n{reminder_piece}")
+                    reminder_sections.append(f"### {key}\n{reminder_piece}")
 
-        reminder = assemble_builtin_reminder(reminder_sections)
-        return PromptComposition(
-            prompt="\n\n".join(prompt_parts),
-            reminder=reminder,
-        )
+        if reminder_sections:
+            prompt_parts.append("## Current context\n\n" + "\n\n".join(reminder_sections))
 
-    def system_reminder(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
-        """Return the reminder channel from :meth:`compose`."""
-        return self.compose(state, runtime).reminder
+        return PromptComposition(prompt="\n\n".join(prompt_parts))
+
+    @staticmethod
+    def _call_prompt(
+        ext: Any,
+        state: dict[str, Any],
+        runtime: Any,
+        tool_names: frozenset[str],
+    ) -> Any:
+        """Invoke ``ext.prompt`` passing ``tools`` only when the signature accepts it.
+
+        Existing extensions wrote ``prompt(state, runtime)`` before the
+        capability-aware ``tools`` kwarg existed. Inspect the signature
+        once and pass ``tools=`` only when the extension opts in — this
+        mirrors how :func:`run_extension_setup` dispatches to ``setup()``.
+        """
+        prompt_fn = ext.prompt
+        cache: dict[type, bool] | None = getattr(AgentKit, "_prompt_accepts_tools_cache", None)
+        if cache is None:
+            cache = {}
+            AgentKit._prompt_accepts_tools_cache = cache  # type: ignore[attr-defined]
+        ext_type = type(ext)
+        accepts = cache.get(ext_type)
+        if accepts is None:
+            try:
+                params = inspect.signature(prompt_fn).parameters
+            except (TypeError, ValueError):
+                accepts = False
+            else:
+                accepts = "tools" in params or any(
+                    p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
+                )
+            cache[ext_type] = accepts
+        if accepts:
+            return prompt_fn(state, runtime, tools=tool_names)
+        return prompt_fn(state, runtime)
 
 
 def _seed_preset_extensions(preset: str | None) -> list[Any]:
@@ -341,6 +413,7 @@ async def run_extension_setup(kit: AgentKit) -> None:
         # fully-resolved model and the final merged tool list.
         "llm_getter": lambda: kit.model,
         "tools_getter": lambda: kit.tools,
+        "model_metadata_getter": lambda: kit.model_metadata,
     }
     for ext in kit._extensions:
         setup = getattr(ext, "setup", None)

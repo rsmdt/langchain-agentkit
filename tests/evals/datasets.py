@@ -347,22 +347,22 @@ FILESYSTEM_MULTI_STEP_DATASET = [
 
 HITL_ASK_USER_DATASET = [
     {
-        "description": "Agent uses ask_user when choosing between databases",
+        "description": "Agent uses AskUser when choosing between databases",
         "inputs": (
             "We need to add a database to this project. What type of database should I set up?"
         ),
         "reference_trajectory": [
-            _assistant_with_tools(_tool_call("ask_user")),
+            _assistant_with_tools(_tool_call("AskUser")),
         ],
     },
     {
-        "description": "Agent uses ask_user when configuring logging",
+        "description": "Agent uses AskUser when configuring logging",
         "inputs": (
             "Configure the logging system for this application. "
             "There are several approaches we could take."
         ),
         "reference_trajectory": [
-            _assistant_with_tools(_tool_call("ask_user")),
+            _assistant_with_tools(_tool_call("AskUser")),
         ],
     },
 ]

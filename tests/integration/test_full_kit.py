@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import datetime as _dt
 from typing import TYPE_CHECKING, Any
 
 import pytest
@@ -53,16 +52,6 @@ class TestFullPresetDefaults:
     def test_unknown_preset_raises(self) -> None:
         with pytest.raises(ValueError, match="preset"):
             AgentKit(preset="bogus")
-
-    def test_reminder_always_populated_with_date(
-        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.chdir(tmp_path)
-        kit = AgentKit(preset="full")
-        composition = kit.compose({})
-        today = _dt.date.today().strftime("%Y-%m-%d")
-        assert today in composition.reminder
-        assert composition.prompt  # non-empty prompt section
 
     def test_compose_has_non_empty_prompt(
         self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch

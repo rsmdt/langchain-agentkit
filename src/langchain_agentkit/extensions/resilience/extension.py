@@ -328,8 +328,8 @@ def _extract_tool_call(state: Any) -> dict[str, Any]:
 
     wrap_tool receives a ``ToolCallRequest`` (or dict) whose ``tool_call``
     attribute/key is a dict with ``id``, ``name``, ``args``. Defensive
-    extraction so the extension stays robust to minor upstream changes
-    and to the legacy dict-state shape.
+    extraction so the extension stays robust to minor framework-level
+    shape changes and to the legacy dict-state shape.
     """
     tool_call = getattr(state, "tool_call", None)
     if tool_call is None and isinstance(state, dict):

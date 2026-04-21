@@ -27,7 +27,7 @@ class Option(BaseModel):
 class Question(BaseModel):
     """A structured question with predefined options.
 
-    Used for both LLM-initiated questions (ask_user tool) and
+    Used for both LLM-initiated questions (AskUser tool) and
     system-initiated prompts (tool call approval).
     """
 

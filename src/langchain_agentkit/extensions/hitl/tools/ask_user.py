@@ -1,4 +1,4 @@
-"""ask_user tool — LLM-initiated structured questions via interrupt.
+"""AskUser tool — LLM-initiated structured questions via interrupt.
 
 The tool sends a Question-based interrupt payload and returns
 the user's answers as a formatted string to the LLM.
@@ -35,7 +35,7 @@ class _QuestionInput(BaseModel):
 
 
 class _AskUserInput(BaseModel):
-    """Input schema for the ask_user tool."""
+    """Input schema for the AskUser tool."""
 
     questions: list[_QuestionInput] = Field(
         description="Questions to ask the user (1-4 questions)",
@@ -57,7 +57,7 @@ Usage notes:
 
 
 def create_ask_user_tool() -> BaseTool:
-    """Create the ask_user tool for LLM-initiated human interaction.
+    """Create the AskUser tool for LLM-initiated human interaction.
 
     The tool sends structured questions via ``interrupt()`` and returns
     the user's answers as a formatted string.
@@ -89,7 +89,7 @@ def create_ask_user_tool() -> BaseTool:
 
     return StructuredTool.from_function(
         func=_ask_user,
-        name="ask_user",
+        name="AskUser",
         description=_ASK_USER_DESCRIPTION,
         args_schema=_AskUserInput,
         handle_tool_error=True,

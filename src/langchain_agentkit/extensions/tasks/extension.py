@@ -106,6 +106,12 @@ class TasksExtension(Extension):
     def tools(self) -> list[BaseTool]:
         return self._tools  # type: ignore[return-value]
 
-    def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
+    def prompt(
+        self,
+        state: dict[str, Any],
+        runtime: ToolRuntime | None = None,
+        *,
+        tools: frozenset[str] = frozenset(),
+    ) -> str:
         tasks = state.get("tasks") or []
         return self._formatter(tasks)

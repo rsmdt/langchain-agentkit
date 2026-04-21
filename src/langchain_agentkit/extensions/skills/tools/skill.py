@@ -39,7 +39,7 @@ How to invoke:
   - `skill: "ms-office-suite:pdf"` - invoke using fully qualified name
 
 Important:
-- Available skills are listed in system-reminder messages in the conversation
+- Available skills are listed in the system prompt
 - When a skill matches the user's request, this is a BLOCKING REQUIREMENT: invoke the relevant Skill tool BEFORE generating any other response about the task
 - NEVER mention a skill without actually calling this tool
 - Do not invoke a skill that is already running
@@ -71,7 +71,7 @@ def render_skills_roster(
     max_description_chars: int | None = None,
     context_window: int | None = None,
 ) -> str:
-    """Render the available-skills roster block for the reminder channel.
+    """Render the available-skills roster for inclusion in the system prompt.
 
     Returns an empty string when no skills are configured. Applies the same
     budget/truncation rules that previously ran at tool-build time.
@@ -92,15 +92,15 @@ def render_skills_roster(
 def build_skill_tool(
     configs: list[SkillConfig],
     *,
-    budget_percent: float | None = None,  # noqa: ARG001 — reminder-side now
+    budget_percent: float | None = None,  # noqa: ARG001 — emitted by SkillsExtension.prompt
     max_description_chars: int | None = None,  # noqa: ARG001
     context_window: int | None = None,  # noqa: ARG001
 ) -> BaseTool:
     """Build the Skill tool from a list of SkillConfig objects.
 
     The tool description is static; the available-skills roster is delivered
-    separately via :func:`render_skills_roster` (emitted by
-    :class:`SkillsExtension` as a ``"reminder"`` dict entry from ``prompt()``).
+    separately via :func:`render_skills_roster`, which
+    :class:`SkillsExtension` appends to its system-prompt contribution.
     """
     index: dict[str, SkillConfig] = {c.name: c for c in configs}
 

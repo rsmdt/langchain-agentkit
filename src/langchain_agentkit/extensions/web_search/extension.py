@@ -238,7 +238,13 @@ class WebSearchExtension(Extension):
         """Returns [WebSearch] — same list object on every access."""
         return self._tools
 
-    def prompt(self, state: dict[str, Any], runtime: Any | None = None) -> str | None:
+    def prompt(
+        self,
+        state: dict[str, Any],
+        runtime: Any | None = None,
+        *,
+        tools: frozenset[str] = frozenset(),
+    ) -> str | None:
         """No system-prompt contribution — all guidance lives on the
         ``WebSearch`` tool description.
         """

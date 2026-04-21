@@ -1,12 +1,13 @@
 """PromptComposition — structured return type for ``AgentKit.compose()``.
 
-Splits the composed per-step system message into two channels:
+A single channel: the system prompt assembled from the kit's base prompt,
+every extension's ``prompt()`` return, and a kit-level date contribution.
+Re-rendered per step so that dynamic state (task lists, compaction status,
+skill rosters) reflects the current moment.
 
-- ``prompt`` — the system prompt contributed by the kit's base prompt and
-  every extension's ``prompt()`` return, joined in declaration order.
-- ``reminder`` — ephemeral guidance delivered via AgentKit's built-in
-  ``<system-reminder>`` envelope (today's date plus any extension
-  contributions keyed by class name).
+There is no separate reminder / ephemeral channel. Extensions that want
+per-turn content put it in the system prompt directly; ``kit.compose()``
+is called once per LLM call anyway, so the cost is the same.
 """
 
 from __future__ import annotations
@@ -16,7 +17,6 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class PromptComposition:
-    """Structured composition of the per-step system message."""
+    """Composed per-step system prompt."""
 
     prompt: str = ""
-    reminder: str = ""

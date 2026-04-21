@@ -219,6 +219,8 @@ class TeamExtension(Extension):
         self,
         state: dict[str, Any],
         runtime: ToolRuntime | None = None,
+        *,
+        tools: frozenset[str] = frozenset(),
     ) -> str:
         roster_lines = []
         for name, graph in self._agents_by_name.items():
@@ -752,7 +754,7 @@ async def _make_degraded_task(member_name: str) -> asyncio.Task[str]:
     be rebuilt.  The slot remains visible in ``active_team.members`` so
     ``task_status`` reports "failed" and ``_require_member`` still
     recognizes it — any ``TeamMessage(to=...)`` call surfaces a clear
-    error via ``ToolException`` upstream.
+    error via ``ToolException`` to the caller.
     """
 
     async def _degraded() -> str:

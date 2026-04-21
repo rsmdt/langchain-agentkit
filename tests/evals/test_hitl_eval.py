@@ -1,8 +1,8 @@
 # ruff: noqa: N801, N805
-"""HITL extension evals — ask_user tool selection and tool approval flow.
+"""HITL extension evals — AskUser tool selection and tool approval flow.
 
 Tests exercise:
-1. **ask_user trajectory**: LLM selects ask_user for ambiguous requests
+1. **AskUser trajectory**: LLM selects AskUser for ambiguous requests
 2. **Direct action trajectory**: LLM acts directly for clear requests
 3. **Tool approval flow**: Full interrupt → resume cycle with checkpointer
 
@@ -81,7 +81,7 @@ def _mock_interrupt_handler(payload: dict[str, Any]) -> dict[str, Any]:
 
 
 def _build_ask_user_agent():
-    """Build agent with ask_user + filesystem tools for trajectory evals."""
+    """Build agent with AskUser + filesystem tools for trajectory evals."""
     tmpdir = tempfile.mkdtemp(prefix="eval_hitl_")
     workspace = Path(tmpdir) / "workspace"
     workspace.mkdir()
@@ -104,15 +104,15 @@ def _build_ask_user_agent():
 
     prompt_text = (
         "You are a helpful project assistant with filesystem tools and "
-        "the ask_user tool.\n\n"
+        "the AskUser tool.\n\n"
         "RULES:\n"
         "- When a request is ambiguous or involves choosing between "
-        "multiple valid approaches, you MUST use the ask_user tool to "
+        "multiple valid approaches, you MUST use the AskUser tool to "
         "present 2-4 options and let the user decide. Do NOT make "
         "assumptions about user preferences.\n"
         "- For clear, specific requests (read a file, search for files, "
         "write specific content), act directly without asking.\n"
-        "- Each ask_user question needs a short header (max 12 chars), "
+        "- Each AskUser question needs a short header (max 12 chars), "
         "a question string, and 2-4 options with labels and descriptions.\n"
     )
 
@@ -199,12 +199,12 @@ def _fail_msg(r: dict) -> str:
 
 
 # ------------------------------------------------------------------
-# ask_user trajectory evals
+# AskUser trajectory evals
 # ------------------------------------------------------------------
 
 
 class TestAskUserSelectionEval:
-    """LLM should use ask_user for ambiguous requests with multiple approaches."""
+    """LLM should use AskUser for ambiguous requests with multiple approaches."""
 
     @pytest.fixture(autouse=True)
     def _agent(self):
@@ -226,7 +226,7 @@ class TestAskUserSelectionEval:
 
 
 class TestDirectActionEval:
-    """LLM should act directly without ask_user for clear, specific requests."""
+    """LLM should act directly without AskUser for clear, specific requests."""
 
     @pytest.fixture(autouse=True)
     def _agent(self):
@@ -245,11 +245,10 @@ class TestDirectActionEval:
             results = run_eval(self.agent, [entry])
         for r in results:
             assert r["score"], _fail_msg(r)
-            # Verify ask_user was NOT called for clear requests
-            ask_user_calls = [tc for tc in r["actual_tool_calls"] if tc["name"] == "ask_user"]
+            # Verify AskUser was NOT called for clear requests
+            ask_user_calls = [tc for tc in r["actual_tool_calls"] if tc["name"] == "AskUser"]
             assert not ask_user_calls, (
-                f"ask_user should not be called for clear requests, "
-                f"but was called: {ask_user_calls}"
+                f"AskUser should not be called for clear requests, but was called: {ask_user_calls}"
             )
 
 

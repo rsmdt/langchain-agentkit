@@ -284,7 +284,10 @@ class TestPrompt:
         result = mw.prompt({}, _TEST_RUNTIME)
 
         assert isinstance(result, dict)
+        # Static Skills instructions live in the durable prompt region.
         assert "## Skills" in result["prompt"]
+        # Per-turn roster lives in the reminder region (appended to the
+        # system-prompt tail by kit.compose()).
         assert "reminder" in result
         assert "- market-sizing:" in result["reminder"]
 
@@ -308,7 +311,7 @@ class TestPrompt:
         result = mw.prompt({}, _TEST_RUNTIME)
 
         assert "(No skills available)" in result["prompt"]
-        # No reminder section when no skills configured.
+        # Empty skill set means no reminder section either.
         assert "reminder" not in result or not result.get("reminder")
 
 

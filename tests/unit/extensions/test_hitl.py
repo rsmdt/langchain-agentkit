@@ -208,7 +208,7 @@ class TestExtensionProtocol:
         ext = HITLExtension(tools=True)
 
         assert len(ext.tools) == 1
-        assert ext.tools[0].name == "ask_user"
+        assert ext.tools[0].name == "AskUser"
 
     def test_tools_cached(self):
         ext = HITLExtension(tools=True)
@@ -529,7 +529,7 @@ class TestWrapToolInterrupt:
 
 
 # ------------------------------------------------------------------
-# ask_user tool
+# AskUser tool
 # ------------------------------------------------------------------
 
 
@@ -538,7 +538,7 @@ class TestAskUserTool:
         ext = HITLExtension(tools=True)
         tool = ext.tools[0]
 
-        assert tool.name == "ask_user"
+        assert tool.name == "AskUser"
         assert "ask the user questions" in tool.description.lower()
 
     @patch("langchain_agentkit.extensions.hitl.tools.ask_user.interrupt")
@@ -661,7 +661,7 @@ class TestAskUserTool:
 
     @patch("langchain_agentkit.extensions.hitl.tools.ask_user.interrupt")
     def test_interrupt_payload_has_no_context(self, mock_interrupt):
-        """ask_user questions should not include tool-approval context."""
+        """AskUser questions should not include tool-approval context."""
         mock_interrupt.return_value = {"answers": {"Q?": "A"}}
         ext = HITLExtension(tools=True)
         tool = ext.tools[0]

@@ -23,27 +23,6 @@ if TYPE_CHECKING:
     from langchain_agentkit.agent_kit import AgentKit
 
 
-def _inject_system_reminder(
-    handler_state: dict[str, Any],
-    system_reminder: str,
-) -> dict[str, Any]:
-    """Append system-reminder as an ephemeral HumanMessage.
-
-    Returns a new state dict with the reminder appended to messages.
-    The original state is NOT mutated. The reminder is never persisted —
-    it exists only for the current LLM invocation.
-    """
-    if not system_reminder:
-        return handler_state
-    from langchain_core.messages import HumanMessage
-
-    return {
-        **handler_state,
-        "messages": list(handler_state.get("messages", []))
-        + [HumanMessage(content=system_reminder)],
-    }
-
-
 def _merge_before_updates_into_result(
     result: dict[str, Any],
     persisted_before: dict[str, Any],
@@ -165,14 +144,12 @@ def build_graph(  # noqa: C901
 
         # --- wrap_model hooks (onion around handler) ---
         # The request passed to wrap hooks is handler_state so hooks can
-        # transform messages before the LLM sees them.  _call_handler
-        # uses the request (not a closure) so modifications propagate.
+        # transform messages before the LLM sees them. _call_handler uses
+        # the request (not a closure) so modifications propagate. There
+        # is no ephemeral message injection — dynamic content (task
+        # lists, compaction notices, etc.) lives in the system prompt
+        # composed above, which is re-rendered every step.
         async def _call_handler(request: Any) -> dict[str, Any]:
-            # Inject the system-reminder HumanMessage inside the handler
-            # boundary so wrap_model hooks (e.g. HistoryExtension) do not
-            # observe it in their truncation window — the reminder is
-            # strictly ephemeral and must not leak into persisted state.
-            request = _inject_system_reminder(request, composition.reminder)
             result = handler(request, **inject)
             if inspect.isawaitable(result):
                 result = await result

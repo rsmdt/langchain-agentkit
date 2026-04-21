@@ -281,64 +281,6 @@ class TestDictPromptReturn:
         assert result == "Valid"
 
 
-class TestInjectSystemReminder:
-    def test_empty_reminder_returns_unchanged_state(self):
-        from langchain_agentkit._graph_builder import _inject_system_reminder
-
-        state = {"messages": []}
-
-        result = _inject_system_reminder(state, "")
-
-        assert result is state
-
-    def test_non_empty_reminder_appends_human_message(self):
-        from langchain_core.messages import HumanMessage
-
-        from langchain_agentkit._graph_builder import _inject_system_reminder
-
-        state = {"messages": []}
-
-        result = _inject_system_reminder(state, "hello")
-
-        assert len(result["messages"]) == 1
-        assert isinstance(result["messages"][0], HumanMessage)
-
-    def test_reminder_content_preserved_verbatim(self):
-        """``compose().reminder`` already contains the ``<system-reminder>``
-        envelope; the graph injector must not wrap it a second time."""
-        from langchain_agentkit._graph_builder import _inject_system_reminder
-
-        payload = "<system-reminder>\ncontext\n</system-reminder>"
-        result = _inject_system_reminder({"messages": []}, payload)
-
-        assert result["messages"][0].content == payload
-
-    def test_original_state_not_mutated(self):
-        from langchain_agentkit._graph_builder import _inject_system_reminder
-
-        original_messages = [{"role": "user", "content": "hi"}]
-        state = {"messages": original_messages, "other": "data"}
-
-        result = _inject_system_reminder(state, "reminder")
-
-        assert len(original_messages) == 1
-        assert state["messages"] is original_messages
-        assert result is not state
-
-    def test_existing_messages_preserved(self):
-        from langchain_core.messages import HumanMessage
-
-        from langchain_agentkit._graph_builder import _inject_system_reminder
-
-        existing = HumanMessage(content="existing")
-        state = {"messages": [existing]}
-
-        result = _inject_system_reminder(state, "reminder")
-
-        assert len(result["messages"]) == 2
-        assert result["messages"][0] is existing
-
-
 class TestSetupLifecycle:
     """Test the setup() lifecycle hook and introspection-based dispatch."""
 

@@ -5,7 +5,7 @@ Provides two capabilities:
 1. **Tool approval**: Intercepts whitelisted tool calls via a
    ``wrap_tool`` hook and presents structured questions
    (Approve/Edit/Reject) before execution.
-2. **ask_user tool**: Gives the LLM an explicit tool to ask the user
+2. **AskUser tool**: Gives the LLM an explicit tool to ask the user
    structured questions during execution.
 
 Both use the same Question-based interrupt protocol. Consumers receive
@@ -18,7 +18,7 @@ Usage::
     # Tool approval only
     hitl = HITLExtension(interrupt_on={"send_email": True})
 
-    # ask_user tool only
+    # AskUser tool only
     hitl = HITLExtension(tools=True)
 
     # Both
@@ -32,7 +32,7 @@ Usage::
         "send_email": {"options": ["approve", "reject"], "question": "Send email?"},
     })
 
-Interrupt payload (unified for both tool approval and ask_user)::
+Interrupt payload (unified for both tool approval and AskUser)::
 
     {
         "type": "question",
@@ -113,7 +113,7 @@ class HITLExtension(Extension):
     """Human-in-the-loop extension with unified Question protocol.
 
     Provides tool approval via a ``wrap_tool`` hook and an optional
-    ``ask_user`` tool for LLM-initiated questions. Both use the same
+    ``AskUser`` tool for LLM-initiated questions. Both use the same
     Question-based interrupt payload.
 
     The ``wrap_tool`` hook composes with other extensions' tool hooks
@@ -129,7 +129,7 @@ class HITLExtension(Extension):
             - ``dict``: config with ``options`` and optional ``question``
             - ``InterruptConfig``: full config object
 
-        tools: Whether to provide the ``ask_user`` tool to the LLM.
+        tools: Whether to provide the ``AskUser`` tool to the LLM.
 
     Example::
 
@@ -179,7 +179,7 @@ class HITLExtension(Extension):
 
     @property
     def tools(self) -> list[BaseTool]:
-        """Returns ask_user tool when enabled, empty list otherwise."""
+        """Returns AskUser tool when enabled, empty list otherwise."""
         if self._tools_cache is None:
             self._tools_cache = [create_ask_user_tool()] if self._provide_tools else []
         return self._tools_cache

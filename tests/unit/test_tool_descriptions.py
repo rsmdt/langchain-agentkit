@@ -10,8 +10,8 @@ These tests verify:
 - ``Bash`` description stays simplified (no git-commit/PR protocol text).
 - ``Agent`` description uses domain-neutral examples.
 - ``Skill`` tool description is static and does NOT carry the per-skill
-  roster; the roster arrives via AgentKit's built-in reminder channel
-  (a ``"reminder"`` key returned from :meth:`SkillsExtension.prompt`).
+  roster; the roster is appended to the system prompt by
+  :meth:`SkillsExtension.prompt`.
 """
 
 from __future__ import annotations
@@ -56,7 +56,7 @@ def _get_all_tools() -> dict[str, str]:
     ws = WebSearchExtension(providers=[])
     tools["WebSearch"] = next(t for t in ws.tools if t.name == "WebSearch").description
 
-    tools["ask_user"] = create_ask_user_tool().description
+    tools["AskUser"] = create_ask_user_tool().description
 
     mock_llm = MagicMock()
     agent_tools = create_agent_tools(
@@ -90,7 +90,7 @@ _TOOL_NAMES = (
     "Bash",
     "Skill",
     "WebSearch",
-    "ask_user",
+    "AskUser",
     "Agent",
     "TaskCreate",
     "TaskUpdate",
@@ -147,7 +147,7 @@ def test_agent_description_uses_domain_neutral_examples() -> None:
 
 
 # ---------------------------------------------------------------------------
-# Skill roster is delivered via reminder, not tool description
+# Skill roster is delivered in the system prompt, not in the tool description
 # ---------------------------------------------------------------------------
 
 
@@ -164,13 +164,11 @@ def test_skill_description_does_not_include_roster() -> None:
     assert "- alpha:" not in tool.description
     assert "- beta:" not in tool.description
     assert "Available skills:" not in tool.description
-    assert "system-reminder messages" in tool.description
+    assert "system prompt" in tool.description
 
 
-def test_skill_roster_emitted_via_reminder_channel(tmp_path, monkeypatch) -> None:
-    """SkillsExtension contributes its roster to the reminder channel via
-    ``prompt()`` returning a ``"reminder"`` dict entry."""
-    monkeypatch.chdir(tmp_path)
+def test_skill_roster_emitted_in_system_prompt() -> None:
+    """SkillsExtension appends its roster to the composed system prompt."""
     from langchain_agentkit.agent_kit import AgentKit
     from langchain_agentkit.extensions.skills.extension import SkillsExtension
     from langchain_agentkit.extensions.skills.types import SkillConfig
@@ -180,18 +178,16 @@ def test_skill_roster_emitted_via_reminder_channel(tmp_path, monkeypatch) -> Non
         SkillConfig(name="beta", description="Beta skill.", prompt="beta body"),
     ]
     kit = AgentKit(extensions=[SkillsExtension(skills=configs)])
-    payload = kit.compose({}, None).reminder
-    assert "# SkillsExtension" in payload
-    assert "- alpha: Alpha skill." in payload
-    assert "- beta: Beta skill." in payload
+    prompt = kit.compose({}, None).prompt
+    assert "- alpha: Alpha skill." in prompt
+    assert "- beta: Beta skill." in prompt
 
 
-def test_skill_reminder_empty_when_no_skills(tmp_path, monkeypatch) -> None:
-    """An empty skill roster must not add a SkillsExtension section."""
-    monkeypatch.chdir(tmp_path)
+def test_skill_prompt_has_no_roster_when_no_skills() -> None:
+    """An empty skill roster must not add a dangling 'Available skills:' header."""
     from langchain_agentkit.agent_kit import AgentKit
     from langchain_agentkit.extensions.skills.extension import SkillsExtension
 
     kit = AgentKit(extensions=[SkillsExtension(skills=[])])
-    payload = kit.compose({}, None).reminder
-    assert "# SkillsExtension" not in payload
+    prompt = kit.compose({}, None).prompt
+    assert "Available skills:" not in prompt

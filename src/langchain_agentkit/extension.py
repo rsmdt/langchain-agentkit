@@ -71,21 +71,48 @@ class Extension:
         return []
 
     def prompt(
-        self, state: dict[str, Any], runtime: Any | None = None
+        self,
+        state: dict[str, Any],
+        runtime: Any | None = None,
+        *,
+        tools: frozenset[str] = frozenset(),
     ) -> str | dict[str, str] | None:
-        """Prompt section contributed by this extension.
+        """System-prompt section contributed by this extension.
 
-        Called on every LLM invocation. May return:
+        Called on every LLM invocation — ``kit.compose()`` runs per
+        step — so dynamic content reflects the current moment. May
+        return:
 
         - ``None`` or ``""`` — contribute nothing.
-        - ``str`` — appended to the system prompt in declaration order.
-        - ``dict`` with any of the keys ``"prompt"`` and ``"reminder"``:
+        - ``str`` — appended to the durable region of the system prompt
+          in declaration order.
+        - ``dict`` with any of:
 
-          * ``"prompt"`` is appended to the system prompt.
-          * ``"reminder"`` is appended to AgentKit's ``<system-reminder>``
-            envelope under a ``# <ExtensionClassName>`` header.
+          * ``"prompt"`` — appended to the durable region (same as
+            returning a plain ``str``).
+          * ``"reminder"`` — collected with other extensions' reminders
+            and appended to the *tail* of the system prompt under a
+            ``## Current context`` heading with a ``### <ClassName>``
+            subheader. No ephemeral message is injected — the reminder
+            is part of the system prompt itself and is re-rendered every
+            step.
 
           Unknown keys are silently ignored.
+
+        Rule of thumb: put **static guidance** (tool-use conventions,
+        persona, style) under ``prompt``. Put **per-turn dynamic state**
+        (task list, team status, compaction notices, skill roster)
+        under ``reminder`` so it benefits from the tail-of-prompt
+        attention window and is visually grouped with other dynamic
+        sections.
+
+        Args:
+            state: Current graph state.
+            runtime: Optional LangGraph ``ToolRuntime``.
+            tools: Frozenset of tool names present in the kit this step.
+                Extensions can tailor guidance to the composed capability
+                set (e.g. emit Grep/Read advice only when those tools
+                exist). Empty when called outside a composed kit.
         """
         return None
 

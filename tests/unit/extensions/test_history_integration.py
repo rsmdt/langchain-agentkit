@@ -14,8 +14,15 @@ from langchain_agentkit.extensions.history import HistoryExtension
 
 
 def _strip_reminders(messages: list[Any]) -> list[Any]:
-    """Filter out the system-reminder HumanMessage injected by AgentKit."""
-    return [m for m in messages if "<system-reminder>" not in (m.content or "")]
+    """Legacy no-op filter.
+
+    Historically AgentKit injected a ``<system-reminder>`` HumanMessage
+    between compose and the handler call. That mechanism is gone —
+    dynamic content now lives entirely in the system prompt — but a few
+    tests still run through this helper for clarity when asserting on
+    what the handler observed. Returns ``messages`` unchanged.
+    """
+    return list(messages)
 
 
 def _make_llm(response: AIMessage | None = None) -> MagicMock:
@@ -51,12 +58,13 @@ class TestHistoryExtensionGraphIntegration:
         messages = [HumanMessage(content=f"msg-{i}") for i in range(10)]
         await compiled.ainvoke({"messages": messages})
 
-        # Handler should have received only the last 3 messages (reminder is
-        # injected AFTER truncation and so does not count toward the window
-        # seen during truncation).
-        received_no_reminder = _strip_reminders(received)
-        assert len(received_no_reminder) == 3
-        assert [m.content for m in received_no_reminder] == ["msg-7", "msg-8", "msg-9"]
+        # Handler should have received only the last 3 messages — the
+        # HistoryExtension wraps the model call and truncates before the
+        # handler sees the list. No ephemeral reminder HumanMessage is
+        # injected anymore; dynamic context lives in the system prompt.
+        received_stripped = _strip_reminders(received)
+        assert len(received_stripped) == 3
+        assert [m.content for m in received_stripped] == ["msg-7", "msg-8", "msg-9"]
 
     @pytest.mark.asyncio
     async def test_result_contains_truncated_window_plus_response(self):

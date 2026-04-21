@@ -72,7 +72,7 @@ def _make_always_failing_tool() -> Any:
     @tool
     def lookup_weather(city: str) -> str:
         """Look up the current weather for a city."""
-        raise RuntimeError(f"upstream weather API unreachable for {city!r}")
+        raise RuntimeError(f"weather API unreachable for {city!r}")
 
     return lookup_weather
 
@@ -86,7 +86,7 @@ def _make_flaky_tool() -> tuple[Any, dict[str, int]]:
         """Look up the current weather for a city."""
         state["calls"] += 1
         if state["calls"] == 1:
-            raise RuntimeError("transient upstream failure — retry")
+            raise RuntimeError("transient failure — retry")
         return f"The weather in {city} is 18C and sunny."
 
     return lookup_weather, state

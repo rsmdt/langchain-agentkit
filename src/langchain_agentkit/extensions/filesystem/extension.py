@@ -186,6 +186,8 @@ class FilesystemExtension(Extension):
         self,
         state: dict[str, Any],
         runtime: ToolRuntime | None = None,
+        *,
+        tools: frozenset[str] = frozenset(),
     ) -> str | None:
         """Return a minimal filesystem-root line when the backend's root
         differs from the current working directory; otherwise ``None``.

@@ -113,7 +113,13 @@ class SkillsExtension(Extension):
             ]
         return self._tools_cache
 
-    def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> dict[str, str]:
+    def prompt(
+        self,
+        state: dict[str, Any],
+        runtime: ToolRuntime | None = None,
+        *,
+        tools: frozenset[str] = frozenset(),
+    ) -> dict[str, str]:
         static_prompt = _skills_system_prompt.format(
             skills_list=self._format_skills_list(),
         )
@@ -125,7 +131,7 @@ class SkillsExtension(Extension):
             context_window=self._context_window,
         )
         if roster:
-            out["reminder"] = roster.lstrip("\n")
+            out["reminder"] = roster.lstrip()
         return out
 
     def _format_skills_list(self) -> str:

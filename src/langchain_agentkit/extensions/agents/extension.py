@@ -375,7 +375,13 @@ class AgentsExtension(Extension):
     def tools(self) -> list[BaseTool]:
         return self._tools  # type: ignore[return-value]
 
-    def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
+    def prompt(
+        self,
+        state: dict[str, Any],
+        runtime: ToolRuntime | None = None,
+        *,
+        tools: frozenset[str] = frozenset(),
+    ) -> str:
         roster_lines = []
         for agent_name, agent_obj in self._agents_by_name.items():
             desc = getattr(agent_obj, "description", "") or "No description"

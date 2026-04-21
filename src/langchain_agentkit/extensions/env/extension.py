@@ -47,7 +47,13 @@ class EnvExtension(Extension):
     def __init__(self, cwd: Callable[[], Path] | None = None) -> None:
         self._cwd = cwd
 
-    def prompt(self, state: dict[str, Any], runtime: ToolRuntime | None = None) -> str:
+    def prompt(
+        self,
+        state: dict[str, Any],
+        runtime: ToolRuntime | None = None,
+        *,
+        tools: frozenset[str] = frozenset(),
+    ) -> str:
         cwd = self._cwd() if self._cwd is not None else Path.cwd()
         marker = _find_git_marker(cwd)
         is_git = marker is not None
