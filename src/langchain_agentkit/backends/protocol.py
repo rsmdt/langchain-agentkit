@@ -56,11 +56,34 @@ class GrepMatch(TypedDict):
     text: str
 
 
-class ExecuteResponse(TypedDict):
+class ExecuteResponse(TypedDict, total=False):
+    """Result of a backend shell execution.
+
+    Keys:
+        output: Captured stdout tail. When ``output_path`` is set, this
+            holds the trailing window of the full output that fit in the
+            in-memory buffer; the complete stream is on disk.
+        exit_code: Process exit code (``-1`` on timeout or spawn failure).
+        truncated: ``True`` when output exceeded the buffer cap or the
+            command timed out.
+        stderr: Captured stderr tail (same buffer semantics as ``output``).
+        output_path: Path to a temp file containing the FULL combined
+            stdout + stderr when the buffer overflowed. ``None`` when the
+            output fit in memory.
+        lines_dropped: Number of stdout + stderr lines dropped from the
+            tail window. Zero when ``truncated`` is ``False``.
+        bytes_dropped: Number of bytes dropped from the head of stdout +
+            stderr before the tail window begins. Zero when ``truncated``
+            is ``False``.
+    """
+
     output: str
     exit_code: int
     truncated: bool
     stderr: str
+    output_path: str | None
+    lines_dropped: int
+    bytes_dropped: int
 
 
 # ---------------------------------------------------------------------------

@@ -72,14 +72,30 @@ def _build_bash_tool(backend: BackendProtocol) -> BaseTool:
         stderr = result.get("stderr", "")
         exit_code = result.get("exit_code", -1)
         truncated = result.get("truncated", False)
+        output_path = result.get("output_path")
+        lines_dropped = result.get("lines_dropped", 0)
+        bytes_dropped = result.get("bytes_dropped", 0)
+
         if truncated:
-            stdout += "\n... (output truncated)"
+            notice_parts = ["... (output truncated)"]
+            if bytes_dropped:
+                notice_parts.append(f"{bytes_dropped} bytes dropped from earlier output")
+            if lines_dropped:
+                notice_parts.append(f"{lines_dropped} leading lines dropped from the tail window")
+            if output_path:
+                notice_parts.append(
+                    f"full transcript at {output_path} — use Read with offset/limit to paginate"
+                )
+            stdout += "\n" + "; ".join(notice_parts)
 
         artifact: dict[str, Any] = {
             "stdout": stdout,
             "stderr": stderr,
             "exitCode": exit_code,
             "interrupted": truncated,
+            "outputPath": output_path,
+            "linesDropped": lines_dropped,
+            "bytesDropped": bytes_dropped,
         }
 
         if exit_code != 0:

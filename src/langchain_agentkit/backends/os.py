@@ -16,12 +16,19 @@ Usage::
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import fnmatch
 import itertools
 import os
 import re
 from typing import Any
 
+from langchain_agentkit.backends._execution import (
+    DEFAULT_MAX_OUTPUT_BYTES,
+    DEFAULT_MAX_OUTPUT_LINES,
+    BoundedCapture,
+    drain_stream_into,
+)
 from langchain_agentkit.backends.protocol import (
     EditResult,
     ExecuteResponse,
@@ -40,8 +47,16 @@ class OSBackend:
         root: The root directory for all file operations.
     """
 
-    def __init__(self, root: str) -> None:
+    def __init__(
+        self,
+        root: str,
+        *,
+        max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
+        max_output_lines: int = DEFAULT_MAX_OUTPUT_LINES,
+    ) -> None:
         self._root = os.path.realpath(root)
+        self._max_output_bytes = max_output_bytes
+        self._max_output_lines = max_output_lines
 
     def _resolve(self, path: str) -> str:
         """Resolve path relative to root, blocking traversal.
@@ -163,8 +178,27 @@ class OSBackend:
         timeout: int | None = None,
         workdir: str | None = None,
     ) -> ExecuteResponse:
-        """Execute a shell command via asyncio subprocess."""
+        """Execute a shell command, streaming into a bounded capture.
+
+        Output is streamed into :class:`BoundedCapture` — stdout and stderr
+        each keep a rolling tail of the last ``max_output_bytes`` /
+        ``max_output_lines`` while the full interleaved transcript is
+        mirrored to a temp file. The temp file survives only when output
+        overflows the tail; happy-path runs leave no litter.
+
+        On timeout the process tree is killed and whatever streamed so far
+        is returned with ``truncated=True``. On any other failure the
+        capture is abandoned (spill file deleted) and the exception
+        propagates.
+        """
         cwd = self._resolve(workdir) if workdir else self._root
+        capture = BoundedCapture(
+            stdout_max_bytes=self._max_output_bytes,
+            stdout_max_lines=self._max_output_lines,
+            stderr_max_bytes=self._max_output_bytes,
+            stderr_max_lines=self._max_output_lines,
+        )
+        proc: asyncio.subprocess.Process | None = None
         try:
             proc = await asyncio.create_subprocess_shell(
                 command,
@@ -172,21 +206,48 @@ class OSBackend:
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
             )
-            stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=timeout)
-            return ExecuteResponse(
-                output=stdout.decode("utf-8", errors="replace"),
-                exit_code=proc.returncode or 0,
-                truncated=False,
-                stderr=stderr.decode("utf-8", errors="replace"),
+            pump = asyncio.gather(
+                drain_stream_into(proc.stdout, capture.feed_stdout),
+                drain_stream_into(proc.stderr, capture.feed_stderr),
+                proc.wait(),
             )
-        except TimeoutError:
-            proc.kill()
-            return ExecuteResponse(
-                output="Command timed out",
-                exit_code=-1,
-                truncated=True,
-                stderr="",
-            )
+            try:
+                await asyncio.wait_for(pump, timeout=timeout)
+            except TimeoutError:
+                proc.kill()
+                # Drain whatever remains before collecting results.
+                with contextlib.suppress(TimeoutError, asyncio.CancelledError, Exception):  # noqa: BLE001 — best-effort drain after kill
+                    await asyncio.wait_for(pump, timeout=2.0)
+                stdout_res, stderr_res, spill_path = capture.finalize()
+                return ExecuteResponse(
+                    output=stdout_res.tail.decode("utf-8", errors="replace"),
+                    stderr=stderr_res.tail.decode("utf-8", errors="replace"),
+                    exit_code=-1,
+                    truncated=True,
+                    output_path=str(spill_path) if spill_path is not None else None,
+                    lines_dropped=stdout_res.lines_dropped + stderr_res.lines_dropped,
+                    bytes_dropped=stdout_res.bytes_dropped + stderr_res.bytes_dropped,
+                )
+        except BaseException:
+            capture.abandon()
+            if proc is not None and proc.returncode is None:
+                with contextlib.suppress(Exception):  # noqa: BLE001 — cleanup best-effort
+                    proc.kill()
+            raise
+
+        stdout_res, stderr_res, spill_path = capture.finalize()
+        truncated = spill_path is not None
+        return ExecuteResponse(
+            output=stdout_res.tail.decode("utf-8", errors="replace"),
+            stderr=stderr_res.tail.decode("utf-8", errors="replace"),
+            exit_code=proc.returncode or 0,
+            truncated=truncated,
+            output_path=str(spill_path) if spill_path is not None else None,
+            lines_dropped=stdout_res.lines_dropped + stderr_res.lines_dropped,
+            bytes_dropped=stdout_res.bytes_dropped + stderr_res.bytes_dropped,
+        )
+
+    # --- Internal helpers ---
 
     # --- Convenience methods (not part of BackendProtocol) ---
 

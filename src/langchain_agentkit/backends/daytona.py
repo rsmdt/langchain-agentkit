@@ -118,6 +118,9 @@ class DaytonaBackend:
             exit_code=result.exit_code,
             truncated=False,
             stderr=stderr,
+            output_path=None,
+            lines_dropped=0,
+            bytes_dropped=0,
         )
 
     # --- File operations via shell ---
