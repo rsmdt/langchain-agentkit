@@ -229,7 +229,6 @@ def _build_agent_graph(
     tools: list[BaseTool],
     prompt: str | Path | list[str | Path] | None = None,
     model_resolver: Any = None,
-    model_metadata: Any = None,
     name: str = "agent",
 ) -> Any:
     """Shared graph-building pipeline for both Agent and legacy metaclass.
@@ -243,7 +242,6 @@ def _build_agent_graph(
         tools=tools,
         model=model,
         model_resolver=model_resolver,
-        model_metadata=model_metadata,
         name=name,
     )
 
@@ -352,7 +350,6 @@ class Agent:
 
     model: Any = None
     model_resolver: Any = None
-    model_metadata: Any = None
     prompt: Any = None
     extensions: Any = []
     tools: Any = []
@@ -391,7 +388,6 @@ class Agent:
         extensions = _run_coroutine(self._resolve("extensions"))
         tools = _run_coroutine(self._resolve("tools"))
         model_resolver = _run_coroutine(self._resolve("model_resolver"))
-        model_metadata = _run_coroutine(self._resolve("model_metadata"))
 
         # Get handler as raw function, not bound method. When defined
         # in a class body as `async def handler(state, *, llm): ...`,
@@ -408,7 +404,6 @@ class Agent:
             handler=handler,
             model=model,
             model_resolver=model_resolver,
-            model_metadata=model_metadata,
             extensions=list(extensions) if extensions else [],
             tools=list(tools) if tools else [],
             prompt=prompt,

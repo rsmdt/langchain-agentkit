@@ -32,7 +32,6 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from langchain_agentkit.core.model_registry import resolve_metadata
 from langchain_agentkit.prompt_composition import PromptComposition
 
 if TYPE_CHECKING:
@@ -42,7 +41,6 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
 
-    from langchain_agentkit.core.model_metadata import ModelMetadata
     from langchain_agentkit.extension import Extension
 
 _logger = logging.getLogger(__name__)
@@ -91,7 +89,6 @@ class AgentKit:
         tools: list[BaseTool] | None = None,
         model: BaseChatModel | str | None = None,
         model_resolver: Callable[[str], BaseChatModel] | None = None,
-        model_metadata: ModelMetadata | None = None,
         name: str = "agent",
         preset: str | None = None,
     ) -> None:
@@ -102,8 +99,6 @@ class AgentKit:
         self._user_tools: list[BaseTool] = list(tools or [])
         self._model_raw = model
         self._model_resolver = model_resolver
-        self._model_metadata_override = model_metadata
-        self._model_metadata_cache: ModelMetadata | None = None
         self._name = name
         self._tools_cache: list[BaseTool] | None = None
 
@@ -238,32 +233,6 @@ class AgentKit:
     def resolve_model(self, model: Any) -> Any:
         """Resolve a model reference to a BaseChatModel instance."""
         return self._resolve_model_internal(model)
-
-    @property
-    def model_metadata(self) -> ModelMetadata:
-        """Resolved :class:`ModelMetadata` for the configured model.
-
-        Resolution order:
-
-        1. An explicit ``model_metadata=...`` passed to the constructor.
-        2. Registry lookup keyed on the raw model string (when ``model`` is
-           a string) or the ``model_name`` / ``model`` attribute of a
-           ``BaseChatModel`` instance.
-        3. A conservative fallback (128k context window, 4k output) —
-           extensions that need real numbers should either register the
-           model via :func:`register_model` or pass ``model_metadata``
-           explicitly.
-
-        Cached after first resolution to avoid repeated attribute lookups
-        on the LLM instance.
-        """
-        if self._model_metadata_override is not None:
-            return self._model_metadata_override
-        if self._model_metadata_cache is not None:
-            return self._model_metadata_cache
-        key: Any = self._model_raw if isinstance(self._model_raw, str) else self.model
-        self._model_metadata_cache = resolve_metadata(key)
-        return self._model_metadata_cache
 
     def compile(self, handler: Any) -> Any:
         """Build the full ReAct graph with hooks wired."""
@@ -413,7 +382,6 @@ async def run_extension_setup(kit: AgentKit) -> None:
         # fully-resolved model and the final merged tool list.
         "llm_getter": lambda: kit.model,
         "tools_getter": lambda: kit.tools,
-        "model_metadata_getter": lambda: kit.model_metadata,
     }
     for ext in kit._extensions:
         setup = getattr(ext, "setup", None)

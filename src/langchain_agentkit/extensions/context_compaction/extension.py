@@ -87,11 +87,17 @@ class ContextCompactionExtension(Extension):
     Args:
         settings: Trigger / budget configuration. Defaults to
             :data:`DEFAULT_COMPACTION_SETTINGS`.
-        context_window_resolver: Optional callable returning the context
-            window (in tokens). Takes precedence over
-            :class:`ModelMetadata`. Use when your model isn't in
-            :data:`langchain_agentkit.core.DEFAULT_REGISTRY` and you
-            don't want to :func:`register_model` globally.
+        context_window_resolver: Callable returning the model's context
+            window in tokens. Required for accurate triggering; when
+            omitted, :data:`DEFAULT_CONTEXT_WINDOW` is used as a
+            conservative fallback. Users who want dynamic resolution
+            from their provider stack (for example LiteLLM) supply a
+            callback, e.g.::
+
+                context_window_resolver=lambda: litellm.get_model_info(
+                    "gpt-4o"
+                )["max_input_tokens"]
+
         summarizer_llm: Optional ``BaseChatModel`` to use for
             summarization — typically a cheaper model than the main
             agent. Defaults to the kit's main LLM.
@@ -114,19 +120,10 @@ class ContextCompactionExtension(Extension):
         self._in_flight: asyncio.Lock = asyncio.Lock()
 
     async def setup(self, **kwargs: Any) -> None:  # type: ignore[override]
-        """Capture the kit's LLM getter and model metadata during assembly."""
+        """Capture the kit's LLM getter for summarizer fallback."""
         llm_getter = kwargs.get("llm_getter")
         if callable(llm_getter):
             self._llm_getter = llm_getter
-        metadata_getter = kwargs.get("model_metadata_getter")
-        if self._context_window_resolver is None and callable(metadata_getter):
-            # Capture lazily so summarizer LLM resolution doesn't force
-            # early model instantiation when the kit only has a string.
-            def _resolver() -> int:
-                meta = metadata_getter()
-                return int(meta.context_window) if meta is not None else DEFAULT_CONTEXT_WINDOW
-
-            self._context_window_resolver = _resolver
 
     def prompt(
         self,

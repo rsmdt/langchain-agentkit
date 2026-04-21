@@ -42,12 +42,6 @@ from langchain_agentkit.backends import (
     OSBackend,
 )
 from langchain_agentkit.composability import AgentLike, CompiledAgent, TeamAgent, wrap_if_needed
-from langchain_agentkit.core import (
-    DEFAULT_REGISTRY,
-    ModelMetadata,
-    register_model,
-    resolve_metadata,
-)
 from langchain_agentkit.extension import Extension
 
 # Extensions
@@ -96,14 +90,10 @@ __all__ = [
     "Agent",
     "AgentKit",
     "AgentKitState",
-    "DEFAULT_REGISTRY",
     "Extension",
-    "ModelMetadata",
     "TasksState",
     "TeamState",
     "agent",
-    "register_model",
-    "resolve_metadata",
     # Hook decorators
     "after",
     "before",

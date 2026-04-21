@@ -349,12 +349,19 @@ class TestExtension:
         assert ext.cache_size == 0
 
     @pytest.mark.asyncio
-    async def test_setup_captures_metadata_getter(self) -> None:
-        """setup() wires model_metadata_getter as the context_window resolver."""
-        fake_meta = type("M", (), {"context_window": 50_000})()
-        ext = ContextCompactionExtension()
-        await ext.setup(
-            llm_getter=lambda: _FakeLlm(),
-            model_metadata_getter=lambda: fake_meta,
-        )
+    async def test_context_window_resolver_used_when_provided(self) -> None:
+        """The constructor-supplied resolver wins over the default fallback."""
+        ext = ContextCompactionExtension(context_window_resolver=lambda: 50_000)
+        await ext.setup(llm_getter=lambda: _FakeLlm())
         assert ext._context_window() == 50_000
+
+    @pytest.mark.asyncio
+    async def test_default_context_window_without_resolver(self) -> None:
+        """Without a resolver the extension falls back to the conservative default."""
+        from langchain_agentkit.extensions.context_compaction.extension import (
+            DEFAULT_CONTEXT_WINDOW,
+        )
+
+        ext = ContextCompactionExtension()
+        await ext.setup(llm_getter=lambda: _FakeLlm())
+        assert ext._context_window() == DEFAULT_CONTEXT_WINDOW
