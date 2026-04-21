@@ -42,6 +42,12 @@ from langchain_agentkit.backends import (
     OSBackend,
 )
 from langchain_agentkit.composability import AgentLike, CompiledAgent, TeamAgent, wrap_if_needed
+from langchain_agentkit.core import (
+    DEFAULT_REGISTRY,
+    ModelMetadata,
+    register_model,
+    resolve_metadata,
+)
 from langchain_agentkit.extension import Extension
 
 # Extensions
@@ -61,7 +67,15 @@ from langchain_agentkit.extensions import (
 
 # Types
 from langchain_agentkit.extensions.agents import AgentConfig
+from langchain_agentkit.extensions.context_compaction import (
+    CompactionSettings,
+    ContextCompactionExtension,
+)
 from langchain_agentkit.extensions.hitl import Option, Question
+from langchain_agentkit.extensions.prompt_templates import (
+    PromptTemplate,
+    PromptTemplateExtension,
+)
 from langchain_agentkit.extensions.skills import SkillConfig, build_skill_tool
 from langchain_agentkit.extensions.tasks import Task, TasksState, TaskStatus, create_task_tools
 from langchain_agentkit.extensions.teams import TeamState
@@ -82,10 +96,14 @@ __all__ = [
     "Agent",
     "AgentKit",
     "AgentKitState",
+    "DEFAULT_REGISTRY",
     "Extension",
+    "ModelMetadata",
     "TasksState",
     "TeamState",
     "agent",
+    "register_model",
+    "resolve_metadata",
     # Hook decorators
     "after",
     "before",
@@ -102,10 +120,14 @@ __all__ = [
     "PermissionRuleset",
     # Extensions
     "AgentsExtension",
+    "CompactionSettings",
+    "ContextCompactionExtension",
     "DuckDuckGoSearchProvider",
     "FilesystemExtension",
     "HITLExtension",
     "HistoryExtension",
+    "PromptTemplate",
+    "PromptTemplateExtension",
     "QwantSearchProvider",
     "ResilienceExtension",
     "SkillsExtension",

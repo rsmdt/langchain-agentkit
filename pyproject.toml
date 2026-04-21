@@ -66,10 +66,14 @@ line-length = 100
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "C90", "N", "UP", "PIE", "SIM", "TCH"]
 
-# Tool description constants carry verbatim reference text and legitimately
+# Tool description constants carry text and legitimately
 # exceed the 100-char line limit. They're data, not code.
 [tool.ruff.lint.per-file-ignores]
 "src/langchain_agentkit/extensions/*/tools/*.py" = ["E501"]
+# model sees, so E501 is permitted here.
+"src/langchain_agentkit/extensions/context_compaction/summarizer.py" = ["E501", "C901"]
+# Bash-style argument tokenizer — the state machine is intentionally flat.
+"src/langchain_agentkit/extensions/prompt_templates/parser.py" = ["C901"]
 
 [tool.mypy]
 python_version = "3.11"
