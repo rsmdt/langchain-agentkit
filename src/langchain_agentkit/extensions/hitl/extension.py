@@ -15,22 +15,24 @@ Usage::
 
     from langchain_agentkit import HITLExtension
 
-    # Tool approval only
-    hitl = HITLExtension(interrupt_on={"send_email": True})
+    # Defaults — provides AskUser tool, no approval gating
+    hitl = HITLExtension()
 
-    # AskUser tool only
-    hitl = HITLExtension(tools=True)
+    # Approval-only — pass tools=[] to drop AskUser
+    hitl = HITLExtension(interrupt_on={"send_email": True}, tools=[])
 
-    # Both
+    # Both (default) — approval gating + AskUser
     hitl = HITLExtension(
         interrupt_on={"send_email": True, "delete_file": True},
-        tools=True,
     )
 
     # Custom approval config
     hitl = HITLExtension(interrupt_on={
         "send_email": {"options": ["approve", "reject"], "question": "Send email?"},
     })
+
+    # Replace AskUser with a custom tool
+    hitl = HITLExtension(tools=[my_custom_ask_tool])
 
 Interrupt payload (unified for both tool approval and AskUser)::
 
@@ -71,7 +73,7 @@ from langchain_agentkit.extensions.hitl.tools import create_ask_user_tool
 from langchain_agentkit.extensions.hitl.types import Option, Question
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from langchain_core.tools import BaseTool
 
@@ -129,7 +131,10 @@ class HITLExtension(Extension):
             - ``dict``: config with ``options`` and optional ``question``
             - ``InterruptConfig``: full config object
 
-        tools: Whether to provide the ``AskUser`` tool to the LLM.
+        tools: Optional explicit tool list. When ``None`` (default), the
+            extension provides ``[AskUser]``. Pass ``[]`` to disable the
+            AskUser tool entirely, or pass a custom tool list to replace
+            the default.
 
     Example::
 
@@ -138,7 +143,6 @@ class HITLExtension(Extension):
                 "send_email": True,
                 "delete_file": {"options": ["approve", "reject"]},
             },
-            tools=True,
         )
 
         class MyAgent(Agent):
@@ -156,7 +160,7 @@ class HITLExtension(Extension):
         self,
         *,
         interrupt_on: dict[str, bool | dict[str, Any] | InterruptConfig] | None = None,
-        tools: bool = False,
+        tools: Sequence[BaseTool] | None = None,
     ) -> None:
         resolved: dict[str, InterruptConfig] = {}
         for tool_name, config in (interrupt_on or {}).items():
@@ -174,14 +178,24 @@ class HITLExtension(Extension):
             # False or unrecognized values are silently ignored — only
             # whitelisted tools get interrupted.
         self.interrupt_on = resolved
-        self._provide_tools = tools
+        self._custom_tools: tuple[BaseTool, ...] | None = (
+            tuple(tools) if tools is not None else None
+        )
         self._tools_cache: list[BaseTool] | None = None
 
     @property
     def tools(self) -> list[BaseTool]:
-        """Returns AskUser tool when enabled, empty list otherwise."""
+        """Returns the configured tool list.
+
+        Defaults to ``[AskUser]`` when ``tools=`` was not supplied. Users
+        pass ``tools=[]`` to disable AskUser, or ``tools=[custom_tool]``
+        to fully replace the default.
+        """
         if self._tools_cache is None:
-            self._tools_cache = [create_ask_user_tool()] if self._provide_tools else []
+            if self._custom_tools is not None:
+                self._tools_cache = list(self._custom_tools)
+            else:
+                self._tools_cache = [create_ask_user_tool()]
         return self._tools_cache
 
     async def wrap_tool(

@@ -10,7 +10,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain_agentkit.extension import Extension
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
@@ -60,18 +60,23 @@ class TasksExtension(Extension):
     """Extension providing task management tools and system prompt guidance.
 
     Args:
-        task_tools: Optional custom task tools.
+        tools: Optional explicit tool list. When provided, replaces the
+            default task-management tool set entirely; the extension will
+            not rebuild them in ``setup()`` for team-awareness. When
+            ``None``, the extension builds its defaults (TaskCreate,
+            TaskUpdate, TaskList, TaskGet, TaskStop) and upgrades their
+            descriptions if a ``TeamExtension`` sibling is detected.
         formatter: Optional custom function to format tasks into a prompt section.
     """
 
     def __init__(
         self,
         *,
-        task_tools: list[BaseTool] | None = None,
+        tools: Sequence[BaseTool] | None = None,
         formatter: Callable[[list[dict[str, Any]]], str] | None = None,
     ) -> None:
         self._custom_tools: tuple[BaseTool, ...] | None = (
-            tuple(task_tools) if task_tools is not None else None
+            tuple(tools) if tools is not None else None
         )
         self._tools: tuple[BaseTool, ...] = ()
         self._formatter = formatter or format_task_context

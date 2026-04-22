@@ -12,7 +12,7 @@ from langchain_core.prompts import PromptTemplate
 from langchain_agentkit.extension import Extension
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from langchain_core.language_models import BaseChatModel
     from langchain_core.messages import BaseMessage
@@ -86,6 +86,12 @@ class TeamExtension(Extension):
         token_counter: Passed through to ``trim_messages``.  Use
             ``"approximate"`` for the dependency-free heuristic, or pass
             an LLM instance for model-accurate counting.
+        tools: Optional explicit tool list. When ``None`` (default), the
+            extension builds its standard set (TeamCreate, TeamMessage,
+            TeamStatus, TeamDissolve) — these close over the extension
+            instance to access bus state and the active team. When
+            provided, these tools replace the defaults entirely; the user
+            is responsible for any closure wiring their replacements need.
     """
 
     def __init__(
@@ -98,6 +104,7 @@ class TeamExtension(Extension):
         router_timeout: float = 30.0,
         max_history_tokens: int = 20_000,
         token_counter: Any = "approximate",
+        tools: Sequence[BaseTool] | None = None,
     ) -> None:
         from langchain_agentkit.extensions.agents.refs import validate_agent_list
         from langchain_agentkit.extensions.agents.types import (
@@ -146,9 +153,12 @@ class TeamExtension(Extension):
         # the correct object.
         self._capture_buffer: list[BaseMessage] = []
 
-        from langchain_agentkit.extensions.teams.tools import create_team_tools
+        if tools is not None:
+            self._tools: tuple[BaseTool, ...] = tuple(tools)
+        else:
+            from langchain_agentkit.extensions.teams.tools import create_team_tools
 
-        self._tools = tuple(create_team_tools(self))
+            self._tools = tuple(create_team_tools(self))
 
     def set_parent_llm_getter(self, getter: Any) -> None:
         self._parent_llm_getter = getter

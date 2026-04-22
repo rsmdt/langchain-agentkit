@@ -18,7 +18,7 @@ from langchain_agentkit.extensions.agents.types import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Sequence
 
     from langchain_core.language_models import BaseChatModel
     from langchain_core.tools import BaseTool
@@ -121,6 +121,11 @@ class AgentsExtension(Extension):
         metadata_prefix: Namespace for the ``response_metadata`` tag
             keys the strategy writes and the filter reads. Defaults to
             ``"agentkit"``.
+        tools: Optional explicit tool list. When ``None`` (default), the
+            extension builds the unified ``Agent`` delegation tool with
+            closures over the roster, compiled cache, parent getters,
+            and resolver lambdas. When provided, these tools replace the
+            default; deferred backend discovery will NOT rebuild them.
     """
 
     def __init__(
@@ -133,6 +138,7 @@ class AgentsExtension(Extension):
         delegation_timeout: float = 300.0,
         output_mode: Any = "trace_hidden",
         metadata_prefix: str = "agentkit",
+        tools: Sequence[BaseTool] | None = None,
     ) -> None:
         from langchain_agentkit.extensions.agents.output import (
             StrategyContext,
@@ -187,7 +193,13 @@ class AgentsExtension(Extension):
         self._model_resolver: Any = None
         self._skills_resolver: Any = None
 
-        self._tools = tuple(self._create_tools())
+        self._custom_tools: tuple[BaseTool, ...] | None = (
+            tuple(tools) if tools is not None else None
+        )
+        if self._custom_tools is not None:
+            self._tools: tuple[BaseTool, ...] = self._custom_tools
+        else:
+            self._tools = tuple(self._create_tools())
 
     @property
     def model_resolver(self) -> Callable[[str], BaseChatModel] | None:
@@ -269,7 +281,10 @@ class AgentsExtension(Extension):
         self._agents_by_name = validate_agent_list(proxies) if proxies else {}
         self._has_config_agents = bool(proxies)
         self._deferred_path = None
-        self._tools = tuple(self._create_tools())
+        # User-supplied tools are never rebuilt — discovery results only
+        # affect the default Agent tool's closures.
+        if self._custom_tools is None:
+            self._tools = tuple(self._create_tools())
 
     def _discover_skills_resolver(self, extensions: list[Extension]) -> None:
         """Wire a skills resolver from a sibling SkillsExtension if present."""

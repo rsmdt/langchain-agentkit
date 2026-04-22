@@ -31,6 +31,8 @@ from langchain_agentkit.extensions.skills.tools import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
 
@@ -59,6 +61,7 @@ class SkillsExtension(Extension):
         budget_percent: float | None = None,
         max_description_chars: int | None = None,
         context_window: int | None = None,
+        tools: Sequence[BaseTool] | None = None,
     ) -> None:
         self._backend = backend
         self._deferred_path: str | None = None
@@ -67,6 +70,13 @@ class SkillsExtension(Extension):
             self._configs: list[SkillConfig] = list(skills)
         elif isinstance(skills, (str, Path)):
             if backend is not None:
+                if tools is not None:
+                    raise ValueError(
+                        "tools= cannot be combined with backend-based skill discovery. "
+                        "Either pass explicit SkillConfigs via skills=[...] and omit "
+                        "backend, or omit tools= so discovery can build the default "
+                        "Skill tool from discovered configs."
+                    )
                 # Defer async discovery to setup()
                 self._deferred_path = str(skills)
                 self._configs = []
@@ -78,6 +88,9 @@ class SkillsExtension(Extension):
         self._budget_percent = budget_percent
         self._max_description_chars = max_description_chars
         self._context_window = context_window
+        self._custom_tools: tuple[BaseTool, ...] | None = (
+            tuple(tools) if tools is not None else None
+        )
         self._tools_cache: list[BaseTool] | None = None
 
     async def setup(self, **_: Any) -> None:  # type: ignore[override]
@@ -103,14 +116,17 @@ class SkillsExtension(Extension):
     @property
     def tools(self) -> list[BaseTool]:
         if self._tools_cache is None:
-            self._tools_cache = [
-                build_skill_tool(
-                    self._configs,
-                    budget_percent=self._budget_percent,
-                    max_description_chars=self._max_description_chars,
-                    context_window=self._context_window,
-                )
-            ]
+            if self._custom_tools is not None:
+                self._tools_cache = list(self._custom_tools)
+            else:
+                self._tools_cache = [
+                    build_skill_tool(
+                        self._configs,
+                        budget_percent=self._budget_percent,
+                        max_description_chars=self._max_description_chars,
+                        context_window=self._context_window,
+                    )
+                ]
         return self._tools_cache
 
     def prompt(

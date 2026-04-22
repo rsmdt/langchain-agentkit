@@ -173,24 +173,33 @@ class TestInit:
 
         assert ext.interrupt_on == {}
 
-    def test_tools_default_false(self):
+    def test_tools_default_is_ask_user(self):
         ext = HITLExtension()
 
-        assert ext._provide_tools is False
+        assert [t.name for t in ext.tools] == ["AskUser"]
 
-    def test_tools_enabled(self):
-        ext = HITLExtension(tools=True)
+    def test_tools_empty_when_explicit_empty_list(self):
+        ext = HITLExtension(tools=[])
 
-        assert ext._provide_tools is True
+        assert ext.tools == []
+
+    def test_tools_accepts_custom_list(self):
+        from unittest.mock import MagicMock
+
+        from langchain_core.tools import BaseTool
+
+        custom = MagicMock(spec=BaseTool)
+        ext = HITLExtension(tools=[custom])
+
+        assert ext.tools == [custom]
 
     def test_both_interrupt_on_and_tools(self):
         ext = HITLExtension(
             interrupt_on={"send_email": True},
-            tools=True,
         )
 
         assert "send_email" in ext.interrupt_on
-        assert ext._provide_tools is True
+        assert [t.name for t in ext.tools] == ["AskUser"]
 
 
 # ------------------------------------------------------------------
@@ -199,19 +208,19 @@ class TestInit:
 
 
 class TestExtensionProtocol:
-    def test_tools_empty_when_ask_user_disabled(self):
-        ext = HITLExtension(interrupt_on={"send_email": True})
+    def test_tools_empty_when_explicit_empty_list(self):
+        ext = HITLExtension(interrupt_on={"send_email": True}, tools=[])
 
         assert ext.tools == []
 
-    def test_tools_contains_ask_user_when_enabled(self):
-        ext = HITLExtension(tools=True)
+    def test_tools_contains_ask_user_by_default(self):
+        ext = HITLExtension()
 
         assert len(ext.tools) == 1
         assert ext.tools[0].name == "AskUser"
 
     def test_tools_cached(self):
-        ext = HITLExtension(tools=True)
+        ext = HITLExtension()
 
         first = ext.tools
         second = ext.tools
@@ -219,7 +228,7 @@ class TestExtensionProtocol:
         assert first is second
 
     def test_prompt_returns_none(self):
-        ext = HITLExtension(tools=True)
+        ext = HITLExtension()
 
         assert ext.prompt({}, _TEST_RUNTIME) is None
 
@@ -535,7 +544,7 @@ class TestWrapToolInterrupt:
 
 class TestAskUserTool:
     def test_tool_name_and_description(self):
-        ext = HITLExtension(tools=True)
+        ext = HITLExtension()
         tool = ext.tools[0]
 
         assert tool.name == "AskUser"
@@ -546,7 +555,7 @@ class TestAskUserTool:
         mock_interrupt.return_value = {
             "answers": {"Which database?": "PostgreSQL"},
         }
-        ext = HITLExtension(tools=True)
+        ext = HITLExtension()
         tool = ext.tools[0]
 
         result = tool.invoke(
@@ -580,7 +589,7 @@ class TestAskUserTool:
                 "Which region?": "US East",
             },
         }
-        ext = HITLExtension(tools=True)
+        ext = HITLExtension()
         tool = ext.tools[0]
 
         result = tool.invoke(
@@ -614,7 +623,7 @@ class TestAskUserTool:
     @patch("langchain_agentkit.extensions.hitl.tools.ask_user.interrupt")
     def test_handles_missing_answer(self, mock_interrupt):
         mock_interrupt.return_value = {"answers": {}}
-        ext = HITLExtension(tools=True)
+        ext = HITLExtension()
         tool = ext.tools[0]
 
         result = tool.invoke(
@@ -638,7 +647,7 @@ class TestAskUserTool:
     @patch("langchain_agentkit.extensions.hitl.tools.ask_user.interrupt")
     def test_handles_non_dict_response(self, mock_interrupt):
         mock_interrupt.return_value = "unexpected"
-        ext = HITLExtension(tools=True)
+        ext = HITLExtension()
         tool = ext.tools[0]
 
         result = tool.invoke(
@@ -663,7 +672,7 @@ class TestAskUserTool:
     def test_interrupt_payload_has_no_context(self, mock_interrupt):
         """AskUser questions should not include tool-approval context."""
         mock_interrupt.return_value = {"answers": {"Q?": "A"}}
-        ext = HITLExtension(tools=True)
+        ext = HITLExtension()
         tool = ext.tools[0]
 
         tool.invoke(

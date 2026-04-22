@@ -422,7 +422,7 @@ class TestAskUserInvokedOnAmbiguity:
         from langchain_agentkit import HITLExtension
 
         def trial() -> tuple[bool, str]:
-            kit = _make_kit(extensions=[HITLExtension(tools=True)])
+            kit = _make_kit(extensions=[HITLExtension()])
             msg = _run(
                 _invoke_once(
                     kit,
@@ -814,7 +814,7 @@ class TestAskUserNotInvokedWhenClear:
         target.write_text("hello\n")
 
         def trial() -> tuple[bool, str]:
-            kit = _make_kit(extensions=[HITLExtension(tools=True)])
+            kit = _make_kit(extensions=[HITLExtension()])
             msg = _run(_invoke_once(kit, f"Read the file at {target}."))
             names = _tool_names(msg)
             if "AskUser" in names:
@@ -828,7 +828,7 @@ class TestAskUserNotInvokedWhenClear:
         from langchain_agentkit import HITLExtension
 
         def trial() -> tuple[bool, str]:
-            kit = _make_kit(extensions=[HITLExtension(tools=True)])
+            kit = _make_kit(extensions=[HITLExtension()])
             msg = _run(_invoke_once(kit, "What is the capital of France?"))
             names = _tool_names(msg)
             if "AskUser" in names:

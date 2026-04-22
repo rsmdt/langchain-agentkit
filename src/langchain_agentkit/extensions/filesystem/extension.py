@@ -40,6 +40,7 @@ from langchain_agentkit.permissions.types import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from pathlib import Path
 
     from langchain_core.tools import BaseTool
@@ -91,6 +92,13 @@ class FilesystemExtension(Extension):
         root: Root directory for the default OS filesystem backend.
         permissions: Optional permission ruleset. When ``None``, all
             operations are allowed (no gating).
+        tools: Optional explicit tool list. When ``None`` (default), the
+            extension builds the standard set (Read, Write, Edit, Glob,
+            Grep, and Bash when the backend supports execute). When
+            provided, these tools replace the defaults entirely.
+            Permission gating still applies to tools whose ``name``
+            matches the operation map (Read, Write, Edit, Glob, Grep,
+            Bash); user tools with other names pass through unwrapped.
     """
 
     def __init__(
@@ -99,10 +107,14 @@ class FilesystemExtension(Extension):
         backend: BackendProtocol | None = None,
         root: str | Path = ".",
         permissions: PermissionRuleset | None = None,
+        tools: Sequence[BaseTool] | None = None,
     ) -> None:
         self._backend = backend or OSBackend(str(root))
         self._permissions = permissions
         self._hitl_available = False  # Resolved by setup()
+        self._custom_tools: tuple[BaseTool, ...] | None = (
+            tuple(tools) if tools is not None else None
+        )
         self._tools_cache: list[BaseTool] | None = None
 
     def setup(  # type: ignore[override]
@@ -140,11 +152,13 @@ class FilesystemExtension(Extension):
 
     def _build_tools(self) -> list[BaseTool]:
         """Build tool list with permission gates applied."""
-        tools: list[BaseTool] = create_filesystem_tools(self._backend)
-
-        # Add Bash tool if backend supports execute
-        if hasattr(self._backend, "execute") and callable(self._backend.execute):
-            tools.append(_build_bash_tool(self._backend))
+        if self._custom_tools is not None:
+            tools: list[BaseTool] = list(self._custom_tools)
+        else:
+            tools = create_filesystem_tools(self._backend)
+            # Add Bash tool if backend supports execute
+            if hasattr(self._backend, "execute") and callable(self._backend.execute):
+                tools.append(_build_bash_tool(self._backend))
 
         if self._permissions is None:
             return tools

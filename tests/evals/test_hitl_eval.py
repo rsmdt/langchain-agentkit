@@ -92,7 +92,7 @@ def _build_ask_user_agent():
 
     kit = AgentKit(
         extensions=[
-            HITLExtension(tools=True),
+            HITLExtension(),
             FilesystemExtension(backend=OSBackend(root=tmpdir)),
         ]
     )

@@ -61,18 +61,23 @@ from langchain_agentkit.extensions import (
 
 # Types
 from langchain_agentkit.extensions.agents import AgentConfig
+from langchain_agentkit.extensions.agents.tools import create_agent_tools
 from langchain_agentkit.extensions.context_compaction import (
     CompactionSettings,
     ContextCompactionExtension,
 )
+from langchain_agentkit.extensions.filesystem.tools import create_filesystem_tools
 from langchain_agentkit.extensions.hitl import Option, Question
+from langchain_agentkit.extensions.hitl.tools import create_ask_user_tool
 from langchain_agentkit.extensions.prompt_templates import (
     PromptTemplate,
     PromptTemplateExtension,
 )
+from langchain_agentkit.extensions.prompt_templates.tools import build_run_command_tool
 from langchain_agentkit.extensions.skills import SkillConfig, build_skill_tool
 from langchain_agentkit.extensions.tasks import Task, TasksState, TaskStatus, create_task_tools
 from langchain_agentkit.extensions.teams import TeamState
+from langchain_agentkit.extensions.teams.tools import create_team_tools
 from langchain_agentkit.hooks import after, before, wrap
 
 # Permissions
@@ -138,6 +143,11 @@ __all__ = [
     # Tools
     "Task",
     "TaskStatus",
+    "build_run_command_tool",
     "build_skill_tool",
+    "create_agent_tools",
+    "create_ask_user_tool",
+    "create_filesystem_tools",
     "create_task_tools",
+    "create_team_tools",
 ]

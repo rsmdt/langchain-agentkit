@@ -155,7 +155,7 @@ extensions = [
     FilesystemExtension(),
     WebSearchExtension(),
     HistoryExtension(strategy="count", max_messages=50),
-    HITLExtension(interrupt_on={"send_email": True}, tools=True),
+    HITLExtension(interrupt_on={"send_email": True}),
     AgentsExtension(agents=[researcher, coder]),
     TeamExtension(agents=[researcher, coder]),
 ]
@@ -180,7 +180,7 @@ extensions = [
 
     # --- Hook-only layer (order shapes wrap onion, not prompt) ---
     ResilienceExtension(),                          # outermost wrap_tool — catches unhandled tool errors
-    HITLExtension(interrupt_on={"send_email": True}, tools=True),
+    HITLExtension(interrupt_on={"send_email": True}),
     HistoryExtension(strategy="count", max_messages=50),
     ContextCompactionExtension(keep_recent=5),
     MessagePersistenceExtension(persist=write_to_db),
@@ -428,16 +428,19 @@ hitl = HITLExtension(interrupt_on={
 # Tools not listed in interrupt_on execute normally without interruption.
 ```
 
-**AskUser tool** — let the LLM ask structured questions:
+**AskUser tool** — the `AskUser` tool lets the LLM ask structured questions. It is provided by default:
 
 ```python
-hitl = HITLExtension(tools=True)
+hitl = HITLExtension()  # provides [AskUser]
 
-# Or combine both:
-hitl = HITLExtension(
-    interrupt_on={"send_email": True},
-    tools=True,
-)
+# Combine with approval gating (AskUser is still included):
+hitl = HITLExtension(interrupt_on={"send_email": True})
+
+# Drop AskUser entirely:
+hitl = HITLExtension(interrupt_on={"send_email": True}, tools=[])
+
+# Replace AskUser with a custom tool:
+hitl = HITLExtension(tools=[my_custom_tool])
 ```
 
 Both use the same interrupt payload (`Question` objects) and resume format.

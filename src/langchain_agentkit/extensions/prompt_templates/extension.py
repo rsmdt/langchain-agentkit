@@ -54,6 +54,7 @@ class PromptTemplateExtension(Extension):
         *,
         templates: Sequence[PromptTemplate] | str | Path,
         backend: BackendProtocol | None = None,
+        tools: Sequence[BaseTool] | None = None,
     ) -> None:
         self._backend = backend
         self._deferred_path: str | None = None
@@ -61,6 +62,14 @@ class PromptTemplateExtension(Extension):
             self._templates: dict[str, PromptTemplate] = {t.name: t for t in templates}
         elif isinstance(templates, (str, Path)):
             if backend is not None:
+                if tools is not None:
+                    raise ValueError(
+                        "tools= cannot be combined with backend-based template "
+                        "discovery. Either pass explicit PromptTemplate instances "
+                        "via templates=[...] and omit backend, or omit tools= so "
+                        "discovery can build the default RunCommand tool from "
+                        "discovered templates."
+                    )
                 self._deferred_path = str(templates)
                 self._templates = {}
             else:
@@ -71,6 +80,9 @@ class PromptTemplateExtension(Extension):
                 f"templates must be a list of PromptTemplate, str, or Path; "
                 f"got {type(templates).__name__}"
             )
+        self._custom_tools: tuple[BaseTool, ...] | None = (
+            tuple(tools) if tools is not None else None
+        )
         self._tools_cache: list[BaseTool] | None = None
 
     async def setup(self, **_: Any) -> None:  # type: ignore[override]
@@ -92,7 +104,10 @@ class PromptTemplateExtension(Extension):
     @property
     def tools(self) -> list[BaseTool]:
         if self._tools_cache is None:
-            self._tools_cache = [build_run_command_tool(self._templates)]
+            if self._custom_tools is not None:
+                self._tools_cache = list(self._custom_tools)
+            else:
+                self._tools_cache = [build_run_command_tool(self._templates)]
         return self._tools_cache
 
     def prompt(

@@ -38,13 +38,13 @@ class TestTasksExtensionTools:
         tool_a = MagicMock(spec=BaseTool)
         tool_b = MagicMock(spec=BaseTool)
 
-        mw = TasksExtension(task_tools=[tool_a, tool_b])
+        mw = TasksExtension(tools=[tool_a, tool_b])
 
         assert mw.tools == (tool_a, tool_b)
 
     def test_tools_returns_immutable_tuple(self):
         tool_a = MagicMock(spec=BaseTool)
-        mw = TasksExtension(task_tools=[tool_a])
+        mw = TasksExtension(tools=[tool_a])
 
         first_call = mw.tools
         second_call = mw.tools
