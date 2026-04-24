@@ -230,6 +230,7 @@ def _build_agent_graph(
     prompt: str | Path | list[str | Path] | None = None,
     model_resolver: Any = None,
     name: str = "agent",
+    stream_tool_results: bool = True,
 ) -> Any:
     """Shared graph-building pipeline for both Agent and legacy metaclass.
 
@@ -243,6 +244,7 @@ def _build_agent_graph(
         model=model,
         model_resolver=model_resolver,
         name=name,
+        stream_tool_results=stream_tool_results,
     )
 
     _run_coroutine(run_extension_setup(kit))
@@ -353,6 +355,7 @@ class Agent:
     prompt: Any = None
     extensions: Any = []
     tools: Any = []
+    stream_tool_results: bool = True
 
     def __init__(self, **kwargs: Any) -> None:
         for k, v in kwargs.items():
@@ -408,6 +411,7 @@ class Agent:
             tools=list(tools) if tools else [],
             prompt=prompt,
             name=getattr(self, "name", cls.__name__),
+            stream_tool_results=bool(getattr(self, "stream_tool_results", True)),
         )
 
         # Attach Agent-specific metadata
@@ -424,7 +428,22 @@ class Agent:
         Shorthand for ``self.graph().compile(**kwargs)``. Pass
         ``checkpointer``, ``recursion_limit``, etc. as keyword arguments.
 
+        When ``stream_tool_results=False`` (or any extension suppresses a
+        tool via :meth:`Extension.stream_tool_results`), the returned
+        runnable is transparently wrapped in
+        :class:`~langchain_agentkit.streaming.FilteredGraph` so ``astream``
+        and ``astream_events`` redact tool-result payloads on the outbound
+        stream. When no tool is suppressed, the raw compiled graph is
+        returned unchanged.
+
         Returns:
-            A compiled, invocable graph.
+            A compiled, invocable graph — possibly a
+            :class:`~langchain_agentkit.streaming.FilteredGraph` proxy.
         """
-        return self.graph().compile(**kwargs)
+        from langchain_agentkit.streaming import wrap_if_filtering
+
+        state_graph = self.graph()
+        compiled = state_graph.compile(**kwargs)
+        kit = getattr(state_graph, "_agentkit_kit", None)
+        suppressed = kit.suppressed_tool_names() if kit is not None else frozenset()
+        return wrap_if_filtering(compiled, suppressed)

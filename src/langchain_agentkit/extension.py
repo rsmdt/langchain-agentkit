@@ -133,6 +133,25 @@ class Extension:
         """
         return []
 
+    def stream_tool_results(self, tool_name: str) -> bool | None:
+        """Per-tool override for outbound tool-result payload streaming.
+
+        Return ``True`` to force the payload to stream for ``tool_name``
+        regardless of the kit-level default, ``False`` to suppress it, or
+        ``None`` to inherit :attr:`AgentKit.stream_tool_results`. Override
+        only when an extension has a strong opinion about a specific tool
+        (e.g. a diagnostic tool that must always be visible, or a
+        high-volume tool that is always noise). The default returns
+        ``None`` so extensions that don't care are transparent.
+
+        Called by :meth:`AgentKit.suppressed_tool_names` once per tool
+        after setup. The first extension in declaration order to return a
+        non-``None`` value wins. State and the checkpointer are never
+        affected — this only shapes the outbound ``astream`` /
+        ``astream_events`` stream.
+        """
+        return None
+
     def setup(self, **kwargs: Any) -> None:
         """Finalize configuration once the kit is assembled.
 

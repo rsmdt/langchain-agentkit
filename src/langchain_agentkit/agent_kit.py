@@ -70,6 +70,17 @@ class AgentKit:
             any user-supplied ``extensions=[...]``. ``None`` (default)
             leaves the extension list untouched. Unknown preset
             strings raise :class:`ValueError`.
+        stream_tool_results: When ``False``, the outbound stream
+            (``astream`` / ``astream_events`` on the compiled graph)
+            redacts ``ToolMessage.content`` and ``on_tool_end``/
+            ``on_tool_stream`` ``data.output`` — the envelope
+            (``name``, ``tool_call_id``, ``status``) passes through so
+            clients can render lifecycle/failure state, but the
+            payload bytes never cross the wire. Tool results still
+            persist in full to state and the checkpointer; only the
+            outbound stream is shaped. Default ``True`` preserves
+            pre-existing behavior. Extensions may override per-tool
+            via ``Extension.stream_tool_results(tool_name)``.
 
     Example::
 
@@ -91,6 +102,7 @@ class AgentKit:
         model_resolver: Callable[[str], BaseChatModel] | None = None,
         name: str = "agent",
         preset: str | None = None,
+        stream_tool_results: bool = True,
     ) -> None:
         seeded = _seed_preset_extensions(preset)
         combined: list[Extension] = [*seeded, *(extensions or [])]
@@ -100,6 +112,7 @@ class AgentKit:
         self._model_raw = model
         self._model_resolver = model_resolver
         self._name = name
+        self._stream_tool_results = stream_tool_results
         self._tools_cache: list[BaseTool] | None = None
 
     @property
@@ -111,6 +124,48 @@ class AgentKit:
     def base_prompt(self) -> str:
         """The resolved base prompt string (before extension contributions)."""
         return self._prompt
+
+    @property
+    def stream_tool_results(self) -> bool:
+        """Kit-level default for outbound tool-result payload streaming.
+
+        ``False`` means the outbound-stream wrapper redacts tool-result
+        content on ``astream`` / ``astream_events``. Extensions may override
+        this per tool via :meth:`Extension.stream_tool_results`.
+        """
+        return self._stream_tool_results
+
+    def suppressed_tool_names(self) -> frozenset[str]:
+        """Names of tools whose result payload should be redacted on the stream.
+
+        Resolved from the kit default (:attr:`stream_tool_results`) and each
+        extension's optional ``stream_tool_results(tool_name)`` hook. The
+        first extension to return a non-``None`` value wins; absence falls
+        back to the kit default.
+
+        Call after :func:`run_extension_setup` — extensions may rebuild
+        their tool list during setup.
+        """
+        suppressed: set[str] = set()
+        for tool in self.tools:
+            decision: bool | None = None
+            for ext in self._extensions:
+                hook = getattr(ext, "stream_tool_results", None)
+                if not callable(hook):
+                    continue
+                try:
+                    result = hook(tool.name)
+                except TypeError:
+                    continue
+                if result is None:
+                    continue
+                decision = bool(result)
+                break
+            if decision is None:
+                decision = self._stream_tool_results
+            if not decision:
+                suppressed.add(tool.name)
+        return frozenset(suppressed)
 
     @staticmethod
     def _resolve_dependencies(extensions: list[Any]) -> list[Any]:
@@ -236,7 +291,7 @@ class AgentKit:
 
     def compile(self, handler: Any) -> Any:
         """Build the full ReAct graph with hooks wired."""
-        from langchain_agentkit._graph_builder import build_graph
+        from langchain_agentkit.graph_builder import build_graph
 
         llm = self._resolve_model_internal(self._model_raw) if self._model_raw is not None else None
 
