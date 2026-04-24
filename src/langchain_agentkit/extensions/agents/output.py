@@ -56,8 +56,9 @@ Tags live on ``response_metadata`` with a configurable prefix
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeAlias
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 
@@ -101,7 +102,9 @@ class StrategyContext:
         return f"{self.metadata_prefix}_{suffix}"
 
 
-SubagentOutputStrategy = "Callable[[SubagentOutput, StrategyContext], list[BaseMessage]]"
+SubagentOutputStrategy: TypeAlias = Callable[
+    ["SubagentOutput", "StrategyContext"], list[BaseMessage]
+]
 
 
 # ---------------------------------------------------------------------------
@@ -246,14 +249,16 @@ def trace_hidden_strategy(
       reload, identically to live streaming.
 
     - **LLM-visible**: only the final ``ToolMessage`` with the
-      subagent's verbatim last-message text. A sibling filter
-      (:class:`langchain_agentkit.extensions.agents.filter.HideSubagentTraceFilter`)
-      strips anything with ``{prefix}_hidden_from_llm=True`` from the
-      per-request message list before the LLM call.
+      subagent's verbatim last-message text. The companion helper
+      :func:`langchain_agentkit.extensions.agents.filter.strip_hidden_from_llm`
+      removes anything tagged ``{prefix}_hidden_from_llm=True`` from the
+      per-request message list; ``AgentsExtension`` wires this via its
+      ``wrap_model`` hook automatically.
 
-    Requires the filter to be installed downstream in the ``wrap_model``
-    chain. Without it the parent LLM sees the subagent trace as if
-    ``full_history_strategy`` were used — correct but context-heavy.
+    ``AgentsExtension`` installs the filter for you. Advanced users who
+    bypass the standard onion and call ``strip_hidden_from_llm`` directly
+    get the same result — without it, the parent LLM sees the subagent
+    trace as if ``full_history_strategy`` were used.
     """
     out: list[BaseMessage] = []
     ai_messages = [m for m in output.messages if isinstance(m, AIMessage)]
