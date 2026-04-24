@@ -13,7 +13,7 @@ from langchain_core.tools import StructuredTool, ToolException
 from langgraph.types import Command
 
 from langchain_agentkit.extensions.agents.refs import Dynamic, Predefined
-from langchain_agentkit.extensions.teams.tools._shared import _TeamCreateInput
+from langchain_agentkit.extensions.teams.tools.shared import _TeamCreateInput
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool

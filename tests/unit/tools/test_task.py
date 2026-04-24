@@ -8,17 +8,14 @@ from langchain_core.tools import ToolException
 from langgraph.types import Command
 
 from langchain_agentkit.extensions.tasks.state import _merge_task_pair, _merge_tasks
-from langchain_agentkit.extensions.tasks.tools import (
-    Task,
-    TaskStatus,
-    create_task_tools,
-)
-from langchain_agentkit.extensions.tasks.tools._shared import _compute_blocks
+from langchain_agentkit.extensions.tasks.tools import create_task_tools
+from langchain_agentkit.extensions.tasks.tools.shared import _compute_blocks
 from langchain_agentkit.extensions.tasks.tools.task_create import _task_create
 from langchain_agentkit.extensions.tasks.tools.task_get import _task_get
 from langchain_agentkit.extensions.tasks.tools.task_list import _task_list
 from langchain_agentkit.extensions.tasks.tools.task_stop import _task_stop
 from langchain_agentkit.extensions.tasks.tools.task_update import _task_update
+from langchain_agentkit.extensions.tasks.types import Task, TaskStatus
 
 FAKE_TOOL_CALL_ID = "call_abc123"
 

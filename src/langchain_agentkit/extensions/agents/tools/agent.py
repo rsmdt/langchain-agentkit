@@ -17,12 +17,12 @@ from langgraph.prebuilt import InjectedState, ToolNode
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
-from langchain_agentkit._graph_builder import build_ephemeral_graph
 from langchain_agentkit.extensions.agents.refs import (
     Dynamic,
     Predefined,
     resolve_agent_by_name,
 )
+from langchain_agentkit.graph_builder import build_ephemeral_graph
 
 if TYPE_CHECKING:
     from collections.abc import Callable

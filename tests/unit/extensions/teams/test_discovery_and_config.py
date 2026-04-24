@@ -81,7 +81,7 @@ def test_compile_config_with_proxy_tasks_resolves_model_tools_skills(
 
     from langchain_agentkit.extensions.teams import tools as teams_tools_pkg  # noqa: F401
     from langchain_agentkit.extensions.teams.bus import TeamMessageBus
-    from langchain_agentkit.extensions.teams.tools import _shared as shared_mod
+    from langchain_agentkit.extensions.teams.tools import shared as shared_mod
 
     mock_llm = MagicMock()
 
@@ -119,7 +119,7 @@ def test_compile_config_with_proxy_tasks_resolves_model_tools_skills(
         captured["max_turns"] = max_turns
         return MagicMock(name="compiled-graph")
 
-    monkeypatch.setattr("langchain_agentkit._graph_builder.build_ephemeral_graph", _fake_build)
+    monkeypatch.setattr("langchain_agentkit.graph_builder.build_ephemeral_graph", _fake_build)
 
     compiled = shared_mod._compile_config_with_proxy_tasks(
         config,
@@ -155,7 +155,7 @@ def test_compile_config_raises_without_model_source() -> None:
     from langchain_core.tools import ToolException
 
     from langchain_agentkit.extensions.teams.bus import TeamMessageBus
-    from langchain_agentkit.extensions.teams.tools._shared import (
+    from langchain_agentkit.extensions.teams.tools.shared import (
         _compile_config_with_proxy_tasks,
     )
 

@@ -9,7 +9,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import StructuredTool, ToolException
 from langgraph.types import Command
 
-from langchain_agentkit.extensions.tasks.tools._shared import (
+from langchain_agentkit.extensions.tasks.tools.shared import (
     _apply_task_fields,
     _cascade_delete,
     _TaskUpdateInput,

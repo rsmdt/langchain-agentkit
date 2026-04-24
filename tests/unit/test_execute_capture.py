@@ -7,7 +7,7 @@ from pathlib import Path
 
 import pytest
 
-from langchain_agentkit.backends._execution import BoundedCapture, _TailBuffer
+from langchain_agentkit.backends.execution import BoundedCapture, _TailBuffer
 from langchain_agentkit.backends.os import OSBackend
 
 

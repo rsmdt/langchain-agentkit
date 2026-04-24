@@ -6,11 +6,8 @@ from langchain_agentkit.extensions.tasks.extension import (
     format_task_context,
 )
 from langchain_agentkit.extensions.tasks.state import TasksState
-from langchain_agentkit.extensions.tasks.tools import (
-    Task,
-    TaskStatus,
-    create_task_tools,
-)
+from langchain_agentkit.extensions.tasks.tools import create_task_tools
+from langchain_agentkit.extensions.tasks.types import Task, TaskStatus
 
 __all__ = [
     "TASK_MANAGEMENT_PROMPT",

@@ -9,7 +9,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import StructuredTool, ToolException
 from langgraph.types import Command
 
-from langchain_agentkit.extensions.tasks.tools._shared import _TaskStopInput
+from langchain_agentkit.extensions.tasks.tools.shared import _TaskStopInput
 
 _TASK_STOP_DESCRIPTION = """Stop a running task by its ID.
 

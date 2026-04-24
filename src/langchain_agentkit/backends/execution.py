@@ -24,6 +24,8 @@ from typing import TYPE_CHECKING
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+__all__ = ["BoundedCapture", "CaptureResult", "drain_stream_into", "iter_lines"]
+
 # Default tail window — 256 KiB or 2000 lines, whichever comes first.
 DEFAULT_MAX_OUTPUT_BYTES: int = 256 * 1024
 DEFAULT_MAX_OUTPUT_LINES: int = 2000

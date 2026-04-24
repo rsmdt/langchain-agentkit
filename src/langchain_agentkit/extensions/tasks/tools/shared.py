@@ -1,8 +1,13 @@
-"""Shared types, schemas, and helpers for task tools."""
+"""Shared schemas and helpers for task tools.
+
+Public domain types ``Task`` and ``TaskStatus`` live in
+:mod:`langchain_agentkit.extensions.tasks.types`. They are re-imported
+here for backward-compatible intra-package use.
+"""
 
 from __future__ import annotations
 
-from typing import Annotated, Any, Literal, TypedDict
+from typing import Annotated, Any
 
 from langchain_core.tools import InjectedToolCallId, ToolException
 from langgraph.prebuilt import InjectedState
@@ -13,25 +18,9 @@ from langchain_agentkit.extensions.tasks.core import (
     filter_resolved_blockers,
     unresolved_blockers,
 )
+from langchain_agentkit.extensions.tasks.types import Task, TaskStatus
 
-TaskStatus = Literal["pending", "in_progress", "completed", "deleted"]
-
-
-class _TaskOptional(TypedDict, total=False):
-    blocked_by: list[str]
-    blocks: list[str]
-    owner: str
-    metadata: dict[str, Any]
-
-
-class Task(_TaskOptional):
-    """Shape of a task dict managed by the task tools."""
-
-    id: str
-    subject: str
-    description: str
-    status: TaskStatus
-    active_form: str
+__all__ = ["Task", "TaskStatus"]
 
 
 # ---------------------------------------------------------------------------

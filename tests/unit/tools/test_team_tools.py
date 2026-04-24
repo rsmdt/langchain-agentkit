@@ -14,7 +14,7 @@ from langchain_agentkit.extensions.teams import (
     TeamExtension,
     TeamMessageBus,
 )
-from langchain_agentkit.extensions.teams.tools._shared import (
+from langchain_agentkit.extensions.teams.tools.shared import (
     _require_active_team,
     _require_member,
 )
@@ -529,13 +529,13 @@ class TestTeamDissolve:
 
 class TestUnassignTeammateTasks:
     def test_empty_task_list(self):
-        from langchain_agentkit.extensions.teams.tools._shared import _unassign_teammate_tasks
+        from langchain_agentkit.extensions.teams.tools.shared import _unassign_teammate_tasks
 
         result = _unassign_teammate_tasks([], ["researcher"])
         assert result == []
 
     def test_no_owned_tasks(self):
-        from langchain_agentkit.extensions.teams.tools._shared import _unassign_teammate_tasks
+        from langchain_agentkit.extensions.teams.tools.shared import _unassign_teammate_tasks
 
         tasks = [
             {"id": "t1", "subject": "Task", "status": "pending", "owner": "other"},
@@ -546,7 +546,7 @@ class TestUnassignTeammateTasks:
         assert result[1].get("owner") is None  # No owner, no change
 
     def test_preserves_completed_and_deleted(self):
-        from langchain_agentkit.extensions.teams.tools._shared import _unassign_teammate_tasks
+        from langchain_agentkit.extensions.teams.tools.shared import _unassign_teammate_tasks
 
         tasks = [
             {"id": "t1", "subject": "Done", "status": "completed", "owner": "researcher"},
@@ -560,7 +560,7 @@ class TestUnassignTeammateTasks:
         assert result[2]["status"] == "pending"
 
     def test_does_not_mutate_original(self):
-        from langchain_agentkit.extensions.teams.tools._shared import _unassign_teammate_tasks
+        from langchain_agentkit.extensions.teams.tools.shared import _unassign_teammate_tasks
 
         tasks = [
             {"id": "t1", "subject": "Active", "status": "in_progress", "owner": "researcher"},
@@ -582,7 +582,7 @@ class TestCompileWithProxyTasks:
         from langchain_agentkit.agent_kit import AgentKit
         from langchain_agentkit.extensions.tasks import TasksExtension
         from langchain_agentkit.extensions.teams.bus import TeamMessageBus
-        from langchain_agentkit.extensions.teams.tools._shared import _compile_with_proxy_tasks
+        from langchain_agentkit.extensions.teams.tools.shared import _compile_with_proxy_tasks
 
         tasks_ext = TasksExtension()
 
@@ -620,7 +620,7 @@ class TestCompileWithProxyTasks:
     def test_falls_back_when_no_agentkit_metadata(self):
         """Graphs without _agentkit_* metadata compile as-is."""
         from langchain_agentkit.extensions.teams.bus import TeamMessageBus
-        from langchain_agentkit.extensions.teams.tools._shared import _compile_with_proxy_tasks
+        from langchain_agentkit.extensions.teams.tools.shared import _compile_with_proxy_tasks
 
         # A plain mock StateGraph without agentkit metadata
         mock_graph = MagicMock()
@@ -644,7 +644,7 @@ class TestCompileWithProxyTasks:
         from langchain_agentkit.agent_kit import AgentKit
         from langchain_agentkit.extensions.tasks import TasksExtension
         from langchain_agentkit.extensions.teams.bus import TeamMessageBus
-        from langchain_agentkit.extensions.teams.tools._shared import _compile_with_proxy_tasks
+        from langchain_agentkit.extensions.teams.tools.shared import _compile_with_proxy_tasks
 
         tasks_ext = TasksExtension()
 

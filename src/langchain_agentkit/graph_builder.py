@@ -2,12 +2,16 @@
 
 ``build_graph`` constructs an uncompiled ``StateGraph`` with the standard
 ReAct loop (handler - ToolNode). It is called by ``AgentKit.compile()``.
+``build_ephemeral_graph`` is an advanced composition helper used by
+delegation and team-proxy paths; external callers rarely need it.
 """
 
 from __future__ import annotations
 
 import inspect
 from typing import TYPE_CHECKING, Any
+
+__all__ = ["build_ephemeral_graph", "build_graph"]
 
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode, ToolRuntime

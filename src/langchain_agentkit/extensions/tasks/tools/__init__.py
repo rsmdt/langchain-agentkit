@@ -9,10 +9,6 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from langchain_agentkit.extensions.tasks.tools._shared import (
-    Task,
-    TaskStatus,
-)
 from langchain_agentkit.extensions.tasks.tools.task_create import build_task_create_tool
 from langchain_agentkit.extensions.tasks.tools.task_get import build_task_get_tool
 from langchain_agentkit.extensions.tasks.tools.task_list import build_task_list_tool
@@ -41,7 +37,5 @@ def create_task_tools(*, team_active: bool = False) -> list[BaseTool]:
 
 
 __all__ = [
-    "Task",
-    "TaskStatus",
     "create_task_tools",
 ]

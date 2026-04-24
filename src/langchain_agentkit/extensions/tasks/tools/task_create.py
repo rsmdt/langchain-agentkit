@@ -10,7 +10,7 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import StructuredTool
 from langgraph.types import Command
 
-from langchain_agentkit.extensions.tasks.tools._shared import (
+from langchain_agentkit.extensions.tasks.tools.shared import (
     Task,
     _TaskCreateInput,
 )

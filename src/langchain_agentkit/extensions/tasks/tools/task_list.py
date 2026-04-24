@@ -7,7 +7,7 @@ from typing import Any
 
 from langchain_core.tools import StructuredTool
 
-from langchain_agentkit.extensions.tasks.tools._shared import (
+from langchain_agentkit.extensions.tasks.tools.shared import (
     _filter_resolved_blockers,
     _TaskListInput,
 )

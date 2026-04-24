@@ -389,7 +389,7 @@ class TeamExtension(Extension):
 
         # Route terminating edges to ``_run_exit`` when run-lifecycle hooks
         # are wired into the graph; otherwise jump straight to END.  This
-        # relies on ``_graph_builder`` adding ``_run_exit`` before invoking
+        # relies on ``graph_builder`` adding ``_run_exit`` before invoking
         # ``graph_modifier``.  Without this, a router→END transition would
         # skip ``after_run`` cleanup (teammate tasks, bus, capture buffer).
         # ``workflow.nodes`` is a dict on real ``StateGraph``; test mocks
@@ -489,15 +489,15 @@ class TeamExtension(Extension):
         """
         from langchain_core.tools import ToolException
 
-        from langchain_agentkit._graph_builder import build_ephemeral_graph
         from langchain_agentkit.composability import AgentLike
         from langchain_agentkit.extensions.agents.types import AgentConfig
         from langchain_agentkit.extensions.teams.task_proxy import create_task_proxy_tools
-        from langchain_agentkit.extensions.teams.tools._shared import (
+        from langchain_agentkit.extensions.teams.tools.shared import (
             _TEAMMATE_ADDENDUM,
             _compile_config_with_proxy_tasks,
             _compile_with_proxy_tasks,
         )
+        from langchain_agentkit.graph_builder import build_ephemeral_graph
 
         member_name = spec["member_name"]
         kind = spec["kind"]
@@ -712,7 +712,7 @@ class TeamExtension(Extension):
         The team metadata persists across turns precisely so
         rehydration works; only ``TeamDissolve`` clears it.
         """
-        from langchain_agentkit.extensions.teams.tools._shared import (
+        from langchain_agentkit.extensions.teams.tools.shared import (
             _cleanup_bus,
             _shutdown_team_tasks,
         )
