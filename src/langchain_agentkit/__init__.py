@@ -33,7 +33,7 @@
 
 # Core
 from langchain_agentkit.agent import Agent, agent
-from langchain_agentkit.agent_kit import AgentKit
+from langchain_agentkit.agent_kit import AgentKit, run_extension_setup
 
 # Backends
 from langchain_agentkit.backends import (
@@ -51,6 +51,7 @@ from langchain_agentkit.extensions import (
     FilesystemExtension,
     HistoryExtension,
     HITLExtension,
+    MessagePersistenceExtension,
     QwantSearchProvider,
     ResilienceExtension,
     SkillsExtension,
@@ -61,6 +62,19 @@ from langchain_agentkit.extensions import (
 
 # Types
 from langchain_agentkit.extensions.agents import AgentConfig
+from langchain_agentkit.extensions.agents.filter import (
+    DEFAULT_METADATA_PREFIX,
+    strip_hidden_from_llm,
+)
+from langchain_agentkit.extensions.agents.output import (
+    StrategyContext,
+    SubagentOutput,
+    SubagentOutputStrategy,
+    full_history_strategy,
+    last_message_strategy,
+    resolve_output_strategy,
+    trace_hidden_strategy,
+)
 from langchain_agentkit.extensions.agents.tools import create_agent_tools
 from langchain_agentkit.extensions.context_compaction import (
     CompactionSettings,
@@ -78,6 +92,7 @@ from langchain_agentkit.extensions.skills import SkillConfig, build_skill_tool
 from langchain_agentkit.extensions.tasks import Task, TasksState, TaskStatus, create_task_tools
 from langchain_agentkit.extensions.teams import TeamState
 from langchain_agentkit.extensions.teams.tools import create_team_tools
+from langchain_agentkit.hook_runner import HookRunner
 from langchain_agentkit.hooks import after, before, wrap
 
 # Permissions
@@ -88,7 +103,11 @@ from langchain_agentkit.permissions import (
     STRICT_RULESET,
     PermissionRuleset,
 )
+from langchain_agentkit.prompt_composition import PromptComposition
 from langchain_agentkit.state import AgentKitState
+
+# Streaming
+from langchain_agentkit.streaming import FilteredGraph, StreamingFilter
 
 __all__ = [
     # Core
@@ -96,9 +115,12 @@ __all__ = [
     "AgentKit",
     "AgentKitState",
     "Extension",
+    "HookRunner",
+    "PromptComposition",
     "TasksState",
     "TeamState",
     "agent",
+    "run_extension_setup",
     # Hook decorators
     "after",
     "before",
@@ -121,6 +143,7 @@ __all__ = [
     "FilesystemExtension",
     "HITLExtension",
     "HistoryExtension",
+    "MessagePersistenceExtension",
     "PromptTemplate",
     "PromptTemplateExtension",
     "QwantSearchProvider",
@@ -134,9 +157,22 @@ __all__ = [
     "CompiledAgent",
     "TeamAgent",
     "wrap_if_needed",
+    # Streaming
+    "FilteredGraph",
+    "StreamingFilter",
     # Types
     "AgentConfig",
     "SkillConfig",
+    # Agents strategy API
+    "DEFAULT_METADATA_PREFIX",
+    "StrategyContext",
+    "SubagentOutput",
+    "SubagentOutputStrategy",
+    "full_history_strategy",
+    "last_message_strategy",
+    "resolve_output_strategy",
+    "strip_hidden_from_llm",
+    "trace_hidden_strategy",
     # HITL types
     "Option",
     "Question",

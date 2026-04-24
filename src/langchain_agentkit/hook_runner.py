@@ -19,6 +19,8 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Callable
 
+__all__ = ["HookRunner"]
+
 _VALID_JUMP_TARGETS = frozenset({"end", "model", "tools"})
 
 # Type alias to keep signatures under 100 chars
