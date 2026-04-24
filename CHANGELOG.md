@@ -9,6 +9,26 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.25.0] — 2026-04-24
+
+### Added
+- **LLM-driven context compaction.** `ContextCompactionExtension` now runs a structured summarization pass (Goal / Progress / Decisions / Next Steps / Critical Context) when the conversation nears the model's context window, replacing the old count-based redact-only approach. A backward-walking cutpoint preserves tool_call ↔ ToolMessage pairs, split-turn cuts summarize prefix and main in parallel, and a content-hash cache makes re-runs free until new messages arrive.
+- **Parameterized markdown commands.** Drop `.agentkit/commands/*.md` files with frontmatter (`name`, `description`, `argument-hint`) or pass `PromptTemplate` instances directly; invoke via the new `RunCommand` tool or the programmatic `ext.render(name, args)` API. Argument parser handles bash-style quoting and `$1` / `$N` / `${N}` / `$@` / `${@:N:L}` / `$*` expansion. Templates are surfaced in the system prompt roster.
+- **Configurable outbound tool-result suppression.** `AgentKit(stream_tool_results=...)` and a per-extension `Extension.stream_tool_results(tool_name)` hook let you redact `ToolMessage.content` and `on_tool_end` / `on_tool_stream` payloads from `astream` / `astream_events` while preserving envelope metadata. State, reducers, and the checkpointer are untouched.
+- **Bounded bash output capture.** `OSBackend.execute` now streams stdout/stderr into rolling tails (default 256 KiB / 2000 lines) while mirroring the full transcript to a temp file. On overflow, the path is surfaced to the model via `ExecuteResponse.output_path` (plus `lines_dropped` / `bytes_dropped`) so verbose failures no longer OOM the process or blow the context window. Caps are configurable per backend via `max_output_bytes` / `max_output_lines`.
+- **Capability-aware prompts.** `Extension.prompt()` gains a `tools: frozenset[str]` kwarg so extensions can tailor guidance to the composed toolset (e.g. `CoreBehaviorExtension` emits shell-vs-dedicated-tool advice only when both are present).
+- Expanded public API surface: `HookRunner`, `PromptComposition`, `run_extension_setup`, `FilteredGraph`, `StreamingFilter`, `MessagePersistenceExtension`, the full `AgentsExtension` subagent-output strategy API, and every tool-builder factory are now re-exported from the package root.
+
+### Changed
+- **BREAKING**: **Unified `tools=` override contract.** Every tool-providing extension now accepts `tools: Sequence[BaseTool] | None`, replacing the ad-hoc `task_tools=` and `tools: bool` shapes. HITL default flips from AskUser **off** to AskUser **on** — pass `tools=[]` to disable. Skills and prompt-templates reject combining `tools=` with backend-based discovery.
+- **BREAKING**: **Reminder channel folded into the system prompt.** The separate reminder injection path and `_inject_system_reminder` are gone; `Extension.prompt()` reminder content now renders at the tail of the composed system prompt under `## Current context` with `### <ClassName>` subheaders. `kit.compose()` runs per step, so dynamic state re-renders without a dedicated hook. The auto-injected date reminder is removed.
+- **BREAKING**: **HITL tool renamed to PascalCase** (`AskUser`) for consistency with other tool names.
+- **BREAKING**: **Public-vs-internal is now expressed exclusively via `__all__` and `__init__` re-exports** — file naming no longer signals visibility. `_graph_builder.py`, `backends/_execution.py`, and the tool `_shared.py` modules lose their underscore prefix; `Task` / `TaskStatus` move to a dedicated `extensions/tasks/types.py`.
+- `SubagentOutputStrategy` is now a real `typing.TypeAlias` with the proper `Callable` shape (it was previously a string literal evaluating to `str` at runtime, unusable as an annotation).
+
+### Removed
+- **BREAKING**: **`ModelMetadata` registry and plumbing removed.** The registry was speculative — the only consumer (`ContextCompactionExtension`) needs a context window, which users supply via the existing `context_window_resolver` callback (falling back to a 128k `DEFAULT_CONTEXT_WINDOW`). The `core/` package, `AgentKit`/`Agent` `model_metadata` parameters, the `model_metadata_getter` injected into `Extension.setup()`, and the associated public exports (`ModelMetadata`, `DEFAULT_REGISTRY`, `register_model`, `resolve_metadata`) are all gone. Users who want cost tracking or capability flags should bridge LiteLLM or similar in their own resolver.
+
 ## [0.24.0] — 2026-04-19
 
 ### Security
