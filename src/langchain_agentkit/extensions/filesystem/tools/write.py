@@ -4,11 +4,11 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from langchain_core.tools import StructuredTool
+from langchain_core.tools import StructuredTool, ToolException
 
 from langchain_agentkit.extensions.filesystem.tools.common import (
+    _FULL_READ_LIMIT,
     _compute_structured_patch,
-    _read_full_text,
     _WriteInput,
 )
 
@@ -24,20 +24,34 @@ Usage:
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
+    from langchain_agentkit.backends.protocol import BackendProtocol
 
-def _build_write(backend: Any) -> BaseTool:
+
+def _build_write(backend: BackendProtocol) -> BaseTool:
     async def write(file_path: str, content: str) -> tuple[str, dict[str, Any]]:
         """Write content to a file."""
+        read_result = await backend.read(file_path, limit=_FULL_READ_LIMIT)
+
         is_new = False
         original_file: str | None = None
-        try:
-            original_file = await _read_full_text(backend, file_path)
-        except (FileNotFoundError, OSError):
+        if read_result.error == "file_not_found":
             is_new = True
+        elif read_result.error is not None:
+            raise ToolException(
+                f"Failed to read {file_path} before write: {read_result.error_message}"
+            )
+        else:
+            original_file = read_result.content
 
-        await backend.write(file_path, content)
+        write_result = await backend.write(file_path, content)
+        if write_result.error == "permission_denied":
+            raise ToolException(f"Access denied writing {file_path}.")
+        if write_result.error == "is_directory":
+            raise ToolException(f"{file_path} is a directory, not a file.")
+        if write_result.error is not None:
+            raise ToolException(f"Failed to write {file_path}: {write_result.error_message}")
+
         op_type = "create" if is_new else "update"
-
         if is_new:
             message = f"File created successfully at: {file_path}"
         else:

@@ -182,13 +182,15 @@ class _FakeBackend:
         self.files = files
         self.reads: list[str] = []
 
-    async def read(self, path: str, offset: int = 0, limit: int = 2000) -> str:
+    async def read(self, path: str, offset: int = 0, limit: int = 2000):
+        from langchain_agentkit.backends.results import ReadResult
+
         self.reads.append(path)
         if path not in self.files:
-            raise FileNotFoundError(path)
-        return self.files[path]
+            return ReadResult(error="file_not_found", error_message=f"File not found: {path}")
+        return ReadResult(content=self.files[path])
 
-    async def read_bytes(self, path: str) -> bytes:  # pragma: no cover — unused here
+    async def read_bytes(self, path: str):  # pragma: no cover — unused here
         raise NotImplementedError
 
     async def write(self, path: str, content):  # pragma: no cover

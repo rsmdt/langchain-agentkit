@@ -1,8 +1,8 @@
 """DaytonaBackend — Daytona cloud sandbox backend.
 
-Implements the full ``BackendProtocol`` using the Daytona SDK for
-``execute()`` and shell commands for file operations (read, write,
-edit, glob, grep).
+Implements ``BackendProtocol``, ``SandboxBackend``, and
+``FileTransferBackend`` using the Daytona SDK for ``execute()`` and
+shell commands for file operations (read, write, edit, glob, grep).
 
 Requires ``pip install daytona-sdk`` (or ``pip install daytona``).
 
@@ -15,9 +15,9 @@ Usage::
     sandbox = Daytona(config).create()
     backend = DaytonaBackend(sandbox)
 
-    # All BackendProtocol methods are async:
-    content = await backend.read("/app/main.py")  # raw text, no line numbers
-    result = await backend.execute("python3 -m pytest")
+    result = await backend.read("/app/main.py")
+    if result.error is None:
+        print(result.content)
 """
 
 from __future__ import annotations
@@ -28,9 +28,17 @@ import posixpath
 from typing import Any
 
 from langchain_agentkit.backends.protocol import (
-    EditResult,
     ExecuteResponse,
     GrepMatch,
+)
+from langchain_agentkit.backends.results import (
+    PROBED_TOOLS,
+    EditResult,
+    FileDownloadResult,
+    FileUploadResult,
+    ReadBytesResult,
+    ReadResult,
+    SandboxEnvironment,
     WriteResult,
 )
 
@@ -38,6 +46,61 @@ from langchain_agentkit.backends.protocol import (
 def _shell_quote(s: str) -> str:
     """Quote a string for safe shell interpolation (POSIX)."""
     return "'" + s.replace("'", "'\"'\"'") + "'"
+
+
+# Single-shot environment probe. Output layout (line-oriented):
+#   line 1:  uname -srm output (e.g. "Linux 5.15.0-91-generic x86_64")
+#   line 2:  $SHELL value (or "/bin/sh" if unset)
+#   line 3:  literal separator "TOOLS_BEGIN"
+#   lines 4+: one available tool name per line, in PROBED_TOOLS order
+#
+# Daytona's ``process.exec`` runs commands under zsh by default; ``===``
+# trips zsh's ``=cmd`` path-expansion syntax, so the separator is an
+# unambiguous identifier instead.
+_ENV_PROBE_SEPARATOR = "TOOLS_BEGIN"
+_ENV_PROBE_SCRIPT = (
+    "uname -srm\n"
+    'echo "${SHELL:-/bin/sh}"\n'
+    f"echo {_ENV_PROBE_SEPARATOR}\n"
+    "for t in " + " ".join(PROBED_TOOLS) + "; do "
+    'command -v "$t" >/dev/null 2>&1 && echo "$t"; '
+    "done"
+)
+
+
+# Python program executed inside the sandbox to perform an edit.
+# Emits a single JSON line on stdout with the result. Status keys:
+#   error: "file_not_found" | "is_directory" | "decode_error" |
+#          "old_string_not_found" | "ambiguous_match" | "io_error"
+#   occurrences: int  (when error == "ambiguous_match")
+#   message: str      (when error == "io_error")
+#   replacements: int (on success)
+_EDIT_SCRIPT = """
+import json, base64, sys
+d = json.loads(base64.b64decode(sys.argv[1]))
+p = d['path']
+try:
+    t = open(p).read()
+except FileNotFoundError:
+    print(json.dumps({'error': 'file_not_found'})); sys.exit(0)
+except IsADirectoryError:
+    print(json.dumps({'error': 'is_directory'})); sys.exit(0)
+except UnicodeDecodeError:
+    print(json.dumps({'error': 'decode_error'})); sys.exit(0)
+except OSError as e:
+    print(json.dumps({'error': 'io_error', 'message': str(e)})); sys.exit(0)
+n = t.count(d['old'])
+if n == 0:
+    print(json.dumps({'error': 'old_string_not_found'})); sys.exit(0)
+if n > 1 and not d['replace_all']:
+    print(json.dumps({'error': 'ambiguous_match', 'occurrences': n})); sys.exit(0)
+new = t.replace(d['old'], d['new']) if d['replace_all'] else t.replace(d['old'], d['new'], 1)
+try:
+    open(p, 'w').write(new)
+except OSError as e:
+    print(json.dumps({'error': 'io_error', 'message': str(e)})); sys.exit(0)
+print(json.dumps({'replacements': n if d['replace_all'] else 1}))
+"""
 
 
 class DaytonaBackend:
@@ -60,6 +123,7 @@ class DaytonaBackend:
         self._sandbox = sandbox
         self._timeout = timeout
         self._workdir: str = str(sandbox.get_work_dir()).rstrip("/")
+        self._env_cache: SandboxEnvironment | None = None
 
     @property
     def sandbox(self) -> Any:
@@ -76,8 +140,8 @@ class DaytonaBackend:
     def _resolve(self, path: str) -> str:
         """Resolve a virtual path to an absolute sandbox path.
 
-        Blocks path traversal: any path that escapes the workdir
-        raises ``PermissionError``, matching ``OSBackend._resolve()``.
+        Raises ``PermissionError`` for paths that escape the workdir.
+        Backend methods catch this and convert to ``permission_denied``.
         """
         cleaned = path.lstrip("/")
         if not cleaned:
@@ -88,7 +152,7 @@ class DaytonaBackend:
             raise PermissionError(f"Path traversal blocked: {path}")
         return candidate
 
-    # --- execute() — the Daytona SDK bridge ---
+    # --- SandboxBackend ---
 
     async def execute(
         self,
@@ -123,38 +187,93 @@ class DaytonaBackend:
             bytes_dropped=0,
         )
 
-    # --- File operations via shell ---
+    async def environment(self) -> SandboxEnvironment:
+        """Probe the sandbox once for OS/shell/tool inventory.
 
-    async def read_bytes(self, path: str) -> bytes:
-        """Read a file as raw bytes."""
-        real_path = self._resolve(path)
-        # Check file existence first (pipe masks cat exit code on some shells)
-        check = f"test -f {_shell_quote(real_path)}"
-        if (await self.execute(check))["exit_code"] != 0:
-            raise FileNotFoundError(f"File not found: {path}")
-        # Use cat | base64 for portability (macOS base64 requires -i flag)
-        cmd = f"cat {_shell_quote(real_path)} | base64"
-        result = await self.execute(cmd)
+        One ``execute()`` call emits a delimited script output that we
+        parse into a :class:`SandboxEnvironment`. Cached for the backend's
+        lifetime — the sandbox's environment doesn't change mid-session.
+        Probe failure falls back to "unknown" / "/bin/sh" / empty tools.
+        """
+        if self._env_cache is not None:
+            return self._env_cache
+
+        result = await self.execute(_ENV_PROBE_SCRIPT)
+        os_line = "unknown"
+        shell = "/bin/sh"
+        tools: set[str] = set()
+        if result.get("exit_code") == 0:
+            lines = result.get("output", "").splitlines()
+            try:
+                sep_idx = lines.index(_ENV_PROBE_SEPARATOR)
+            except ValueError:
+                sep_idx = -1
+            if sep_idx >= 2:
+                os_line = lines[0].strip() or "unknown"
+                shell = lines[1].strip() or "/bin/sh"
+                tools = {ln.strip() for ln in lines[sep_idx + 1 :] if ln.strip()}
+
+        self._env_cache = SandboxEnvironment(
+            os=os_line,
+            shell=shell,
+            cwd=self._workdir,
+            available_tools=frozenset(tools),
+        )
+        return self._env_cache
+
+    # --- BackendProtocol: file ops via shell ---
+
+    async def read_bytes(self, path: str) -> ReadBytesResult:
+        try:
+            real_path = self._resolve(path)
+        except PermissionError as exc:
+            return ReadBytesResult(error="permission_denied", error_message=str(exc))
+        check = await self.execute(f"test -f {_shell_quote(real_path)}")
+        if check["exit_code"] != 0:
+            # Distinguish "is a directory" from "does not exist"
+            isdir = await self.execute(f"test -d {_shell_quote(real_path)}")
+            if isdir["exit_code"] == 0:
+                return ReadBytesResult(
+                    error="is_directory", error_message=f"Path is a directory: {path}"
+                )
+            return ReadBytesResult(error="file_not_found", error_message=f"File not found: {path}")
+        result = await self.execute(f"cat {_shell_quote(real_path)} | base64")
         if result["exit_code"] != 0:
-            raise FileNotFoundError(f"File not found: {path}")
-        return base64.b64decode(result["output"].strip())
+            return ReadBytesResult(
+                error="io_error",
+                error_message=f"Read failed: {result.get('stderr') or result.get('output')}",
+            )
+        return ReadBytesResult(content=base64.b64decode(result["output"].strip()))
 
-    async def read(self, path: str, offset: int = 0, limit: int = 2000) -> str:
-        """Read raw text content with offset/limit support."""
-        real_path = self._resolve(path)
-        # Check file existence first (pipe masks sed exit code on some shells)
-        check = f"test -f {_shell_quote(real_path)}"
-        if (await self.execute(check))["exit_code"] != 0:
-            raise FileNotFoundError(f"File not found: {path}")
+    async def read(self, path: str, offset: int = 0, limit: int = 2000) -> ReadResult:
+        try:
+            real_path = self._resolve(path)
+        except PermissionError as exc:
+            return ReadResult(error="permission_denied", error_message=str(exc))
+        check = await self.execute(f"test -f {_shell_quote(real_path)}")
+        if check["exit_code"] != 0:
+            isdir = await self.execute(f"test -d {_shell_quote(real_path)}")
+            if isdir["exit_code"] == 0:
+                return ReadResult(
+                    error="is_directory", error_message=f"Path is a directory: {path}"
+                )
+            return ReadResult(error="file_not_found", error_message=f"File not found: {path}")
         start = offset + 1
         end = offset + limit
         cmd = f"sed -n '{start},{end}p' {_shell_quote(real_path)}"
         result = await self.execute(cmd)
-        return result["output"]
+        if result["exit_code"] != 0:
+            return ReadResult(
+                error="io_error",
+                error_message=f"Read failed: {result.get('stderr') or result.get('output')}",
+            )
+        return ReadResult(content=result["output"])
 
     async def write(self, path: str, content: str | bytes) -> WriteResult:
-        """Write content to a file, creating parent directories."""
-        real_path = self._resolve(path)
+        try:
+            real_path = self._resolve(path)
+        except PermissionError as exc:
+            return WriteResult(error="permission_denied", error_message=str(exc))
         raw = content.encode("utf-8") if isinstance(content, str) else content
         encoded = base64.b64encode(raw).decode("ascii")
         cmd = (
@@ -163,7 +282,10 @@ class DaytonaBackend:
         )
         result = await self.execute(cmd)
         if result["exit_code"] != 0:
-            raise OSError(f"Write failed: {result['output']}")
+            return WriteResult(
+                error="io_error",
+                error_message=f"Write failed: {result.get('stderr') or result.get('output')}",
+            )
         return WriteResult(path=path, bytes_written=len(raw))
 
     async def edit(
@@ -173,8 +295,10 @@ class DaytonaBackend:
         new_string: str,
         replace_all: bool = False,
     ) -> EditResult:
-        """Find-and-replace in a file with ambiguity checking."""
-        real_path = self._resolve(path)
+        try:
+            real_path = self._resolve(path)
+        except PermissionError as exc:
+            return EditResult(error="permission_denied", error_message=str(exc))
         payload = json.dumps(
             {
                 "path": real_path,
@@ -184,31 +308,53 @@ class DaytonaBackend:
             }
         )
         encoded = base64.b64encode(payload.encode()).decode("ascii")
-        script = (
-            "import json, base64, sys; "
-            "d = json.loads(base64.b64decode(sys.argv[1])); "
-            "t = open(d['path']).read(); "
-            "n = t.count(d['old']); "
-            "r = json.dumps({'replacements': 0}) if n == 0 else None; "
-            "r = r or ("
-            "  json.dumps({'error': f'Ambiguous edit: appears {n} times'}) "
-            "  if not d['replace_all'] and n > 1 else None"
-            "); "
-            "r = r or ("
-            "  (open(d['path'], 'w').write("
-            "    t.replace(d['old'], d['new']) if d['replace_all'] "
-            "    else t.replace(d['old'], d['new'], 1)"
-            "  ) and False) or json.dumps({'replacements': n if d['replace_all'] else 1})"
-            "); "
-            "print(r)"
-        )
+        script = _EDIT_SCRIPT
         result = await self.execute(f"python3 -c {_shell_quote(script)} {_shell_quote(encoded)}")
         if result["exit_code"] != 0:
-            raise ValueError(f"Edit failed: {result['output']}")
-        data = json.loads(result["output"].strip())
+            return EditResult(
+                error="io_error",
+                error_message=f"Edit failed: {result.get('stderr') or result.get('output')}",
+            )
+        try:
+            data = json.loads(result["output"].strip())
+        except json.JSONDecodeError:
+            return EditResult(
+                error="io_error",
+                error_message=f"Edit produced invalid output: {result['output']!r}",
+            )
         if "error" in data:
-            raise ValueError(
-                f"{data['error']} in {path}. Use replace_all=True or provide more context."
+            err = data["error"]
+            if err == "file_not_found":
+                return EditResult(error="file_not_found", error_message=f"File not found: {path}")
+            if err == "is_directory":
+                return EditResult(
+                    error="is_directory", error_message=f"Path is a directory: {path}"
+                )
+            if err == "decode_error":
+                return EditResult(
+                    error="decode_error",
+                    error_message=f"File is not valid UTF-8: {path}",
+                )
+            if err == "old_string_not_found":
+                return EditResult(
+                    path=path,
+                    error="old_string_not_found",
+                    error_message=f"old_string not found in {path}",
+                )
+            if err == "ambiguous_match":
+                occ = data.get("occurrences")
+                return EditResult(
+                    path=path,
+                    occurrences=occ,
+                    error="ambiguous_match",
+                    error_message=(
+                        f"old_string appears {occ} times in {path}. "
+                        "Pass replace_all=True or extend old_string for uniqueness."
+                    ),
+                )
+            return EditResult(
+                error="io_error",
+                error_message=data.get("message") or f"Edit failed: {err}",
             )
         return EditResult(path=path, replacements=data["replacements"])
 
@@ -277,3 +423,115 @@ class DaytonaBackend:
                 continue
             matches.append(GrepMatch(path=file_path, line=line_num, text=parts[2]))
         return matches
+
+    # --- FileTransferBackend ---
+    #
+    # True bulk transfer via the Daytona SDK's native multipart endpoints.
+    # ``sandbox.fs.upload_files`` posts one multipart HTTP request for N
+    # files; ``download_files`` returns one multipart response. No
+    # ARG_MAX ceiling, no per-file round trip.
+
+    async def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResult]:
+        if not files:
+            return []
+        from daytona_sdk import FileUpload
+
+        upfront_errors: list[FileUploadResult] = []
+        valid: list[tuple[str, bytes, FileUpload]] = []
+        for path, content in files:
+            try:
+                real_path = self._resolve(path)
+            except PermissionError as exc:
+                upfront_errors.append(
+                    FileUploadResult(path=path, error="permission_denied", error_message=str(exc))
+                )
+                continue
+            valid.append((path, content, FileUpload(source=content, destination=real_path)))
+
+        if not valid:
+            return upfront_errors
+
+        try:
+            self._sandbox.fs.upload_files([f for _, _, f in valid])
+        except Exception as exc:
+            return upfront_errors + [
+                FileUploadResult(
+                    path=path,
+                    error="io_error",
+                    error_message=f"Bulk upload failed: {exc}",
+                )
+                for path, _, _ in valid
+            ]
+
+        return upfront_errors + [
+            FileUploadResult(path=path, bytes_written=len(content)) for path, content, _ in valid
+        ]
+
+    async def download_files(self, paths: list[str]) -> list[FileDownloadResult]:
+        if not paths:
+            return []
+        from daytona_sdk import FileDownloadRequest
+
+        upfront_errors: list[FileDownloadResult] = []
+        real_to_virtual: dict[str, str] = {}
+        requests: list[FileDownloadRequest] = []
+        for path in paths:
+            try:
+                real_path = self._resolve(path)
+            except PermissionError as exc:
+                upfront_errors.append(
+                    FileDownloadResult(path=path, error="permission_denied", error_message=str(exc))
+                )
+                continue
+            real_to_virtual[real_path] = path
+            requests.append(FileDownloadRequest(source=real_path))
+
+        if not requests:
+            return upfront_errors
+
+        try:
+            sdk_responses = self._sandbox.fs.download_files(requests)
+        except Exception as exc:
+            return upfront_errors + [
+                FileDownloadResult(
+                    path=real_to_virtual[r.source],
+                    error="io_error",
+                    error_message=f"Bulk download failed: {exc}",
+                )
+                for r in requests
+            ]
+
+        results: list[FileDownloadResult] = list(upfront_errors)
+        for resp in sdk_responses:
+            virtual_path = real_to_virtual.get(resp.source, resp.source)
+            if resp.error:
+                # SDK error strings are free-form; map "not found" to the
+                # standardized code, otherwise fall through to io_error.
+                if "not found" in resp.error.lower():
+                    results.append(
+                        FileDownloadResult(
+                            path=virtual_path,
+                            error="file_not_found",
+                            error_message=resp.error,
+                        )
+                    )
+                else:
+                    results.append(
+                        FileDownloadResult(
+                            path=virtual_path,
+                            error="io_error",
+                            error_message=resp.error,
+                        )
+                    )
+            elif isinstance(resp.result, (bytes, bytearray)):
+                results.append(FileDownloadResult(path=virtual_path, content=bytes(resp.result)))
+            else:
+                bad_type = type(resp.result).__name__
+                results.append(
+                    FileDownloadResult(
+                        path=virtual_path,
+                        error="io_error",
+                        error_message=f"Unexpected download result type: {bad_type}",
+                    )
+                )
+        return results

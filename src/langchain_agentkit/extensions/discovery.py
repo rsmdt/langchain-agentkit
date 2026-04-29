@@ -91,12 +91,16 @@ async def discover_from_backend(
     configs: list[T] = []
     seen_names: set[str] = set()
     for match in sorted(matches):
-        try:
-            formatted = await backend.read(match, limit=100_000)
-        except (FileNotFoundError, OSError):
-            logger.warning("Skipping unreadable %s file: %s", label, match)
+        read_result = await backend.read(match, limit=100_000)
+        if read_result.error is not None or read_result.content is None:
+            logger.warning(
+                "Skipping unreadable %s file: %s (%s)",
+                label,
+                match,
+                read_result.error or "no content",
+            )
             continue
-        result = parse_frontmatter_string(formatted)
+        result = parse_frontmatter_string(read_result.content)
         if not result.metadata:
             logger.warning("Skipping %s without frontmatter: %s", label, match)
             continue

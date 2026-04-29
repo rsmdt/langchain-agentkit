@@ -1,16 +1,17 @@
 """OSBackend — local filesystem + subprocess backend.
 
-Implements the full ``BackendProtocol`` using the real OS filesystem
-with path traversal prevention and ``asyncio.create_subprocess_shell``
-for execute.
+Implements ``BackendProtocol``, ``SandboxBackend``, and
+``FileTransferBackend`` using the real OS filesystem with path traversal
+prevention and ``asyncio.create_subprocess_shell`` for execute.
 
 Usage::
 
     from langchain_agentkit.backends import OSBackend
 
     backend = OSBackend("/path/to/workspace")
-    content = await backend.read("/app/main.py")  # raw text, no line numbers
-    result = await backend.execute("python3 -m pytest")
+    result = await backend.read("/app/main.py")
+    if result.error is None:
+        print(result.content)
 """
 
 from __future__ import annotations
@@ -20,7 +21,9 @@ import contextlib
 import fnmatch
 import itertools
 import os
+import platform
 import re
+import shutil
 from typing import Any
 
 from langchain_agentkit.backends.execution import (
@@ -30,9 +33,17 @@ from langchain_agentkit.backends.execution import (
     drain_stream_into,
 )
 from langchain_agentkit.backends.protocol import (
-    EditResult,
     ExecuteResponse,
     GrepMatch,
+)
+from langchain_agentkit.backends.results import (
+    PROBED_TOOLS,
+    EditResult,
+    FileDownloadResult,
+    FileUploadResult,
+    ReadBytesResult,
+    ReadResult,
+    SandboxEnvironment,
     WriteResult,
 )
 
@@ -40,8 +51,8 @@ from langchain_agentkit.backends.protocol import (
 class OSBackend:
     """Real OS filesystem backend with path traversal prevention.
 
-    All paths are resolved relative to ``root``. Any path that
-    escapes the root raises ``PermissionError``.
+    All paths are resolved relative to ``root``. Any path that escapes
+    the root is reported as ``permission_denied``.
 
     Args:
         root: The root directory for all file operations.
@@ -57,52 +68,81 @@ class OSBackend:
         self._root = os.path.realpath(root)
         self._max_output_bytes = max_output_bytes
         self._max_output_lines = max_output_lines
+        self._env_cache: SandboxEnvironment | None = None
 
     def _resolve(self, path: str) -> str:
         """Resolve path relative to root, blocking traversal.
 
-        Accepts three forms:
-        - Root-relative: ``/workspace/file.txt`` (leading ``/`` stripped)
-        - Absolute inside root: ``/tmp/sandbox123/workspace/file.txt``
-        - Traversal / outside root: blocked with ``PermissionError``
+        Raises ``PermissionError`` for paths that escape the root.
+        Backend methods catch this and convert to a ``permission_denied``
+        error code; ``execute`` workdir resolution lets it propagate.
         """
         root_with_sep = self._root.rstrip(os.sep) + os.sep
-
-        # Check if the raw path already resolves inside root (handles
-        # absolute paths the LLM may construct from the prompt).
         real_path = os.path.realpath(path)
         if real_path == self._root or real_path.startswith(root_with_sep):
             return real_path
-
-        # Treat as root-relative: strip leading "/" and join with root.
         cleaned = path.lstrip("/")
         resolved = os.path.realpath(os.path.join(self._root, cleaned))
         if resolved != self._root and not resolved.startswith(root_with_sep):
             raise PermissionError(f"Path traversal blocked: {path}")
         return resolved
 
-    # --- BackendProtocol methods ---
+    # --- BackendProtocol ---
 
-    async def read_bytes(self, path: str) -> bytes:
-        real_path = self._resolve(path)
-        with open(real_path, "rb") as f:
-            return f.read()
+    async def read(self, path: str, offset: int = 0, limit: int = 2000) -> ReadResult:
+        try:
+            real_path = self._resolve(path)
+        except PermissionError as exc:
+            return ReadResult(error="permission_denied", error_message=str(exc))
+        try:
+            with open(real_path, encoding="utf-8") as f:
+                selected = list(itertools.islice(itertools.islice(f, offset, None), limit))
+            return ReadResult(content="".join(selected))
+        except FileNotFoundError:
+            return ReadResult(error="file_not_found", error_message=f"File not found: {path}")
+        except IsADirectoryError:
+            return ReadResult(error="is_directory", error_message=f"Path is a directory: {path}")
+        except UnicodeDecodeError as exc:
+            return ReadResult(
+                error="decode_error",
+                error_message=f"File is not valid UTF-8: {path} ({exc.reason})",
+            )
+        except OSError as exc:
+            return ReadResult(error="io_error", error_message=str(exc))
 
-    async def read(self, path: str, offset: int = 0, limit: int = 2000) -> str:
-        """Read raw text content with offset/limit support."""
-        real_path = self._resolve(path)
-        with open(real_path, encoding="utf-8") as f:
-            selected = list(itertools.islice(itertools.islice(f, offset, None), limit))
-        return "".join(selected)
+    async def read_bytes(self, path: str) -> ReadBytesResult:
+        try:
+            real_path = self._resolve(path)
+        except PermissionError as exc:
+            return ReadBytesResult(error="permission_denied", error_message=str(exc))
+        try:
+            with open(real_path, "rb") as f:
+                return ReadBytesResult(content=f.read())
+        except FileNotFoundError:
+            return ReadBytesResult(error="file_not_found", error_message=f"File not found: {path}")
+        except IsADirectoryError:
+            return ReadBytesResult(
+                error="is_directory", error_message=f"Path is a directory: {path}"
+            )
+        except OSError as exc:
+            return ReadBytesResult(error="io_error", error_message=str(exc))
 
     async def write(self, path: str, content: str | bytes) -> WriteResult:
-        real_path = self._resolve(path)
-        os.makedirs(os.path.dirname(real_path), exist_ok=True)
-        mode = "wb" if isinstance(content, bytes) else "w"
-        kwargs = {} if isinstance(content, bytes) else {"encoding": "utf-8"}
-        with open(real_path, mode, **kwargs) as f:  # type: ignore[call-overload]
-            f.write(content)
-        return WriteResult(path=path, bytes_written=len(content))
+        try:
+            real_path = self._resolve(path)
+        except PermissionError as exc:
+            return WriteResult(error="permission_denied", error_message=str(exc))
+        try:
+            os.makedirs(os.path.dirname(real_path), exist_ok=True)
+            mode = "wb" if isinstance(content, bytes) else "w"
+            kwargs: dict[str, Any] = {} if isinstance(content, bytes) else {"encoding": "utf-8"}
+            with open(real_path, mode, **kwargs) as f:
+                f.write(content)
+            return WriteResult(path=path, bytes_written=len(content))
+        except IsADirectoryError:
+            return WriteResult(error="is_directory", error_message=f"Path is a directory: {path}")
+        except OSError as exc:
+            return WriteResult(error="io_error", error_message=str(exc))
 
     async def edit(
         self,
@@ -111,26 +151,53 @@ class OSBackend:
         new_string: str,
         replace_all: bool = False,
     ) -> EditResult:
-        real_path = self._resolve(path)
-        with open(real_path, encoding="utf-8") as f:
-            content = f.read()
+        try:
+            real_path = self._resolve(path)
+        except PermissionError as exc:
+            return EditResult(error="permission_denied", error_message=str(exc))
+        try:
+            with open(real_path, encoding="utf-8") as f:
+                content = f.read()
+        except FileNotFoundError:
+            return EditResult(error="file_not_found", error_message=f"File not found: {path}")
+        except IsADirectoryError:
+            return EditResult(error="is_directory", error_message=f"Path is a directory: {path}")
+        except UnicodeDecodeError as exc:
+            return EditResult(
+                error="decode_error",
+                error_message=f"File is not valid UTF-8: {path} ({exc.reason})",
+            )
+        except OSError as exc:
+            return EditResult(error="io_error", error_message=str(exc))
+
         occurrences = content.count(old_string)
         if occurrences == 0:
-            return EditResult(path=path, replacements=0)
-        if replace_all:
-            new_content = content.replace(old_string, new_string)
-            count = occurrences
-        else:
-            if occurrences > 1:
-                raise ValueError(
-                    f"Ambiguous edit: old_string appears {occurrences} times in "
-                    f"{path}. Use replace_all=True or provide more context to "
-                    f"make the match unique."
-                )
-            new_content = content.replace(old_string, new_string, 1)
-            count = 1
-        with open(real_path, "w", encoding="utf-8") as f:
-            f.write(new_content)
+            return EditResult(
+                path=path,
+                error="old_string_not_found",
+                error_message=f"old_string not found in {path}",
+            )
+        if occurrences > 1 and not replace_all:
+            return EditResult(
+                path=path,
+                occurrences=occurrences,
+                error="ambiguous_match",
+                error_message=(
+                    f"old_string appears {occurrences} times in {path}. "
+                    "Pass replace_all=True or extend old_string for uniqueness."
+                ),
+            )
+        new_content = (
+            content.replace(old_string, new_string)
+            if replace_all
+            else content.replace(old_string, new_string, 1)
+        )
+        count = occurrences if replace_all else 1
+        try:
+            with open(real_path, "w", encoding="utf-8") as f:
+                f.write(new_content)
+        except OSError as exc:
+            return EditResult(path=path, error="io_error", error_message=str(exc))
         return EditResult(path=path, replacements=count)
 
     async def glob(self, pattern: str, path: str = "/") -> list[str]:
@@ -171,6 +238,8 @@ class OSBackend:
                 except (OSError, UnicodeDecodeError):
                     continue
         return matches
+
+    # --- SandboxBackend ---
 
     async def execute(
         self,
@@ -215,8 +284,7 @@ class OSBackend:
                 await asyncio.wait_for(pump, timeout=timeout)
             except TimeoutError:
                 proc.kill()
-                # Drain whatever remains before collecting results.
-                with contextlib.suppress(TimeoutError, asyncio.CancelledError, Exception):  # noqa: BLE001 — best-effort drain after kill
+                with contextlib.suppress(TimeoutError, asyncio.CancelledError, Exception):  # noqa: BLE001
                     await asyncio.wait_for(pump, timeout=2.0)
                 stdout_res, stderr_res, spill_path = capture.finalize()
                 return ExecuteResponse(
@@ -231,7 +299,7 @@ class OSBackend:
         except BaseException:
             capture.abandon()
             if proc is not None and proc.returncode is None:
-                with contextlib.suppress(Exception):  # noqa: BLE001 — cleanup best-effort
+                with contextlib.suppress(Exception):  # noqa: BLE001
                     proc.kill()
             raise
 
@@ -247,9 +315,49 @@ class OSBackend:
             bytes_dropped=stdout_res.bytes_dropped + stderr_res.bytes_dropped,
         )
 
-    # --- Internal helpers ---
+    async def environment(self) -> SandboxEnvironment:
+        """Return the shell-environment snapshot for this backend.
 
-    # --- Convenience methods (not part of BackendProtocol) ---
+        Cheap on OSBackend — backend equals the agent process, so we can
+        read ``platform.*`` and ``shutil.which`` directly. Result is
+        cached for the backend's lifetime.
+        """
+        if self._env_cache is None:
+            self._env_cache = SandboxEnvironment(
+                os=f"{platform.system()} {platform.release()} {platform.machine()}",
+                shell=os.environ.get("SHELL", "/bin/sh"),
+                cwd=self._root,
+                available_tools=frozenset(t for t in PROBED_TOOLS if shutil.which(t)),
+            )
+        return self._env_cache
+
+    # --- FileTransferBackend ---
+
+    async def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResult]:
+        results: list[FileUploadResult] = []
+        for path, content in files:
+            wr = await self.write(path, content)
+            if wr.error is not None:
+                results.append(
+                    FileUploadResult(path=path, error=wr.error, error_message=wr.error_message)
+                )
+            else:
+                results.append(FileUploadResult(path=path, bytes_written=wr.bytes_written))
+        return results
+
+    async def download_files(self, paths: list[str]) -> list[FileDownloadResult]:
+        results: list[FileDownloadResult] = []
+        for path in paths:
+            rb = await self.read_bytes(path)
+            if rb.error is not None:
+                results.append(
+                    FileDownloadResult(path=path, error=rb.error, error_message=rb.error_message)
+                )
+            else:
+                results.append(FileDownloadResult(path=path, content=rb.content))
+        return results
+
+    # --- Convenience methods (not part of any protocol) ---
 
     def ls(self, path: str) -> list[dict[str, Any]]:
         """List directory contents. Not part of the protocol — use Glob or Bash."""

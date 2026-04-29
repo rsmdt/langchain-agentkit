@@ -343,6 +343,4 @@ def _compute_structured_patch(  # noqa: C901
     return hunks
 
 
-async def _read_full_text(backend: Any, file_path: str) -> str:
-    """Read full file content as raw text."""
-    return str(await backend.read(file_path, limit=100_000))
+_FULL_READ_LIMIT = 100_000

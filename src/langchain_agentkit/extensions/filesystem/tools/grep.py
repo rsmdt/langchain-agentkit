@@ -8,8 +8,8 @@ from typing import TYPE_CHECKING, Any
 from langchain_core.tools import StructuredTool
 
 from langchain_agentkit.extensions.filesystem.tools.common import (
+    _FULL_READ_LIMIT,
     _GrepInput,
-    _read_full_text,
 )
 
 _GREP_DESCRIPTION = """A powerful search tool built on ripgrep
@@ -121,21 +121,21 @@ async def _grep_multiline(
     file_paths = await backend.glob(glob or "**/*", path=path or "/")
     results: list[dict[str, Any]] = []
     for file_path in file_paths:
-        try:
-            content = await _read_full_text(backend, file_path)
-            for match in regex.finditer(content):
-                line_num = content[: match.start()].count("\n") + 1
-                matched_text = match.group()
-                for i, line_text in enumerate(matched_text.split("\n")):
-                    results.append(
-                        {
-                            "path": file_path,
-                            "line": line_num + i,
-                            "text": line_text,
-                        }
-                    )
-        except (FileNotFoundError, OSError, UnicodeDecodeError):
+        rr = await backend.read(file_path, limit=_FULL_READ_LIMIT)
+        if rr.error is not None or rr.content is None:
             continue
+        content = rr.content
+        for match in regex.finditer(content):
+            line_num = content[: match.start()].count("\n") + 1
+            matched_text = match.group()
+            for i, line_text in enumerate(matched_text.split("\n")):
+                results.append(
+                    {
+                        "path": file_path,
+                        "line": line_num + i,
+                        "text": line_text,
+                    }
+                )
     return results
 
 
@@ -154,10 +154,10 @@ async def _format_grep_with_context(
         line_num = r["line"]
 
         if file_path not in file_lines_cache:
-            try:
-                raw = await backend.read(file_path, limit=100_000)
-                file_lines_cache[file_path] = raw.splitlines()
-            except (FileNotFoundError, OSError):
+            rr = await backend.read(file_path, limit=100_000)
+            if rr.error is None and rr.content is not None:
+                file_lines_cache[file_path] = rr.content.splitlines()
+            else:
                 file_lines_cache[file_path] = []
 
         lines = file_lines_cache[file_path]

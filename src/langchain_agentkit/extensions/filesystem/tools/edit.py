@@ -10,9 +10,9 @@ from typing import TYPE_CHECKING, Any
 from langchain_core.tools import StructuredTool, ToolException
 
 from langchain_agentkit.extensions.filesystem.tools.common import (
+    _FULL_READ_LIMIT,
     _compute_structured_patch,
     _EditInput,
-    _read_full_text,
 )
 
 _EDIT_DESCRIPTION = """Performs exact string replacements in files.
@@ -164,15 +164,19 @@ async def _handle_empty_old_string(
     new_string: str,
 ) -> tuple[str, dict[str, Any]]:
     """Handle edit with empty old_string — file creation or filling empty file."""
-    try:
-        content = await backend.read(file_path, limit=1)
-        if content.strip():
+    read_result = await backend.read(file_path, limit=1)
+    if read_result.error is None:
+        if read_result.content and read_result.content.strip():
             raise ToolException(
                 f"File {file_path} is not empty. Cannot use empty old_string on a non-empty file."
             )
-    except FileNotFoundError:
-        pass  # File doesn't exist — will create
-    await backend.write(file_path, new_string)
+    elif read_result.error != "file_not_found":
+        raise ToolException(f"Failed to read {file_path}: {read_result.error_message}")
+
+    write_result = await backend.write(file_path, new_string)
+    if write_result.error is not None:
+        raise ToolException(f"Failed to write {file_path}: {write_result.error_message}")
+
     message = f"The file {file_path} has been updated successfully."
     artifact: dict[str, Any] = {
         "filePath": file_path,
@@ -190,7 +194,7 @@ async def _handle_empty_old_string(
 
 
 def _build_edit(backend: Any) -> BaseTool:  # noqa: C901
-    async def edit(
+    async def edit(  # noqa: C901
         file_path: str,
         old_string: str,
         new_string: str,
@@ -201,10 +205,12 @@ def _build_edit(backend: Any) -> BaseTool:  # noqa: C901
             return await _handle_empty_old_string(backend, file_path, new_string)
 
         # Read original file for quote normalization and artifact
-        try:
-            original_file = await _read_full_text(backend, file_path)
-        except FileNotFoundError as exc:
-            raise ToolException(str(exc)) from exc
+        read_result = await backend.read(file_path, limit=_FULL_READ_LIMIT)
+        if read_result.error == "file_not_found":
+            raise ToolException(f"File not found: {file_path}")
+        if read_result.error is not None:
+            raise ToolException(f"Failed to read {file_path}: {read_result.error_message}")
+        original_file = read_result.content or ""
 
         # Strip trailing whitespace from new_string (except markdown)
         effective_new = new_string
@@ -229,18 +235,23 @@ def _build_edit(backend: Any) -> BaseTool:  # noqa: C901
         ):
             effective_old = actual_old + "\n"
 
-        try:
-            result = await backend.edit(
-                file_path,
-                effective_old,
-                effective_new,
-                replace_all=replace_all,
-            )
-            count = result.get("replacements", 0) if isinstance(result, dict) else result
-        except ValueError as exc:
-            raise ToolException(str(exc)) from exc
-        if count == 0:
+        edit_result = await backend.edit(
+            file_path,
+            effective_old,
+            effective_new,
+            replace_all=replace_all,
+        )
+        if edit_result.error == "old_string_not_found":
             raise ToolException(f"String not found in {file_path}.")
+        if edit_result.error == "ambiguous_match":
+            raise ToolException(
+                f"old_string appears {edit_result.occurrences} times in {file_path}. "
+                "Pass replace_all=True or extend old_string for uniqueness."
+            )
+        if edit_result.error == "file_not_found":
+            raise ToolException(f"File not found: {file_path}")
+        if edit_result.error is not None:
+            raise ToolException(f"Failed to edit {file_path}: {edit_result.error_message}")
 
         # Compute patch from in-memory replace (avoids re-reading the file)
         if replace_all:

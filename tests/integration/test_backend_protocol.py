@@ -1,16 +1,15 @@
 """BackendProtocol conformance tests — run against every backend.
 
-These tests verify the ``BackendProtocol`` contract: read, read_bytes,
-write, edit, glob, grep, execute. Any backend that implements the
-protocol must pass all of these.
+These tests verify the contract of all three capability protocols:
+``BackendProtocol`` (file ops), ``SandboxBackend`` (adds execute),
+``FileTransferBackend`` (adds upload/download). Any backend that
+implements a tier must pass the corresponding tests.
 
 The ``backend`` fixture is parameterized so the same tests run against
 every available backend:
 
 - ``os`` — always available (OSBackend with temp directory)
 - ``daytona`` — only when DAYTONA_API_URL is set and SDK is installed
-
-To add a new backend, add a case to the ``backend`` fixture below.
 """
 
 from __future__ import annotations
@@ -21,7 +20,12 @@ from pathlib import Path
 
 import pytest
 
-from langchain_agentkit.backends import BackendProtocol, OSBackend
+from langchain_agentkit.backends import (
+    BackendProtocol,
+    FileTransferBackend,
+    OSBackend,
+    SandboxBackend,
+)
 
 # ---------------------------------------------------------------------------
 # .env loading (for DAYTONA_API_URL / DAYTONA_API_KEY)
@@ -57,7 +61,10 @@ def _import_daytona():
 
 
 def _daytona_available() -> bool:
+    """Daytona conformance runs only when both env vars and SDK are present."""
     if not os.environ.get("DAYTONA_API_URL"):
+        return False
+    if not os.environ.get("DAYTONA_API_KEY"):
         return False
     cls, _ = _import_daytona()
     return cls is not None
@@ -83,9 +90,8 @@ def backend(request):
         daytona_cls, config_cls = _import_daytona()
         from langchain_agentkit.backends.daytona import DaytonaBackend
 
-        api_key = os.environ.get("DAYTONA_API_KEY", "")
         config = config_cls(
-            api_key=api_key or None,
+            api_key=os.environ["DAYTONA_API_KEY"],
             api_url=os.environ["DAYTONA_API_URL"],
         )
         client = daytona_cls(config=config)
@@ -95,16 +101,19 @@ def backend(request):
 
 
 # ---------------------------------------------------------------------------
-# Protocol conformance
+# Protocol tier conformance
 # ---------------------------------------------------------------------------
 
 
-class TestProtocolConformance:
-    def test_is_backend_protocol(self, backend):
+class TestProtocolTiers:
+    def test_implements_backend_protocol(self, backend):
         assert isinstance(backend, BackendProtocol)
 
-    def test_has_execute(self, backend):
-        assert hasattr(backend, "execute") and callable(backend.execute)
+    def test_implements_sandbox_backend(self, backend):
+        assert isinstance(backend, SandboxBackend)
+
+    def test_implements_file_transfer_backend(self, backend):
+        assert isinstance(backend, FileTransferBackend)
 
 
 # ---------------------------------------------------------------------------
@@ -115,61 +124,73 @@ class TestProtocolConformance:
 class TestRead:
     async def test_write_and_read_roundtrip(self, backend):
         await backend.write("/test.txt", "hello world")
-        content = await backend.read("/test.txt")
-        assert "hello world" in content
+        result = await backend.read("/test.txt")
+        assert result.error is None
+        assert "hello world" in result.content
 
     async def test_returns_raw_text(self, backend):
         await backend.write("/test.txt", "alpha\nbeta\ngamma\n")
-        content = await backend.read("/test.txt")
-        assert content == "alpha\nbeta\ngamma\n"
+        result = await backend.read("/test.txt")
+        assert result.error is None
+        assert result.content == "alpha\nbeta\ngamma\n"
 
     async def test_offset_and_limit(self, backend):
         await backend.write("/test.txt", "line1\nline2\nline3\nline4\nline5\n")
-        content = await backend.read("/test.txt", offset=1, limit=2)
-        assert "line2" in content
-        assert "line3" in content
-        assert "line1" not in content
-        assert "line4" not in content
+        result = await backend.read("/test.txt", offset=1, limit=2)
+        assert result.error is None
+        assert "line2" in result.content
+        assert "line3" in result.content
+        assert "line1" not in result.content
+        assert "line4" not in result.content
 
     async def test_offset_beyond_file(self, backend):
         await backend.write("/short.txt", "one\ntwo\n")
-        content = await backend.read("/short.txt", offset=100)
-        assert content == ""
+        result = await backend.read("/short.txt", offset=100)
+        assert result.error is None
+        assert result.content == ""
 
     async def test_empty_file(self, backend):
         await backend.write("/empty.txt", "")
-        content = await backend.read("/empty.txt")
-        assert content == ""
+        result = await backend.read("/empty.txt")
+        assert result.error is None
+        assert result.content == ""
 
-    async def test_missing_file_raises(self, backend):
-        with pytest.raises(FileNotFoundError):
-            await backend.read("/nonexistent.txt")
+    async def test_missing_file_returns_error_code(self, backend):
+        result = await backend.read("/nonexistent.txt")
+        assert result.error == "file_not_found"
+        assert result.content is None
 
     async def test_unicode_roundtrip(self, backend):
         await backend.write("/uni.txt", "日本語\n中文\nعربي\n")
-        content = await backend.read("/uni.txt")
-        assert "日本語" in content
-        assert "中文" in content
-        assert "عربي" in content
+        result = await backend.read("/uni.txt")
+        assert result.error is None
+        assert "日本語" in result.content
+        assert "中文" in result.content
+        assert "عربي" in result.content
 
 
 class TestReadBytes:
     async def test_returns_raw_content(self, backend):
         data = b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR"
         await backend.write("/image.png", data)
-        assert await backend.read_bytes("/image.png") == data
+        result = await backend.read_bytes("/image.png")
+        assert result.error is None
+        assert result.content == data
 
     async def test_text_file(self, backend):
         await backend.write("/hello.txt", "hello world")
-        assert await backend.read_bytes("/hello.txt") == b"hello world"
+        result = await backend.read_bytes("/hello.txt")
+        assert result.error is None
+        assert result.content == b"hello world"
 
-    async def test_missing_file_raises(self, backend):
-        with pytest.raises(FileNotFoundError):
-            await backend.read_bytes("/nonexistent.bin")
+    async def test_missing_file_returns_error_code(self, backend):
+        result = await backend.read_bytes("/nonexistent.bin")
+        assert result.error == "file_not_found"
+        assert result.content is None
 
-    async def test_path_traversal_blocked(self, backend):
-        with pytest.raises(PermissionError, match="Path traversal"):
-            await backend.read_bytes("/../../etc/passwd")
+    async def test_path_traversal_returns_error_code(self, backend):
+        result = await backend.read_bytes("/../../etc/passwd")
+        assert result.error == "permission_denied"
 
 
 # ---------------------------------------------------------------------------
@@ -180,18 +201,21 @@ class TestReadBytes:
 class TestWrite:
     async def test_returns_bytes_written(self, backend):
         result = await backend.write("/test.txt", "hello")
-        assert result["path"] == "/test.txt"
-        assert result["bytes_written"] == 5
+        assert result.error is None
+        assert result.path == "/test.txt"
+        assert result.bytes_written == 5
 
     async def test_creates_parent_dirs(self, backend):
         await backend.write("/a/b/c/deep.txt", "deep")
-        content = await backend.read("/a/b/c/deep.txt")
-        assert "deep" in content
+        result = await backend.read("/a/b/c/deep.txt")
+        assert result.error is None
+        assert "deep" in result.content
 
     async def test_binary_content(self, backend):
         data = b"\x89PNG\r\n\x1a\n\x00\x00"
         result = await backend.write("/image.bin", data)
-        assert result["bytes_written"] == len(data)
+        assert result.error is None
+        assert result.bytes_written == len(data)
 
 
 # ---------------------------------------------------------------------------
@@ -203,30 +227,35 @@ class TestEdit:
     async def test_single_replacement(self, backend):
         await backend.write("/test.txt", "hello world")
         result = await backend.edit("/test.txt", "hello", "goodbye")
-        assert result["replacements"] == 1
-        content = await backend.read("/test.txt")
-        assert "goodbye world" in content
+        assert result.error is None
+        assert result.replacements == 1
+        read = await backend.read("/test.txt")
+        assert "goodbye world" in read.content
 
     async def test_replace_all(self, backend):
         await backend.write("/test.txt", "foo bar foo baz foo")
         result = await backend.edit("/test.txt", "foo", "qux", replace_all=True)
-        assert result["replacements"] == 3
-        content = await backend.read("/test.txt")
-        assert "qux bar qux baz qux" in content
+        assert result.error is None
+        assert result.replacements == 3
+        read = await backend.read("/test.txt")
+        assert "qux bar qux baz qux" in read.content
 
-    async def test_ambiguous_raises(self, backend):
+    async def test_ambiguous_returns_error_code(self, backend):
         await backend.write("/test.txt", "foo bar foo")
-        with pytest.raises(ValueError, match="Ambiguous"):
-            await backend.edit("/test.txt", "foo", "baz")
+        result = await backend.edit("/test.txt", "foo", "baz")
+        assert result.error == "ambiguous_match"
+        assert result.occurrences == 2
+        assert result.replacements is None
 
-    async def test_not_found_returns_zero(self, backend):
+    async def test_not_found_returns_error_code(self, backend):
         await backend.write("/f.txt", "hello")
         result = await backend.edit("/f.txt", "missing", "x")
-        assert result["replacements"] == 0
+        assert result.error == "old_string_not_found"
+        assert result.replacements is None
 
-    async def test_missing_file_raises(self, backend):
-        with pytest.raises((FileNotFoundError, ValueError)):
-            await backend.edit("/nonexistent.txt", "a", "b")
+    async def test_missing_file_returns_error_code(self, backend):
+        result = await backend.edit("/nonexistent.txt", "a", "b")
+        assert result.error == "file_not_found"
 
 
 # ---------------------------------------------------------------------------
@@ -277,7 +306,7 @@ class TestGrep:
 
 
 # ---------------------------------------------------------------------------
-# execute
+# execute (SandboxBackend)
 # ---------------------------------------------------------------------------
 
 
@@ -293,11 +322,73 @@ class TestExecute:
 
 
 # ---------------------------------------------------------------------------
+# environment (SandboxBackend)
+# ---------------------------------------------------------------------------
+
+
+class TestEnvironment:
+    async def test_returns_environment_snapshot(self, backend):
+        from langchain_agentkit.backends import PROBED_TOOLS
+
+        env = await backend.environment()
+        # os encodes uname -srm shape: kernel-name + release + arch.
+        # The leading word identifies the platform family unambiguously.
+        assert env.os, "os must be a non-empty string"
+        assert env.os.split()[0] in {"Linux", "Darwin", "Windows"}
+        # cwd reflects backend root / workdir
+        assert env.cwd
+        # shell is a non-empty string (typically /bin/sh, /bin/bash, or /bin/zsh)
+        assert env.shell
+        # available_tools is a frozenset and a subset of PROBED_TOOLS
+        # (no specific tool is required to be installed in test environments)
+        assert isinstance(env.available_tools, frozenset)
+        assert env.available_tools.issubset(set(PROBED_TOOLS))
+
+    async def test_cached(self, backend):
+        env1 = await backend.environment()
+        env2 = await backend.environment()
+        assert env1 is env2  # same object — backend caches
+
+
+# ---------------------------------------------------------------------------
+# upload_files / download_files (FileTransferBackend)
+# ---------------------------------------------------------------------------
+
+
+class TestFileTransfer:
+    async def test_upload_files_roundtrip(self, backend):
+        files = [
+            ("/seed/a.txt", b"alpha"),
+            ("/seed/b.bin", b"\x00\x01\x02\x03"),
+        ]
+        results = await backend.upload_files(files)
+        assert len(results) == 2
+        assert all(r.error is None for r in results)
+        assert {r.path for r in results} == {"/seed/a.txt", "/seed/b.bin"}
+
+        downloads = await backend.download_files(["/seed/a.txt", "/seed/b.bin"])
+        assert all(d.error is None for d in downloads)
+        contents = {d.path: d.content for d in downloads}
+        assert contents["/seed/a.txt"] == b"alpha"
+        assert contents["/seed/b.bin"] == b"\x00\x01\x02\x03"
+
+    async def test_download_partial_failure(self, backend):
+        await backend.upload_files([("/exists.txt", b"hi")])
+        results = await backend.download_files(["/exists.txt", "/missing.txt"])
+        assert len(results) == 2
+        ok = next(r for r in results if r.path == "/exists.txt")
+        missing = next(r for r in results if r.path == "/missing.txt")
+        assert ok.error is None and ok.content == b"hi"
+        assert missing.error == "file_not_found"
+        assert missing.content is None
+
+
+# ---------------------------------------------------------------------------
 # security
 # ---------------------------------------------------------------------------
 
 
 class TestSecurity:
-    async def test_path_traversal_blocked(self, backend):
-        with pytest.raises(PermissionError):
-            await backend.read("/../../etc/passwd")
+    async def test_path_traversal_returns_error_code(self, backend):
+        result = await backend.read("/../../etc/passwd")
+        assert result.error == "permission_denied"

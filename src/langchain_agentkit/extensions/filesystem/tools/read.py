@@ -39,6 +39,19 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
 
+def _format_read_error(file_path: str, error: str | None, message: str | None) -> str:
+    """Render a backend read error as an LLM-actionable message."""
+    if error == "file_not_found":
+        return f"{file_path} does not exist. Use Glob to find the correct path."
+    if error == "is_directory":
+        return f"{file_path} is a directory. Use Glob to list its contents."
+    if error == "decode_error":
+        return f"{file_path} is not valid UTF-8. Try a binary-aware tool."
+    if error == "permission_denied":
+        return f"Access denied: {file_path}"
+    return f"Failed to read {file_path}: {message or error}"
+
+
 # ---------------------------------------------------------------------------
 # Notebook
 # ---------------------------------------------------------------------------
@@ -46,8 +59,10 @@ if TYPE_CHECKING:
 
 async def _read_notebook(backend: Any, file_path: str) -> tuple[str, dict[str, Any]]:
     """Read a Jupyter notebook and return formatted cell contents."""
-    data = await backend.read_bytes(file_path)
-    notebook = json.loads(data.decode("utf-8"))
+    rb = await backend.read_bytes(file_path)
+    if rb.error is not None:
+        raise ToolException(_format_read_error(file_path, rb.error, rb.error_message))
+    notebook = json.loads(rb.content.decode("utf-8"))
     cells = notebook.get("cells", [])
     parts: list[str] = []
     structured_cells: list[dict[str, Any]] = []
@@ -121,7 +136,10 @@ def _detect_image_dimensions(data: bytes) -> dict[str, int] | None:
 
 async def _read_image(backend: Any, file_path: str, ext: str) -> tuple[str, dict[str, Any]]:
     """Read an image file and return as multimodal content block."""
-    data = await backend.read_bytes(file_path)
+    rb = await backend.read_bytes(file_path)
+    if rb.error is not None:
+        raise ToolException(_format_read_error(file_path, rb.error, rb.error_message))
+    data = rb.content
     mime_type = _IMAGE_MIME_MAP.get(ext, "application/octet-stream")
     encoded = base64.b64encode(data).decode("ascii")
 
@@ -175,7 +193,10 @@ async def _read_pdf(
     pages: str | None = None,
 ) -> tuple[str, dict[str, Any]]:
     """Read a PDF file and return base64 content, optionally extracting pages."""
-    data = await backend.read_bytes(file_path)
+    rb = await backend.read_bytes(file_path)
+    if rb.error is not None:
+        raise ToolException(_format_read_error(file_path, rb.error, rb.error_message))
+    data = rb.content
 
     if pages is not None:
         return _read_pdf_pages(data, file_path, pages)
@@ -244,11 +265,10 @@ async def _get_content_hash(backend: Any, file_path: str) -> str:
     """Get a content hash for dedup. Uses file content since mtime isn't in protocol."""
     import hashlib
 
-    try:
-        data = await backend.read_bytes(file_path)
-        return hashlib.md5(data).hexdigest()  # noqa: S324
-    except (FileNotFoundError, OSError):
+    rb = await backend.read_bytes(file_path)
+    if rb.error is not None or rb.content is None:
         return ""
+    return hashlib.md5(rb.content).hexdigest()  # noqa: S324
 
 
 def _check_file_unchanged(
@@ -287,11 +307,17 @@ async def _read_text(
             "filePath": file_path,
         }
 
-    text = await backend.read(file_path, offset=offset, limit=limit)
+    read_result = await backend.read(file_path, offset=offset, limit=limit)
+    if read_result.error is not None:
+        raise ToolException(
+            _format_read_error(file_path, read_result.error, read_result.error_message)
+        )
+    text = read_result.content or ""
     num_lines = len(text.splitlines()) if text else 0
 
     if not text or offset > 0:
-        total_text = await backend.read(file_path, limit=100_000)
+        total_result = await backend.read(file_path, limit=100_000)
+        total_text = total_result.content or "" if total_result.error is None else ""
         total_lines = len(total_text.splitlines()) if total_text else 0
     else:
         total_lines = num_lines

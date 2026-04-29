@@ -30,6 +30,7 @@ from typing import TYPE_CHECKING, Any
 from langchain_core.tools import StructuredTool, ToolException
 
 from langchain_agentkit.backends.os import OSBackend
+from langchain_agentkit.backends.protocol import SandboxBackend
 from langchain_agentkit.extension import Extension
 from langchain_agentkit.extensions.filesystem.tools import create_filesystem_tools
 from langchain_agentkit.extensions.filesystem.tools.bash import _build_bash_tool
@@ -47,6 +48,7 @@ if TYPE_CHECKING:
     from langgraph.prebuilt import ToolRuntime
 
     from langchain_agentkit.backends.protocol import BackendProtocol
+    from langchain_agentkit.backends.results import SandboxEnvironment
 
 logger = logging.getLogger(__name__)
 
@@ -116,17 +118,25 @@ class FilesystemExtension(Extension):
             tuple(tools) if tools is not None else None
         )
         self._tools_cache: list[BaseTool] | None = None
+        self._env: SandboxEnvironment | None = None  # Populated by setup() for SandboxBackend
 
-    def setup(  # type: ignore[override]
+    async def setup(  # type: ignore[override]
         self, *, extensions: list[Extension], **_: Any
     ) -> None:
-        """Detect HITLExtension sibling to enable interrupt-based approval."""
+        """Detect HITLExtension sibling and probe backend environment.
+
+        Async because :class:`SandboxBackend.environment` may issue a
+        one-time shell probe against a remote sandbox.
+        """
         from langchain_agentkit.extensions.hitl import HITLExtension
 
         self._hitl_available = any(isinstance(e, HITLExtension) for e in extensions)
         # Invalidate cached tools so the next access rebuilds them with
         # the correct HITL-aware gating.
         self._tools_cache = None
+        # Probe shell environment so prompt() can render the <env> block.
+        if isinstance(self._backend, SandboxBackend):
+            self._env = await self._backend.environment()
 
     @property
     def backend(self) -> BackendProtocol:
@@ -156,8 +166,8 @@ class FilesystemExtension(Extension):
             tools: list[BaseTool] = list(self._custom_tools)
         else:
             tools = create_filesystem_tools(self._backend)
-            # Add Bash tool if backend supports execute
-            if hasattr(self._backend, "execute") and callable(self._backend.execute):
+            # Add Bash tool if backend implements SandboxBackend capability
+            if isinstance(self._backend, SandboxBackend):
                 tools.append(_build_bash_tool(self._backend))
 
         if self._permissions is None:
@@ -203,44 +213,25 @@ class FilesystemExtension(Extension):
         *,
         tools: frozenset[str] = frozenset(),
     ) -> str | None:
-        """Return a minimal filesystem-root line when the backend's root
-        differs from the current working directory; otherwise ``None``.
+        """Render the ``<env>`` block describing the backend's shell
+        environment, matching Claude Code's prompt convention.
 
-        Tool-name guidance lives in each tool's ``description``.
+        Returns ``None`` for non-:class:`SandboxBackend` backends (no
+        shell available, nothing to surface). Tool-name guidance lives
+        in each tool's ``description``.
         """
-        from pathlib import Path
-
-        root = _backend_root(self._backend)
-        if root is None:
+        if self._env is None:
             return None
-        try:
-            cwd = Path.cwd().resolve()
-        except OSError:
-            return f"Filesystem root: {root}"
-        if Path(root) == cwd:
-            return None
-        return f"Filesystem root: {root}"
-
-
-# ---------------------------------------------------------------------------
-# Backend root discovery
-# ---------------------------------------------------------------------------
-
-
-def _backend_root(backend: BackendProtocol) -> str | None:
-    """Return the backend's filesystem root path, if exposed.
-
-    Checks ``OSBackend._root`` and Daytona-style ``workdir`` / ``_workdir``
-    attributes. Returns ``None`` when the backend doesn't expose a root.
-    """
-    root = getattr(backend, "_root", None)
-    if root is None:
-        root = getattr(backend, "workdir", None)
-    if root is None:
-        root = getattr(backend, "_workdir", None)
-    if root is None:
-        return None
-    return str(root)
+        e = self._env
+        tool_list = " ".join(sorted(e.available_tools)) if e.available_tools else "(none detected)"
+        return (
+            "<env>\n"
+            f"Working directory: {e.cwd}\n"
+            f"OS: {e.os}\n"
+            f"Shell: {e.shell}\n"
+            f"Available: {tool_list}\n"
+            "</env>"
+        )
 
 
 # ---------------------------------------------------------------------------

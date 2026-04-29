@@ -114,20 +114,27 @@ class TestTools:
 
 
 class TestPrompt:
-    def test_returns_none_when_root_matches_cwd(self):
-        ext = FilesystemExtension()  # root="." resolves to cwd
-        result = ext.prompt({}, _TEST_RUNTIME)
-
-        assert result is None
-
-    def test_returns_minimal_root_line_when_root_differs(self):
+    def test_returns_none_before_setup(self):
+        """Without setup(), env is not probed and prompt returns None."""
         with tempfile.TemporaryDirectory() as tmpdir:
             ext = FilesystemExtension(root=tmpdir)
+            assert ext.prompt({}, _TEST_RUNTIME) is None
+
+    async def test_returns_env_block_after_setup(self):
+        """setup() probes the backend; prompt renders an <env> block."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ext = FilesystemExtension(root=tmpdir)
+            await ext.setup(extensions=[])
             result = ext.prompt({}, _TEST_RUNTIME)
 
             assert result is not None
-            # Minimal output: single "Filesystem root: <path>" line only.
-            assert result.startswith("Filesystem root:")
+            assert result.startswith("<env>\n")
+            assert result.endswith("\n</env>")
+            # Required fields render as labeled lines.
+            assert "Working directory: " in result
+            assert "OS: " in result
+            assert "Shell: " in result
+            assert "Available: " in result
             # Must not mention tool names.
             for name in ("Read", "Write", "Edit", "Glob", "Grep", "Bash"):
                 assert name not in result
@@ -375,10 +382,11 @@ class TestPermissionWrapperMissingTarget:
 
 
 class TestPromptWithPermissions:
-    def test_prompt_does_not_reference_tool_names(self):
+    async def test_prompt_does_not_reference_tool_names(self):
         """Tool names live on tool descriptions, not in the prompt."""
         with tempfile.TemporaryDirectory() as tmpdir:
             ext = FilesystemExtension(root=tmpdir, permissions=PERMISSIVE_RULESET)
+            await ext.setup(extensions=[])
             result = ext.prompt({}, _TEST_RUNTIME) or ""
             for name in ("Read", "Write", "Edit", "Glob", "Grep", "Bash"):
                 assert name not in result

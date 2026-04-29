@@ -12,8 +12,6 @@ from __future__ import annotations
 import os
 import tempfile
 
-import pytest
-
 from langchain_agentkit.backends import BackendProtocol, OSBackend
 
 
@@ -45,14 +43,15 @@ class TestAbsolutePathResolution:
             backend = OSBackend(tmpdir)
             await backend.write("/workspace/config.json", '{"key": "value"}')
             abs_path = os.path.join(os.path.realpath(tmpdir), "workspace/config.json")
-            content = await backend.read(abs_path)
-            assert "value" in content
+            result = await backend.read(abs_path)
+            assert result.error is None
+            assert "value" in result.content
 
     async def test_absolute_path_outside_root_blocked(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             backend = OSBackend(tmpdir)
-            with pytest.raises(PermissionError, match="Path traversal"):
-                await backend.read("/../../../etc/passwd")
+            result = await backend.read("/../../../etc/passwd")
+            assert result.error == "permission_denied"
 
     async def test_absolute_path_truly_outside_root_blocked(self):
         with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as other:
@@ -60,8 +59,8 @@ class TestAbsolutePathResolution:
             with open(other_file, "w") as f:
                 f.write("secret")
             backend = OSBackend(tmpdir)
-            with pytest.raises((PermissionError, FileNotFoundError)):
-                await backend.read(other_file)
+            result = await backend.read(other_file)
+            assert result.error in ("permission_denied", "file_not_found")
 
 
 class TestSymlinks:
@@ -73,15 +72,16 @@ class TestSymlinks:
                 os.path.join(tmpdir, "real.txt"),
                 os.path.join(tmpdir, "link.txt"),
             )
-            content = await backend.read("/link.txt")
-            assert "content" in content
+            result = await backend.read("/link.txt")
+            assert result.error is None
+            assert "content" in result.content
 
     async def test_symlink_outside_root_blocked(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             backend = OSBackend(tmpdir)
             os.symlink("/etc/hosts", os.path.join(tmpdir, "escape.txt"))
-            with pytest.raises(PermissionError, match="Path traversal"):
-                await backend.read("/escape.txt")
+            result = await backend.read("/escape.txt")
+            assert result.error == "permission_denied"
 
 
 class TestConvenienceMethods:

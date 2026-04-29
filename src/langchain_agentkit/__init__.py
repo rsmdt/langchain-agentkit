@@ -16,7 +16,8 @@
     class Researcher(Agent):
         model = ChatOpenAI(model="gpt-4o")
         async def prompt(self):
-            return await self.backend.read("AGENTS.md")
+            result = await self.backend.read("AGENTS.md")
+            return result.content or ""
         async def handler(state, *, llm, tools, prompt): ...
 
     app = Researcher(backend=my_backend).compile()

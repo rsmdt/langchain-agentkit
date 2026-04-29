@@ -20,7 +20,8 @@
         model = ChatOpenAI(model="gpt-4o")
 
         async def prompt(self):
-            return await self.backend.read(".agentkit/AGENTS.md")
+            result = await self.backend.read(".agentkit/AGENTS.md")
+            return result.content or ""
 
         def extensions(self):
             return [FilesystemExtension(backend=self.backend)]
@@ -339,7 +340,8 @@ class Agent:
             model = ChatOpenAI(model="gpt-4o")
 
             async def prompt(self):
-                return await self.backend.read(".agentkit/AGENTS.md")
+                result = await self.backend.read(".agentkit/AGENTS.md")
+                return result.content or ""
 
             def extensions(self):
                 return [FilesystemExtension(backend=self.backend)]

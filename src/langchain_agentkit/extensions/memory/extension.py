@@ -200,15 +200,17 @@ class MemoryExtension(Extension):
     async def _load_body_async(self) -> str | None:
         assert self.backend is not None  # guarded by callers
         for candidate in self._candidate_paths():
-            try:
-                raw = await self.backend.read(str(candidate), limit=self.max_lines + 1)
-            except Exception:
-                logger.debug(
-                    "MemoryExtension: backend read failed for %s", candidate, exc_info=True
-                )
+            result = await self.backend.read(str(candidate), limit=self.max_lines + 1)
+            if result.error is not None:
+                if result.error != "file_not_found":
+                    logger.debug(
+                        "MemoryExtension: backend read failed for %s (%s)",
+                        candidate,
+                        result.error,
+                    )
                 continue
-            if raw:
-                return self._apply_caps(raw)
+            if result.content:
+                return self._apply_caps(result.content)
         return None
 
     def _apply_caps(self, text: str) -> str:

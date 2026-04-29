@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
-    from langchain_agentkit.backends.protocol import BackendProtocol
+    from langchain_agentkit.backends.protocol import SandboxBackend
 
 
 _BASH_DESCRIPTION = """Executes a given bash command and returns its output.
@@ -59,7 +59,7 @@ class _BashInput(BaseModel):
     )
 
 
-def _build_bash_tool(backend: BackendProtocol) -> BaseTool:
+def _build_bash_tool(backend: SandboxBackend) -> BaseTool:
     """Build the Bash tool for shell command execution."""
 
     async def _bash(

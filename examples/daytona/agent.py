@@ -45,21 +45,21 @@ SKILLS_PATH = ".agentkit/skills"
 AGENTS_PATH = ".agentkit/agents"
 
 
-def seed_sandbox(backend: DaytonaBackend) -> None:
+async def seed_sandbox(backend: DaytonaBackend) -> None:
     """Upload local skills/ and agents/ directories into the sandbox."""
     local_dir = Path(__file__).parent
-
-    for local_file in sorted((local_dir / "skills").rglob("*")):
-        if local_file.is_file():
-            rel = local_file.relative_to(local_dir / "skills")
-            backend.write(f"{SKILLS_PATH}/{rel}", local_file.read_text())
-            print(f"  uploaded {SKILLS_PATH}/{rel}")
-
-    for local_file in sorted((local_dir / "agents").rglob("*")):
-        if local_file.is_file():
-            rel = local_file.relative_to(local_dir / "agents")
-            backend.write(f"{AGENTS_PATH}/{rel}", local_file.read_text())
-            print(f"  uploaded {AGENTS_PATH}/{rel}")
+    for src_subdir, dst in [("skills", SKILLS_PATH), ("agents", AGENTS_PATH)]:
+        src = local_dir / src_subdir
+        files = [
+            (f"/{dst}/{f.relative_to(src).as_posix()}", f.read_bytes())
+            for f in sorted(src.rglob("*"))
+            if f.is_file()
+        ]
+        for r in await backend.upload_files(files):
+            if r.error is not None:
+                print(f"  FAILED {r.path}: {r.error_message}")
+            else:
+                print(f"  uploaded {r.path}")
 
 
 def build_agent(backend: DaytonaBackend):
@@ -101,7 +101,7 @@ async def main() -> None:
         backend = DaytonaBackend(sandbox)
 
         print("\nSeeding sandbox filesystem...")
-        seed_sandbox(backend)
+        await seed_sandbox(backend)
 
         print("\nBuilding agent...")
         agent_class = build_agent(backend)
