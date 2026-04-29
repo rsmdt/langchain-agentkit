@@ -4,7 +4,7 @@ import json
 import tempfile
 from pathlib import Path
 
-from langchain_agentkit.backends import OSBackend
+from langchain_agentkit.backends.os import OSBackend
 from langchain_agentkit.extensions.filesystem.tools import create_filesystem_tools
 
 

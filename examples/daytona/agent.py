@@ -37,7 +37,7 @@ from langchain_agentkit import (
     FilesystemExtension,
     SkillsExtension,
 )
-from langchain_agentkit.backends import DaytonaBackend
+from langchain_agentkit.backends.daytona import DaytonaBackend
 from langchain_agentkit.permissions import DEFAULT_RULESET
 
 # Paths inside the sandbox where skills and agents are uploaded

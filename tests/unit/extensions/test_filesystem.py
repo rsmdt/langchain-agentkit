@@ -5,7 +5,8 @@ from pathlib import Path
 
 from langgraph.prebuilt import ToolRuntime
 
-from langchain_agentkit.backends import BackendProtocol, OSBackend
+from langchain_agentkit.backends import BackendProtocol
+from langchain_agentkit.backends.os import OSBackend
 from langchain_agentkit.extensions.filesystem import FilesystemExtension
 from langchain_agentkit.permissions.presets import (
     DEFAULT_RULESET,

@@ -6,7 +6,7 @@ prevention and ``asyncio.create_subprocess_shell`` for execute.
 
 Usage::
 
-    from langchain_agentkit.backends import OSBackend
+    from langchain_agentkit.backends.os import OSBackend
 
     backend = OSBackend("/path/to/workspace")
     result = await backend.read("/app/main.py")

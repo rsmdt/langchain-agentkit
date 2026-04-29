@@ -4,12 +4,16 @@ Implements ``BackendProtocol``, ``SandboxBackend``, and
 ``FileTransferBackend`` using the Daytona SDK for ``execute()`` and
 shell commands for file operations (read, write, edit, glob, grep).
 
-Requires ``pip install daytona-sdk`` (or ``pip install daytona``).
+Requires ``pip install langchain-agentkit[daytona]`` (or
+``pip install daytona-sdk`` directly). Importing this module fails with
+a clear ``ImportError`` if the SDK isn't installed — DaytonaBackend
+isn't re-exported from the generic ``langchain_agentkit.backends``
+namespace, so SDK-less users running OSBackend are unaffected.
 
 Usage::
 
     from daytona_sdk import Daytona, DaytonaConfig
-    from langchain_agentkit.backends import DaytonaBackend
+    from langchain_agentkit.backends.daytona import DaytonaBackend
 
     config = DaytonaConfig(api_key="...", api_url="http://localhost:3000")
     sandbox = Daytona(config).create()
@@ -25,7 +29,9 @@ from __future__ import annotations
 import base64
 import json
 import posixpath
-from typing import Any
+from typing import TYPE_CHECKING
+
+from daytona_sdk import FileDownloadRequest, FileUpload
 
 from langchain_agentkit.backends.protocol import (
     ExecuteResponse,
@@ -41,6 +47,9 @@ from langchain_agentkit.backends.results import (
     SandboxEnvironment,
     WriteResult,
 )
+
+if TYPE_CHECKING:
+    from daytona_sdk import Sandbox
 
 
 def _shell_quote(s: str) -> str:
@@ -117,7 +126,7 @@ class DaytonaBackend:
 
     def __init__(
         self,
-        sandbox: Any,
+        sandbox: Sandbox,
         timeout: int = 300,
     ) -> None:
         self._sandbox = sandbox
@@ -126,7 +135,7 @@ class DaytonaBackend:
         self._env_cache: SandboxEnvironment | None = None
 
     @property
-    def sandbox(self) -> Any:
+    def sandbox(self) -> Sandbox:
         """The underlying Daytona Sandbox instance."""
         return self._sandbox
 
@@ -434,8 +443,6 @@ class DaytonaBackend:
     async def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResult]:
         if not files:
             return []
-        from daytona_sdk import FileUpload
-
         upfront_errors: list[FileUploadResult] = []
         valid: list[tuple[str, bytes, FileUpload]] = []
         for path, content in files:
@@ -470,8 +477,6 @@ class DaytonaBackend:
     async def download_files(self, paths: list[str]) -> list[FileDownloadResult]:
         if not paths:
             return []
-        from daytona_sdk import FileDownloadRequest
-
         upfront_errors: list[FileDownloadResult] = []
         real_to_virtual: dict[str, str] = {}
         requests: list[FileDownloadRequest] = []

@@ -23,9 +23,9 @@ import pytest
 from langchain_agentkit.backends import (
     BackendProtocol,
     FileTransferBackend,
-    OSBackend,
     SandboxBackend,
 )
+from langchain_agentkit.backends.os import OSBackend
 
 # ---------------------------------------------------------------------------
 # .env loading (for DAYTONA_API_URL / DAYTONA_API_KEY)

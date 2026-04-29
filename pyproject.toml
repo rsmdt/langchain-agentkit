@@ -21,11 +21,15 @@ dev = [
     "mypy>=1.10",
     "ruff>=0.8",
     "types-PyYAML>=6.0",
+    "daytona-sdk>=0.158",
 ]
 eval = [
     "agentevals>=0.0.9",
     "openevals>=0.1",
     "langchain-openai>=0.3",
+]
+daytona = [
+    "daytona-sdk>=0.158",
 ]
 
 [project.urls]

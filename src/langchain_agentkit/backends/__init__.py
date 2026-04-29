@@ -1,23 +1,21 @@
 """Backend implementations for agent environments.
 
-Two backends are provided:
-
-- ``OSBackend`` — native local filesystem via Python stdlib.
-- ``DaytonaBackend`` — Daytona cloud sandbox via shell commands.
-
-Both implement all three capability protocols: ``BackendProtocol``,
-``SandboxBackend``, and ``FileTransferBackend``.
+This namespace exposes the **capability protocols and shared types**
+only. Concrete backends live in their own submodules and are imported
+explicitly — this keeps optional-dependency gates honest (DaytonaBackend
+needs ``daytona-sdk``, future remote backends will need their own SDKs)
+and surfaces the dependency at the import line.
 
 Usage::
 
-    from langchain_agentkit.backends import (
-        BackendProtocol, SandboxBackend, FileTransferBackend,
-        OSBackend, DaytonaBackend,
-    )
+    # Capability protocols and shared types (always available)
+    from langchain_agentkit.backends import BackendProtocol, SandboxBackend
+
+    # Concrete backends — explicit import per-backend
+    from langchain_agentkit.backends.os import OSBackend
+    from langchain_agentkit.backends.daytona import DaytonaBackend
 """
 
-from langchain_agentkit.backends.daytona import DaytonaBackend
-from langchain_agentkit.backends.os import OSBackend
 from langchain_agentkit.backends.protocol import (
     BackendProtocol,
     ExecuteResponse,
@@ -42,7 +40,6 @@ from langchain_agentkit.backends.results import (
 __all__ = [
     "PROBED_TOOLS",
     "BackendProtocol",
-    "DaytonaBackend",
     "EditError",
     "EditResult",
     "ExecuteResponse",
@@ -52,7 +49,6 @@ __all__ = [
     "FileTransferBackend",
     "FileUploadResult",
     "GrepMatch",
-    "OSBackend",
     "ReadBytesResult",
     "ReadResult",
     "SandboxBackend",

@@ -36,12 +36,11 @@
 from langchain_agentkit.agent import Agent, agent
 from langchain_agentkit.agent_kit import AgentKit, run_extension_setup
 
-# Backends
-from langchain_agentkit.backends import (
-    BackendProtocol,
-    DaytonaBackend,
-    OSBackend,
-)
+# Backends — concrete backends are NOT re-exported here. Import each
+# explicitly from its own submodule (langchain_agentkit.backends.os,
+# langchain_agentkit.backends.daytona, …) so optional-dependency gates
+# surface at the import line.
+from langchain_agentkit.backends import BackendProtocol
 from langchain_agentkit.composability import AgentLike, CompiledAgent, TeamAgent, wrap_if_needed
 from langchain_agentkit.extension import Extension
 
@@ -126,10 +125,8 @@ __all__ = [
     "after",
     "before",
     "wrap",
-    # Backends
+    # Backends (capability protocol only; concrete backends live in submodules)
     "BackendProtocol",
-    "DaytonaBackend",
-    "OSBackend",
     # Permissions
     "DEFAULT_RULESET",
     "PERMISSIVE_RULESET",

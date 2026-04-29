@@ -32,7 +32,7 @@ from langgraph.types import Command
 
 from langchain_agentkit import AgentKit, FilesystemExtension, HITLExtension
 from langchain_agentkit.agent import agent
-from langchain_agentkit.backends import OSBackend
+from langchain_agentkit.backends.os import OSBackend
 from langchain_agentkit.extensions.hitl import InterruptConfig
 from tests.evals.datasets import (
     HITL_ASK_USER_DATASET,
