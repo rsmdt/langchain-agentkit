@@ -55,7 +55,7 @@ async def seed_sandbox(backend: DaytonaBackend) -> None:
             for f in sorted(src.rglob("*"))
             if f.is_file()
         ]
-        for r in await backend.upload_files(files):
+        for r in await backend.upload(files):
             if r.error is not None:
                 print(f"  FAILED {r.path}: {r.error_message}")
             else:

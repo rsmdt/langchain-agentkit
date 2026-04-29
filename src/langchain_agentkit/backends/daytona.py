@@ -437,10 +437,10 @@ class DaytonaBackend:
     #
     # True bulk transfer via the Daytona SDK's native multipart endpoints.
     # ``sandbox.fs.upload_files`` posts one multipart HTTP request for N
-    # files; ``download_files`` returns one multipart response. No
+    # files; ``download`` returns one multipart response. No
     # ARG_MAX ceiling, no per-file round trip.
 
-    async def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResult]:
+    async def upload(self, files: list[tuple[str, bytes]]) -> list[FileUploadResult]:
         if not files:
             return []
         upfront_errors: list[FileUploadResult] = []
@@ -474,7 +474,7 @@ class DaytonaBackend:
             FileUploadResult(path=path, bytes_written=len(content)) for path, content, _ in valid
         ]
 
-    async def download_files(self, paths: list[str]) -> list[FileDownloadResult]:
+    async def download(self, paths: list[str]) -> list[FileDownloadResult]:
         if not paths:
             return []
         upfront_errors: list[FileDownloadResult] = []

@@ -8,8 +8,8 @@ All methods are async. Three structural ``Protocol`` tiers:
 - :class:`BackendProtocol` — file operations. Required for every backend.
 - :class:`SandboxBackend` — adds shell ``execute``. Backends that
   satisfy this signal that the bash tool may be registered.
-- :class:`FileTransferBackend` — adds bulk binary ``upload_files`` and
-  ``download_files``. Used by host-side seeding/extraction; **not**
+- :class:`FileTransferBackend` — adds bulk binary ``upload`` and
+  ``download``. Used by host-side seeding/extraction; **not**
   exposed as an LLM tool.
 
 Capability gating is structural: ``isinstance(backend, SandboxBackend)``
@@ -152,6 +152,6 @@ class FileTransferBackend(BackendProtocol, Protocol):
     this capability and replaces ad-hoc per-file write loops.
     """
 
-    async def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResult]: ...
+    async def upload(self, files: list[tuple[str, bytes]]) -> list[FileUploadResult]: ...
 
-    async def download_files(self, paths: list[str]) -> list[FileDownloadResult]: ...
+    async def download(self, paths: list[str]) -> list[FileDownloadResult]: ...

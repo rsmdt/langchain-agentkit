@@ -333,7 +333,7 @@ class OSBackend:
 
     # --- FileTransferBackend ---
 
-    async def upload_files(self, files: list[tuple[str, bytes]]) -> list[FileUploadResult]:
+    async def upload(self, files: list[tuple[str, bytes]]) -> list[FileUploadResult]:
         results: list[FileUploadResult] = []
         for path, content in files:
             wr = await self.write(path, content)
@@ -345,7 +345,7 @@ class OSBackend:
                 results.append(FileUploadResult(path=path, bytes_written=wr.bytes_written))
         return results
 
-    async def download_files(self, paths: list[str]) -> list[FileDownloadResult]:
+    async def download(self, paths: list[str]) -> list[FileDownloadResult]:
         results: list[FileDownloadResult] = []
         for path in paths:
             rb = await self.read_bytes(path)

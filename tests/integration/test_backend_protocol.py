@@ -351,30 +351,30 @@ class TestEnvironment:
 
 
 # ---------------------------------------------------------------------------
-# upload_files / download_files (FileTransferBackend)
+# upload / download (FileTransferBackend)
 # ---------------------------------------------------------------------------
 
 
 class TestFileTransfer:
-    async def test_upload_files_roundtrip(self, backend):
+    async def test_upload_roundtrip(self, backend):
         files = [
             ("/seed/a.txt", b"alpha"),
             ("/seed/b.bin", b"\x00\x01\x02\x03"),
         ]
-        results = await backend.upload_files(files)
+        results = await backend.upload(files)
         assert len(results) == 2
         assert all(r.error is None for r in results)
         assert {r.path for r in results} == {"/seed/a.txt", "/seed/b.bin"}
 
-        downloads = await backend.download_files(["/seed/a.txt", "/seed/b.bin"])
+        downloads = await backend.download(["/seed/a.txt", "/seed/b.bin"])
         assert all(d.error is None for d in downloads)
         contents = {d.path: d.content for d in downloads}
         assert contents["/seed/a.txt"] == b"alpha"
         assert contents["/seed/b.bin"] == b"\x00\x01\x02\x03"
 
     async def test_download_partial_failure(self, backend):
-        await backend.upload_files([("/exists.txt", b"hi")])
-        results = await backend.download_files(["/exists.txt", "/missing.txt"])
+        await backend.upload([("/exists.txt", b"hi")])
+        results = await backend.download(["/exists.txt", "/missing.txt"])
         assert len(results) == 2
         ok = next(r for r in results if r.path == "/exists.txt")
         missing = next(r for r in results if r.path == "/missing.txt")
