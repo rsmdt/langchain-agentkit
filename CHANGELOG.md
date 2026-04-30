@@ -9,6 +9,17 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.27.0] — 2026-04-30
+
+### Changed
+- **BREAKING**: Renamed `FileTransferBackend.upload_files`/`download_files` to `upload`/`download` for consistency with the rest of the backend protocol surface (`read`, `write`, `edit`, `glob`, `grep`, `execute`). The plural argument types already convey bulk semantics.
+- `DaytonaBackend` now accepts an explicit `workdir` constructor parameter (default `"/home/daytona"`) instead of probing the sandbox at construction time, removing an SDK round-trip and making the workdir injectable for tests and custom snapshots.
+
+### Fixed
+- `DaytonaBackend` path resolution no longer double-prefixes workdir-rooted absolute paths (e.g. `/home/daytona/foo` is preserved instead of becoming `/home/daytona/home/daytona/foo`), aligning with the absolute-path guidance surfaced to the LLM via `<env>`. Workdir-relative shorthand and traversal blocking are unchanged.
+- `DaytonaBackend.execute()` strips bash `setlocale` startup warnings emitted by minimal Linux snapshots before in-shell `export` takes effect, preventing corruption of `read`/`read_bytes` output and the environment probe.
+- The environment probe script now exits cleanly when the final probed tool is absent, so `environment()` correctly reports detected tools instead of falling back to `"unknown"`.
+
 ## [0.26.0] — 2026-04-29
 
 ### Added
