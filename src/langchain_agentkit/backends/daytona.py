@@ -29,6 +29,7 @@ from __future__ import annotations
 import base64
 import json
 import posixpath
+import re
 from typing import TYPE_CHECKING
 
 from daytona_sdk import FileDownloadRequest, FileUpload
@@ -57,6 +58,18 @@ def _shell_quote(s: str) -> str:
     return "'" + s.replace("'", "'\"'\"'") + "'"
 
 
+# Strip bash's ``setlocale: LC_ALL: cannot change locale`` startup warnings
+# from stdout. Daytona's ``process.exec`` invokes ``bash`` to run commands,
+# and on minimal Linux snapshots bash emits this warning to stdout (not
+# stderr) at startup *before* any in-shell ``export`` can adjust the locale.
+# Left unstripped it corrupts ``read``/``read_bytes`` content and the
+# environment probe (whose first line is then the warning, not ``uname -srm``).
+_BASH_STARTUP_WARNING_RE = re.compile(
+    r"^[^:\n]*: warning: setlocale:[^\n]*\n",
+    re.MULTILINE,
+)
+
+
 # Single-shot environment probe. Output layout (line-oriented):
 #   line 1:  uname -srm output (e.g. "Linux 5.15.0-91-generic x86_64")
 #   line 2:  $SHELL value (or "/bin/sh" if unset)
@@ -73,7 +86,11 @@ _ENV_PROBE_SCRIPT = (
     f"echo {_ENV_PROBE_SEPARATOR}\n"
     "for t in " + " ".join(PROBED_TOOLS) + "; do "
     'command -v "$t" >/dev/null 2>&1 && echo "$t"; '
-    "done"
+    "done\n"
+    # Ensure the script always exits 0 so ``environment()`` parses the
+    # well-formed output. Without this, the exit code is whatever the last
+    # ``command -v`` returned — non-zero if the final probed tool is absent.
+    "exit 0"
 )
 
 
@@ -122,16 +139,23 @@ class DaytonaBackend:
     Args:
         sandbox: A Daytona ``Sandbox`` instance (already created).
         timeout: Default command timeout in seconds.
+        workdir: Absolute path used as the virtual root for all path
+            resolution. Defaults to ``/home/daytona`` — Daytona's
+            documented default for snapshots that don't declare their
+            own ``WORKDIR`` (https://www.daytona.io/docs/en/file-system-operations/).
+            Pass an explicit value when using a custom snapshot whose
+            image declares a different ``WORKDIR``.
     """
 
     def __init__(
         self,
         sandbox: Sandbox,
         timeout: int = 300,
+        workdir: str = "/home/daytona",
     ) -> None:
         self._sandbox = sandbox
         self._timeout = timeout
-        self._workdir: str = str(sandbox.get_work_dir()).rstrip("/")
+        self._workdir: str = workdir.rstrip("/")
         self._env_cache: SandboxEnvironment | None = None
 
     @property
@@ -149,14 +173,40 @@ class DaytonaBackend:
     def _resolve(self, path: str) -> str:
         """Resolve a virtual path to an absolute sandbox path.
 
-        Raises ``PermissionError`` for paths that escape the workdir.
-        Backend methods catch this and convert to ``permission_denied``.
+        Mirrors ``OSBackend._resolve`` semantics so the two backends are
+        behaviorally interchangeable for callers (including the LLM,
+        whose tool descriptions instruct it to pass *absolute* paths):
+
+        - True absolute paths under the workdir (e.g. ``/home/daytona/foo``)
+          are normalized and passed through unchanged.
+        - Workdir-relative absolute paths (e.g. ``/foo``) and plain
+          relative paths (``foo``) are resolved under the workdir.
+        - Paths that resolve outside the workdir raise ``PermissionError``;
+          backend methods catch this and convert to ``permission_denied``.
+
+        Without this pass-through, an LLM that follows the tool prompts
+        (which surface the workdir via ``<env>`` and tell it to use
+        absolute paths) ends up writing to ``/home/daytona/home/daytona/foo``
+        because the leading ``/`` is stripped and the workdir reprefixed.
         """
-        cleaned = path.lstrip("/")
-        if not cleaned:
+        if not path or path == "/":
             return self._workdir
-        candidate = posixpath.normpath(f"{self._workdir}/{cleaned}")
+
         root_prefix = self._workdir.rstrip("/") + "/"
+
+        if path.startswith("/"):
+            normalized = posixpath.normpath(path)
+            # Already an absolute path under workdir → pass through.
+            if normalized == self._workdir or normalized.startswith(root_prefix):
+                return normalized
+            # Absolute path NOT under workdir: fall through and treat the
+            # leading slash as workdir-rooted. This preserves the legacy
+            # ``/foo`` → ``<workdir>/foo`` shorthand without granting
+            # arbitrary filesystem access — the traversal check below
+            # rejects anything that resolves outside the workdir.
+
+        cleaned = path.lstrip("/")
+        candidate = posixpath.normpath(f"{self._workdir}/{cleaned}")
         if candidate != self._workdir and not candidate.startswith(root_prefix):
             raise PermissionError(f"Path traversal blocked: {path}")
         return candidate
@@ -186,8 +236,9 @@ class DaytonaBackend:
                 f"Daytona sandbox execution failed for command: {command!r}"
             ) from exc
         stderr = getattr(result, "stderr", None) or ""
+        output = _BASH_STARTUP_WARNING_RE.sub("", result.result or "")
         return ExecuteResponse(
-            output=result.result or "",
+            output=output,
             exit_code=result.exit_code,
             truncated=False,
             stderr=stderr,
