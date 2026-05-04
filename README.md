@@ -1,10 +1,40 @@
+<p align="center">
+  <img src="agentkit.png" alt="langchain-agentkit — composable extension framework for LangGraph agents" width="640">
+</p>
+
 # langchain-agentkit
 
 Composable extension framework for LangGraph agents.
 
 [![PyPI](https://img.shields.io/pypi/v/langchain-agentkit)](https://pypi.org/project/langchain-agentkit/)
 [![Python 3.11+](https://img.shields.io/pypi/pyversions/langchain-agentkit)](https://pypi.org/project/langchain-agentkit/)
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![CI](https://github.com/rsmdt/langchain-agentkit/actions/workflows/ci.yml/badge.svg)](https://github.com/rsmdt/langchain-agentkit/actions/workflows/ci.yml)
+[![Downloads](https://img.shields.io/pypi/dm/langchain-agentkit)](https://pypi.org/project/langchain-agentkit/)
+[![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+## Table of Contents
+
+- [Installation](#installation)
+- [Quick Start](#quick-start)
+  - [The `Agent` class](#the-agent-class)
+  - [Dynamic properties](#dynamic-properties)
+  - [`AgentKit` for managed or manual graph wiring](#agentkit-for-managed-or-manual-graph-wiring)
+- [Extensions](#extensions)
+  - [Recommended ordering](#recommended-ordering)
+  - [SkillsExtension](#skillsextension)
+  - [AgentsExtension](#agentsextension)
+  - [TasksExtension](#tasksextension)
+  - [FilesystemExtension](#filesystemextension)
+  - [WebSearchExtension](#websearchextension)
+  - [HistoryExtension](#historyextension)
+  - [HITLExtension](#hitlextension)
+  - [TeamExtension](#teamextension)
+- [Custom Extensions](#custom-extensions)
+  - [Lifecycle hooks](#lifecycle-hooks)
+  - [Sibling-aware configuration via `setup()`](#sibling-aware-configuration-via-setup)
+  - [Declaring dependencies](#declaring-dependencies)
+- [Contributing](#contributing)
 
 ## Installation
 
