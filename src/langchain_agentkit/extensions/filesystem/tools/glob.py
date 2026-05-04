@@ -12,7 +12,7 @@ from langchain_agentkit.extensions.filesystem.tools.common import (
     _GlobInput,
 )
 
-_GLOB_DESCRIPTION = """- Fast file pattern matching tool that works with any codebase size
+_GLOB_DESCRIPTION = """- Fast file pattern matching tool that works with directory trees of any size
 - Supports glob patterns like "**/*.js" or "src/**/*.ts"
 - Returns matching file paths sorted by modification time
 - Use this tool when you need to find files by name patterns

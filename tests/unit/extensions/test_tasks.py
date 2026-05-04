@@ -246,14 +246,15 @@ class TestConditionalTeamTips:
         assert "Team tips" not in tool_descriptions[0]
 
     async def test_team_active_adds_tips(self):
-        from langchain_agentkit import AgentKit, TeamExtension, agent
+        from langchain_agentkit import Agent, AgentKit, TeamExtension
 
-        class teammate(agent):
+        class Teammate(Agent):
             model = MagicMock()
 
-            async def handler(state, *, llm):
+            async def handler(state, *, llm):  # noqa: N805
                 return {"messages": [], "sender": "teammate"}
 
+        teammate = await Teammate().compile()
         kit = AgentKit(extensions=[TasksExtension(), TeamExtension(agents=[teammate])])
         await run_extension_setup(kit)
         tasks_ext = next(e for e in kit._extensions if isinstance(e, TasksExtension))
@@ -263,14 +264,15 @@ class TestConditionalTeamTips:
         assert "Team tips" in tool_descriptions[0]
 
     async def test_team_active_adds_teammate_context_inline(self):
-        from langchain_agentkit import AgentKit, TeamExtension, agent
+        from langchain_agentkit import Agent, AgentKit, TeamExtension
 
-        class teammate(agent):
+        class Teammate(Agent):
             model = MagicMock()
 
-            async def handler(state, *, llm):
+            async def handler(state, *, llm):  # noqa: N805
                 return {"messages": [], "sender": "teammate"}
 
+        teammate = await Teammate().compile()
         kit = AgentKit(extensions=[TasksExtension(), TeamExtension(agents=[teammate])])
         await run_extension_setup(kit)
         tasks_ext = next(e for e in kit._extensions if isinstance(e, TasksExtension))

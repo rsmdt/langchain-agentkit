@@ -153,7 +153,7 @@ class HITLExtension(Extension):
             async def handler(state, *, llm, tools, prompt, runtime):
                 ...
 
-        graph = MyAgent().compile().compile(checkpointer=InMemorySaver())
+        graph = await MyAgent().compile(checkpointer=InMemorySaver())
     """
 
     def __init__(

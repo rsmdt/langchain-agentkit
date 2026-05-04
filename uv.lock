@@ -15,6 +15,18 @@ wheels = [
 ]
 
 [[package]]
+name = "agentfs-sdk"
+version = "0.6.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "pyturso" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/50/b4/37255e6e1b77d69b855d0a8874848a1c9cd33b26ef778e541628fc62b233/agentfs_sdk-0.6.4.tar.gz", hash = "sha256:fa70b15a8a3576783e2657a8ff56986e8baa3bb5cd1280ca4a3d652324df207d", size = 27668, upload-time = "2026-03-25T08:03:52.54Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/26/bf/fcd634e2fc3910fc428f00277b5215e6f558554d800fa5456c92b1df9d03/agentfs_sdk-0.6.4-py3-none-any.whl", hash = "sha256:7db2ee9dbb68b027ca5a1d9ed8ddea55811036cc3520b13d64bb9dc10e366f67", size = 19143, upload-time = "2026-03-25T08:03:51.583Z" },
+]
+
+[[package]]
 name = "aiofiles"
 version = "24.1.0"
 source = { registry = "https://pypi.org/simple" }
@@ -717,10 +729,14 @@ dependencies = [
 ]
 
 [package.optional-dependencies]
+agentfs = [
+    { name = "agentfs-sdk" },
+]
 daytona = [
     { name = "daytona-sdk" },
 ]
 dev = [
+    { name = "agentfs-sdk" },
     { name = "daytona-sdk" },
     { name = "langchain-openai" },
     { name = "mypy" },
@@ -740,6 +756,8 @@ eval = [
 [package.metadata]
 requires-dist = [
     { name = "agentevals", marker = "extra == 'eval'", specifier = ">=0.0.9" },
+    { name = "agentfs-sdk", marker = "extra == 'agentfs'", specifier = ">=0.6,<0.7" },
+    { name = "agentfs-sdk", marker = "extra == 'dev'", specifier = ">=0.6,<0.7" },
     { name = "daytona-sdk", marker = "extra == 'daytona'", specifier = ">=0.158" },
     { name = "daytona-sdk", marker = "extra == 'dev'", specifier = ">=0.158" },
     { name = "langchain-core", specifier = ">=0.3" },
@@ -756,7 +774,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
 ]
-provides-extras = ["dev", "eval", "daytona"]
+provides-extras = ["dev", "eval", "daytona", "agentfs"]
 
 [[package]]
 name = "langchain-core"
@@ -1814,6 +1832,26 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/69/9b/f23807317a113dc36e74e75eb265a02dd1a4d9082abc3c1064acd22997c4/python_multipart-0.0.27.tar.gz", hash = "sha256:9870a6a8c5a20a5bf4f07c017bd1489006ff8836cff097b6933355ee2b49b602", size = 44043, upload-time = "2026-04-27T10:51:26.649Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/99/78/4126abcbdbd3c559d43e0db7f7b9173fc6befe45d39a2856cc0b8ec2a5a6/python_multipart-0.0.27-py3-none-any.whl", hash = "sha256:6fccfad17a27334bd0193681b369f476eda3409f17381a2d65aa7df3f7275645", size = 29254, upload-time = "2026-04-27T10:51:24.997Z" },
+]
+
+[[package]]
+name = "pyturso"
+version = "0.4.4"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "typing-extensions" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/26/11/eb759eaa18a7b19e6a7321c3fff7facc4fdaccda52088cfe957c8ff81cd1/pyturso-0.4.4.tar.gz", hash = "sha256:591ecfa37840801715d4faabae3a082b4774b7a7efe7860a32db92de2a5a8878", size = 1451696, upload-time = "2026-01-30T10:40:48.235Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/e5/48/ba10905f9ff1c1b422ab8aa3a8660ffdde17e7d1ea3098d7069fd2851ca9/pyturso-0.4.4-cp311-cp311-macosx_11_0_arm64.whl", hash = "sha256:2ab95383dea66684536d23f25c132aabd65bbfc38edac40b03e9ea6327579db7", size = 3987523, upload-time = "2026-01-30T10:40:15.62Z" },
+    { url = "https://files.pythonhosted.org/packages/eb/b6/212a0b83289b7a4d195a3809322ce6328547fc6d821d648ed24a2a45303b/pyturso-0.4.4-cp311-cp311-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:1f18b8e4666e81cf0711c00a331c696928e532704ecd837bc01376cd94f34df0", size = 13326608, upload-time = "2026-01-30T10:40:19.481Z" },
+    { url = "https://files.pythonhosted.org/packages/23/c3/a444a1b9ff02b7314f7c2f3a5ca7992e6e93c63258721c17b99c763c4b86/pyturso-0.4.4-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:02b10dd0b018d7ba9ae3c6295774a423949193a1c16dc500472ab016665fdf54", size = 3985600, upload-time = "2026-01-30T10:40:22.775Z" },
+    { url = "https://files.pythonhosted.org/packages/fe/b9/8530ada45e3cc1b32ade08ecc18ed4ffb3598c82079c56a5d7b1bb2c967e/pyturso-0.4.4-cp312-cp312-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:a7cc9aec8ddb41882f17afaf65c17f3324f89f05e3d61e12b3a66bef35c4a9d1", size = 13331678, upload-time = "2026-01-30T10:40:25.381Z" },
+    { url = "https://files.pythonhosted.org/packages/12/2e/06e10efa9fc46fa8c867f0dc0c25b4164642a72dc184465522153b067592/pyturso-0.4.4-cp313-cp313-macosx_11_0_arm64.whl", hash = "sha256:ab1793fbbd95b29ccecb680d122bc4726b674c8ec8232d4183eeb662a388e49c", size = 3985399, upload-time = "2026-01-30T10:40:28.785Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/7c/17fb05bbef22f558cf7350177312abde2b8c84bd631a88bb4e92b2eac3dc/pyturso-0.4.4-cp313-cp313-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:aa9763528f126c85aabc41eab89bb06ea46f570bf9a377dd842a8d85ee46e4b2", size = 13330169, upload-time = "2026-01-30T10:40:32.076Z" },
+    { url = "https://files.pythonhosted.org/packages/cf/09/00226f913e9627af87a429da27947147971120957c8469971e06d950aa41/pyturso-0.4.4-cp314-cp314-macosx_11_0_arm64.whl", hash = "sha256:59166bda2bb0e584aa3d03e44a52fddbe0bafb48713daf5ad6b00ad04c2778c9", size = 3985743, upload-time = "2026-01-30T10:40:35.516Z" },
+    { url = "https://files.pythonhosted.org/packages/73/17/24596a78031f1a4f0dd1dd8de8d46263eeaf89c66091ec7b3de47b428ed4/pyturso-0.4.4-cp314-cp314-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:1ab4cdd3faf8e0daa53554cfb1c25ccb59b15688f0097871457df8ecd0fa5cb9", size = 13323704, upload-time = "2026-01-30T10:40:38.712Z" },
+    { url = "https://files.pythonhosted.org/packages/57/b3/fd0d583f7990dbfa4a6ef1bdbb5e52f286e4dc69daf6e37a9ec9f19d8d04/pyturso-0.4.4-pp311-pypy311_pp73-manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:ea4ca6c12fa6478e0b0de11a30e38b35f6faed4269dc8e37d77cb4d8629ef5e8", size = 13323257, upload-time = "2026-01-30T10:40:45.547Z" },
 ]
 
 [[package]]

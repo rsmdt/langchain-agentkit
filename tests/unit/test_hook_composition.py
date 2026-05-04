@@ -295,11 +295,11 @@ class TestHookRunnerStateUpdates:
 class TestRunLifecycleHooksWired:
     """before_run/after_run hooks are wired into the graph via _run_entry/_run_exit nodes."""
 
-    def test_graph_has_run_entry_exit_when_hooks_present(self):
+    async def test_graph_has_run_entry_exit_when_hooks_present(self):
         """When extensions define before_run/after_run, the graph has lifecycle nodes."""
         from unittest.mock import MagicMock
 
-        from langchain_agentkit import agent
+        from langchain_agentkit import Agent
 
         log = []
 
@@ -315,34 +315,35 @@ class TestRunLifecycleHooksWired:
         mock_llm = MagicMock()
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
 
-        class my_agent(agent):
+        class MyAgent(Agent):
             model = mock_llm
             extensions = [LifecycleExtension()]
 
-            async def handler(state, *, llm, prompt):
+            async def handler(state, *, llm, prompt):  # noqa: N805
                 pass
 
-        # my_agent is a StateGraph — check it has the lifecycle nodes
-        assert "_run_entry" in my_agent.nodes
-        assert "_run_exit" in my_agent.nodes
+        state_graph = await MyAgent().graph()
+        assert "_run_entry" in state_graph.nodes
+        assert "_run_exit" in state_graph.nodes
 
-    def test_graph_no_lifecycle_nodes_without_hooks(self):
+    async def test_graph_no_lifecycle_nodes_without_hooks(self):
         """Without run lifecycle hooks, no extra nodes are added."""
         from unittest.mock import MagicMock
 
-        from langchain_agentkit import agent
+        from langchain_agentkit import Agent
 
         mock_llm = MagicMock()
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
 
-        class my_agent(agent):
+        class MyAgent(Agent):
             model = mock_llm
 
-            async def handler(state, *, llm, prompt):
+            async def handler(state, *, llm, prompt):  # noqa: N805
                 pass
 
-        assert "_run_entry" not in my_agent.nodes
-        assert "_run_exit" not in my_agent.nodes
+        state_graph = await MyAgent().graph()
+        assert "_run_entry" not in state_graph.nodes
+        assert "_run_exit" not in state_graph.nodes
 
 
 class TestBeforeAfterToolFiltering:
@@ -490,14 +491,13 @@ class TestBeforeModelPersistence:
     wins on collisions.
     """
 
-    @pytest.mark.asyncio
     async def test_before_model_messages_persist_to_state(self):
         """before_model returning {'messages': [...]} lands in state."""
         from unittest.mock import MagicMock
 
         from langchain_core.messages import AIMessage, HumanMessage
 
-        from langchain_agentkit import agent
+        from langchain_agentkit import Agent
 
         injected = HumanMessage(content="injected by before_model")
 
@@ -508,14 +508,14 @@ class TestBeforeModelPersistence:
         mock_llm = MagicMock()
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
 
-        class my_agent(agent):
+        class MyAgent(Agent):
             model = mock_llm
             extensions = [InjectExtension()]
 
-            async def handler(state, *, llm, prompt):
+            async def handler(state, *, llm, prompt):  # noqa: N805
                 return {"messages": [AIMessage(content="handler response")]}
 
-        compiled = my_agent.compile()
+        compiled = await MyAgent().compile()
         result = await compiled.ainvoke({"messages": [HumanMessage(content="hello")]})
 
         contents = [m.content for m in result["messages"]]
@@ -528,14 +528,13 @@ class TestBeforeModelPersistence:
         handler_idx = contents.index("handler response")
         assert user_idx < inject_idx < handler_idx
 
-    @pytest.mark.asyncio
     async def test_before_model_non_message_keys_yield_to_handler(self):
         """Non-message keys from before_model are overridden by handler return."""
         from unittest.mock import MagicMock
 
         from langchain_core.messages import AIMessage, HumanMessage
 
-        from langchain_agentkit import agent
+        from langchain_agentkit import Agent
 
         class BeforeExtension(Extension):
             async def before_model(self, *, state, runtime):
@@ -544,30 +543,29 @@ class TestBeforeModelPersistence:
         mock_llm = MagicMock()
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
 
-        class my_agent(agent):
+        class MyAgent(Agent):
             model = mock_llm
             extensions = [BeforeExtension()]
 
-            async def handler(state, *, llm, prompt):
+            async def handler(state, *, llm, prompt):  # noqa: N805
                 return {
                     "messages": [AIMessage(content="ok")],
                     "sender": "handler",
                 }
 
-        compiled = my_agent.compile()
+        compiled = await MyAgent().compile()
         result = await compiled.ainvoke({"messages": [HumanMessage(content="hi")]})
 
         # Handler's sender wins — before_model only fills unset keys.
         assert result["sender"] == "handler"
 
-    @pytest.mark.asyncio
     async def test_before_model_unset_keys_land_in_state(self):
         """before_model keys that the handler doesn't return DO persist."""
         from unittest.mock import MagicMock
 
         from langchain_core.messages import AIMessage, HumanMessage
 
-        from langchain_agentkit import agent
+        from langchain_agentkit import Agent
 
         class BeforeExtension(Extension):
             async def before_model(self, *, state, runtime):
@@ -576,26 +574,25 @@ class TestBeforeModelPersistence:
         mock_llm = MagicMock()
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
 
-        class my_agent(agent):
+        class MyAgent(Agent):
             model = mock_llm
             extensions = [BeforeExtension()]
 
-            async def handler(state, *, llm, prompt):
+            async def handler(state, *, llm, prompt):  # noqa: N805
                 return {"messages": [AIMessage(content="ok")]}
 
-        compiled = my_agent.compile()
+        compiled = await MyAgent().compile()
         result = await compiled.ainvoke({"messages": [HumanMessage(content="hi")]})
 
         assert result["sender"] == "before_model_only"
 
-    @pytest.mark.asyncio
     async def test_before_model_jump_to_still_short_circuits(self):
         """jump_to path is unchanged — still returns early from the node."""
         from unittest.mock import MagicMock
 
         from langchain_core.messages import HumanMessage
 
-        from langchain_agentkit import agent
+        from langchain_agentkit import Agent
 
         handler_called = []
 
@@ -606,15 +603,15 @@ class TestBeforeModelPersistence:
         mock_llm = MagicMock()
         mock_llm.bind_tools = MagicMock(return_value=mock_llm)
 
-        class my_agent(agent):
+        class MyAgent(Agent):
             model = mock_llm
             extensions = [JumpExtension()]
 
-            async def handler(state, *, llm, prompt):
+            async def handler(state, *, llm, prompt):  # noqa: N805
                 handler_called.append(True)
                 return {}
 
-        compiled = my_agent.compile()
+        compiled = await MyAgent().compile()
         await compiled.ainvoke({"messages": [HumanMessage(content="hi")]})
 
         # Jump to end bypasses the handler completely.

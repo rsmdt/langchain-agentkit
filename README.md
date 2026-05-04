@@ -262,7 +262,7 @@ ext = SkillsExtension(skills=[
 # Directory discovery — scan a directory for SKILL.md files
 ext = SkillsExtension(skills="skills/")
 
-# With a custom backend (e.g. Daytona sandbox)
+# With a custom backend (e.g. Daytona sandbox or AgentFS database)
 ext = SkillsExtension(skills="/skills", backend=my_backend)
 ```
 
@@ -402,6 +402,30 @@ ext = FilesystemExtension(root="./workspace")
 | `Glob(pattern)` | Find files by pattern (supports `*`, `**`, `?`) |
 | `Grep(pattern)` | Search file contents by regex |
 | `Bash(command)` | Execute shell commands (when backend supports `execute()`) |
+
+**Alternative backends:**
+
+`FilesystemExtension` accepts any object satisfying `BackendProtocol`. The framework ships two optional remote/persistent backends; install the one you need.
+
+| Backend | Install | Tier | Use when |
+|---------|---------|------|----------|
+| `OSBackend` | built-in | `BackendProtocol` + `SandboxBackend` + `FileTransferBackend` | Local agent reads/writes/runs against the host filesystem. |
+| `DaytonaBackend` | `pip install langchain-agentkit[daytona]` | all three tiers | Agent works in an isolated cloud sandbox with shell access. See `examples/daytona/`. |
+| `AgentFSBackend` | `pip install langchain-agentkit[agentfs]` | `BackendProtocol` only | Agent state persists in a local SQLite-backed virtual filesystem (one `.db` file). No bash tool — AgentFS has no native exec surface. See `examples/agentfs/`. |
+
+```python
+# Daytona (cloud sandbox; full capability)
+from langchain_agentkit.backends.daytona import DaytonaBackend
+ext = FilesystemExtension(backend=DaytonaBackend(sandbox))
+
+# AgentFS (local SQLite-backed virtual FS; file ops only)
+from agentfs_sdk import AgentFS, AgentFSOptions
+from langchain_agentkit.backends.agentfs import AgentFSBackend
+agent = await AgentFS.open(AgentFSOptions(path="./agent-state.db"))
+ext = FilesystemExtension(backend=AgentFSBackend(agent))
+```
+
+Capability gating is structural: `Bash` is registered only when the backend implements `SandboxBackend`. Pairing `AgentFSBackend` with another `SandboxBackend`-capable backend in your agent is the right composition pattern when you need both persistent file state and shell exec.
 
 ### WebSearchExtension
 

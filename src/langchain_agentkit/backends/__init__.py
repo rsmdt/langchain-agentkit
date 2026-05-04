@@ -16,6 +16,7 @@ Usage::
     from langchain_agentkit.backends.daytona import DaytonaBackend
 """
 
+from langchain_agentkit.backends.helpers import read_tree
 from langchain_agentkit.backends.protocol import (
     BackendProtocol,
     ExecuteResponse,
@@ -54,4 +55,5 @@ __all__ = [
     "SandboxBackend",
     "SandboxEnvironment",
     "WriteResult",
+    "read_tree",
 ]

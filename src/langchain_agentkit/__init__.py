@@ -1,5 +1,9 @@
 """Composable extension framework for LangGraph agents.
 
+``Agent.graph()`` and ``Agent.compile()`` are async — extension setup
+and dynamic property resolution may issue backend I/O. Callers must
+``await`` them.
+
 **Declarative** — the ``Agent`` class builds a ReAct graph from class attributes::
 
     class Researcher(Agent):
@@ -8,8 +12,8 @@
         prompt = "You are a research assistant."
         async def handler(state, *, llm, tools, prompt): ...
 
-    app = Researcher().compile()           # compiled runnable
-    graph = Researcher().graph()           # uncompiled StateGraph (for composition)
+    app = await Researcher().compile()           # compiled runnable
+    graph = await Researcher().graph()           # uncompiled StateGraph (for composition)
 
 **Dynamic** — properties can be sync/async methods for per-request resolution::
 
@@ -20,26 +24,28 @@
             return result.content or ""
         async def handler(state, *, llm, tools, prompt): ...
 
-    app = Researcher(backend=my_backend).compile()
+    app = await Researcher(backend=my_backend).compile()
 
-**Primitive** — ``AgentKit`` for managed or manual graph wiring::
+**Primitive** — ``AgentKit`` for managed or manual graph wiring. Composition
+is sync; use ``run_extension_setup`` to await async extension setup::
 
     kit = AgentKit(
         extensions=[SkillsExtension(skills="skills/"), TasksExtension()],
         model=ChatOpenAI(model="gpt-4o"),
     )
-    graph = kit.compile(handler)      # managed ReAct loop
+    await run_extension_setup(kit)    # async setup (backend discovery, etc.)
+    graph = kit.compile(handler)      # managed ReAct loop (sync)
     # or access kit.tools, kit.compose(), kit.model directly
 """
 
 # Core
-from langchain_agentkit.agent import Agent, agent
+from langchain_agentkit.agent import Agent
 from langchain_agentkit.agent_kit import AgentKit, run_extension_setup
 
 # Backends — concrete backends are NOT re-exported here. Import each
 # explicitly from its own submodule (langchain_agentkit.backends.os,
-# langchain_agentkit.backends.daytona, …) so optional-dependency gates
-# surface at the import line.
+# langchain_agentkit.backends.daytona, langchain_agentkit.backends.agentfs,
+# …) so optional-dependency gates surface at the import line.
 from langchain_agentkit.backends import BackendProtocol
 from langchain_agentkit.composability import AgentLike, CompiledAgent, TeamAgent, wrap_if_needed
 from langchain_agentkit.extension import Extension
@@ -119,13 +125,12 @@ __all__ = [
     "PromptComposition",
     "TasksState",
     "TeamState",
-    "agent",
     "run_extension_setup",
     # Hook decorators
     "after",
     "before",
     "wrap",
-    # Backends (capability protocol only; concrete backends live in submodules)
+    # Backends (capability protocol only; concrete backends and helpers live in submodules)
     "BackendProtocol",
     # Permissions
     "DEFAULT_RULESET",

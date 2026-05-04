@@ -3,13 +3,17 @@
 These tests verify the contract of all three capability protocols:
 ``BackendProtocol`` (file ops), ``SandboxBackend`` (adds execute),
 ``FileTransferBackend`` (adds upload/download). Any backend that
-implements a tier must pass the corresponding tests.
+implements a tier must pass the corresponding tests; tests for tiers
+a backend doesn't implement are skipped via the ``sandbox_backend`` /
+``transfer_backend`` capability fixtures.
 
 The ``backend`` fixture is parameterized so the same tests run against
 every available backend:
 
 - ``os`` — always available (OSBackend with temp directory)
 - ``daytona`` — only when DAYTONA_API_URL is set and SDK is installed
+- ``agentfs`` — only when the agentfs-sdk is installed (no env vars
+  required; uses a temp .db file)
 """
 
 from __future__ import annotations
@@ -71,16 +75,36 @@ def _daytona_available() -> bool:
 
 
 # ---------------------------------------------------------------------------
+# AgentFS helpers
+# ---------------------------------------------------------------------------
+
+
+def _agentfs_available() -> bool:
+    """AgentFS conformance runs whenever agentfs-sdk is importable.
+
+    No env vars or external services required — AgentFS is a local
+    SQLite-backed virtual FS, and the fixture spins up a temp .db.
+    """
+    try:
+        import agentfs_sdk  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Parameterized backend fixture
 # ---------------------------------------------------------------------------
 
 _BACKEND_IDS = ["os"]
 if _daytona_available():
     _BACKEND_IDS.append("daytona")
+if _agentfs_available():
+    _BACKEND_IDS.append("agentfs")
 
 
 @pytest.fixture(params=_BACKEND_IDS)
-def backend(request):
+async def backend(request):
     """Yield a fresh backend instance for each parameterized backend type."""
     if request.param == "os":
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -99,6 +123,44 @@ def backend(request):
         yield DaytonaBackend(sandbox)
         sandbox.delete()
 
+    elif request.param == "agentfs":
+        from agentfs_sdk import AgentFS, AgentFSOptions
+
+        from langchain_agentkit.backends.agentfs import AgentFSBackend
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            db_path = os.path.join(tmpdir, "agent.db")
+            agent = await AgentFS.open(AgentFSOptions(path=db_path))
+            try:
+                yield AgentFSBackend(agent)
+            finally:
+                await agent.close()
+
+
+# ---------------------------------------------------------------------------
+# Capability fixtures — skip tier-specific tests when the parametrized
+# backend doesn't implement that tier. Lets BackendProtocol-only backends
+# (e.g. AgentFS) coexist in the matrix without spurious failures.
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def sandbox_backend(backend):
+    if not isinstance(backend, SandboxBackend):
+        pytest.skip(
+            f"{type(backend).__name__} does not implement SandboxBackend (execute / environment)"
+        )
+    return backend
+
+
+@pytest.fixture
+def transfer_backend(backend):
+    if not isinstance(backend, FileTransferBackend):
+        pytest.skip(
+            f"{type(backend).__name__} does not implement FileTransferBackend (upload / download)"
+        )
+    return backend
+
 
 # ---------------------------------------------------------------------------
 # Protocol tier conformance
@@ -107,13 +169,16 @@ def backend(request):
 
 class TestProtocolTiers:
     def test_implements_backend_protocol(self, backend):
+        # Every backend in the matrix must satisfy the base file tier.
         assert isinstance(backend, BackendProtocol)
 
-    def test_implements_sandbox_backend(self, backend):
-        assert isinstance(backend, SandboxBackend)
+    def test_implements_sandbox_backend(self, sandbox_backend):
+        # Skipped via the capability fixture for BackendProtocol-only backends.
+        assert isinstance(sandbox_backend, SandboxBackend)
 
-    def test_implements_file_transfer_backend(self, backend):
-        assert isinstance(backend, FileTransferBackend)
+    def test_implements_file_transfer_backend(self, transfer_backend):
+        # Skipped via the capability fixture for BackendProtocol-only backends.
+        assert isinstance(transfer_backend, FileTransferBackend)
 
 
 # ---------------------------------------------------------------------------
@@ -311,13 +376,13 @@ class TestGrep:
 
 
 class TestExecute:
-    async def test_echo(self, backend):
-        result = await backend.execute("echo hello")
+    async def test_echo(self, sandbox_backend):
+        result = await sandbox_backend.execute("echo hello")
         assert result["exit_code"] == 0
         assert "hello" in result["output"]
 
-    async def test_nonzero_exit(self, backend):
-        result = await backend.execute("exit 1")
+    async def test_nonzero_exit(self, sandbox_backend):
+        result = await sandbox_backend.execute("exit 1")
         assert result["exit_code"] == 1
 
 
@@ -327,10 +392,10 @@ class TestExecute:
 
 
 class TestEnvironment:
-    async def test_returns_environment_snapshot(self, backend):
+    async def test_returns_environment_snapshot(self, sandbox_backend):
         from langchain_agentkit.backends import PROBED_TOOLS
 
-        env = await backend.environment()
+        env = await sandbox_backend.environment()
         # os encodes uname -srm shape: kernel-name + release + arch.
         # The leading word identifies the platform family unambiguously.
         assert env.os, "os must be a non-empty string"
@@ -344,9 +409,9 @@ class TestEnvironment:
         assert isinstance(env.available_tools, frozenset)
         assert env.available_tools.issubset(set(PROBED_TOOLS))
 
-    async def test_cached(self, backend):
-        env1 = await backend.environment()
-        env2 = await backend.environment()
+    async def test_cached(self, sandbox_backend):
+        env1 = await sandbox_backend.environment()
+        env2 = await sandbox_backend.environment()
         assert env1 is env2  # same object — backend caches
 
 
@@ -356,25 +421,25 @@ class TestEnvironment:
 
 
 class TestFileTransfer:
-    async def test_upload_roundtrip(self, backend):
+    async def test_upload_roundtrip(self, transfer_backend):
         files = [
             ("/seed/a.txt", b"alpha"),
             ("/seed/b.bin", b"\x00\x01\x02\x03"),
         ]
-        results = await backend.upload(files)
+        results = await transfer_backend.upload(files)
         assert len(results) == 2
         assert all(r.error is None for r in results)
         assert {r.path for r in results} == {"/seed/a.txt", "/seed/b.bin"}
 
-        downloads = await backend.download(["/seed/a.txt", "/seed/b.bin"])
+        downloads = await transfer_backend.download(["/seed/a.txt", "/seed/b.bin"])
         assert all(d.error is None for d in downloads)
         contents = {d.path: d.content for d in downloads}
         assert contents["/seed/a.txt"] == b"alpha"
         assert contents["/seed/b.bin"] == b"\x00\x01\x02\x03"
 
-    async def test_download_partial_failure(self, backend):
-        await backend.upload([("/exists.txt", b"hi")])
-        results = await backend.download(["/exists.txt", "/missing.txt"])
+    async def test_download_partial_failure(self, transfer_backend):
+        await transfer_backend.upload([("/exists.txt", b"hi")])
+        results = await transfer_backend.download(["/exists.txt", "/missing.txt"])
         assert len(results) == 2
         ok = next(r for r in results if r.path == "/exists.txt")
         missing = next(r for r in results if r.path == "/missing.txt")

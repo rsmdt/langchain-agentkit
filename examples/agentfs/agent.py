@@ -1,31 +1,28 @@
 # ruff: noqa: N805
-"""Daytona sandbox — full integration with filesystem, skills, and agents.
+"""AgentFS-backed agent — file-only backend, no bash tool.
 
-The agent harness — system prompt, skills, and specialist agents —
-lives entirely in the sandbox under ``/.agentkit/``. The host-side
-``.agentkit/`` directory is a 1:1 mirror of what the agent sees;
-``seed_directory`` copies the tree on startup. Bash requires human
-approval via the DEFAULT_RULESET permission preset.
+AgentFS is a SQLite-backed virtual filesystem; ``AgentFSBackend``
+implements ``BackendProtocol`` and ``FileTransferBackend`` (no
+``SandboxBackend``, so no ``Bash`` tool is registered). Agent state —
+including the system prompt at ``/.agentkit/AGENTS.md`` — persists in
+``./agent-state.db``.
 
 Prerequisites:
-    pip install daytona-sdk langchain-openai
+    pip install agentfs-sdk langchain-openai
 
 Environment:
-    DAYTONA_API_KEY  — Daytona API key
-    DAYTONA_API_URL  — Daytona API URL (optional)
-    OPENAI_API_KEY   — OpenAI API key
+    OPENAI_API_KEY — OpenAI API key
 
 Usage:
-    python examples/daytona/agent.py
+    python examples/agentfs/agent.py
 """
 
 from __future__ import annotations
 
 import asyncio
-import os
 from pathlib import Path
 
-from daytona_sdk import Daytona, DaytonaConfig
+from agentfs_sdk import AgentFS, AgentFSOptions
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
@@ -36,13 +33,14 @@ from langchain_agentkit import (
     SkillsExtension,
 )
 from langchain_agentkit.backends import read_tree
-from langchain_agentkit.backends.daytona import DaytonaBackend
-from langchain_agentkit.permissions import DEFAULT_RULESET
+from langchain_agentkit.backends.agentfs import AgentFSBackend
 
 ROOT = "/.agentkit"
 SKILLS = f"{ROOT}/skills"
 AGENTS = f"{ROOT}/agents"
 PROMPT = f"{ROOT}/AGENTS.md"
+
+DB = "./agent-state.db"
 
 
 class CodingAgent(Agent):
@@ -55,7 +53,7 @@ class CodingAgent(Agent):
         return [
             SkillsExtension(skills=SKILLS, backend=self.backend),
             AgentsExtension(agents=AGENTS, backend=self.backend),
-            FilesystemExtension(backend=self.backend, permissions=DEFAULT_RULESET),
+            FilesystemExtension(backend=self.backend),
         ]
 
     async def handler(state, *, llm, tools, prompt):
@@ -65,14 +63,10 @@ class CodingAgent(Agent):
 
 
 async def main() -> None:
-    config = DaytonaConfig(
-        api_key=os.environ.get("DAYTONA_API_KEY"),
-        api_url=os.environ.get("DAYTONA_API_URL"),
-    )
-    sandbox = Daytona(config=config).create()
+    fs = await AgentFS.open(AgentFSOptions(path=DB))
 
     try:
-        backend = DaytonaBackend(sandbox)
+        backend = AgentFSBackend(fs)
         await backend.upload(read_tree(Path(__file__).parent / ".agentkit", ROOT))
 
         graph = await CodingAgent(backend=backend).compile()
@@ -86,9 +80,9 @@ async def main() -> None:
 
         print(result["messages"][-1].content)
     finally:
-        sandbox.delete()
+        await fs.close()
 
 
 if __name__ == "__main__":
-    # Requires DAYTONA_API_KEY and OPENAI_API_KEY in the environment.
+    # Requires OPENAI_API_KEY in the environment.
     asyncio.run(main())

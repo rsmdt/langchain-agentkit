@@ -1,5 +1,9 @@
 """Declarative LangGraph agent with extension support.
 
+``Agent.graph()`` and ``Agent.compile()`` are async because property
+resolution and extension setup may issue backend I/O. Callers must
+``await`` them.
+
 **Static** — all properties are class attributes::
 
     from langchain_agentkit import Agent
@@ -12,7 +16,7 @@
         async def handler(state, *, llm, tools, prompt, runtime):
             ...
 
-    graph = Researcher().compile()
+    graph = await Researcher().compile()
 
 **Dynamic** — properties resolved per-request via sync/async methods::
 
@@ -29,18 +33,15 @@
         async def handler(state, *, llm, tools, prompt, runtime):
             ...
 
-    graph = Researcher(backend=DaytonaBackend(sandbox)).compile()
+    graph = await Researcher(backend=DaytonaBackend(sandbox)).compile()
 """
 
 from __future__ import annotations
 
-import asyncio
 import inspect
-import threading
 from typing import TYPE_CHECKING, Any
 
 from langchain_agentkit.agent_kit import AgentKit, run_extension_setup
-from langchain_agentkit.state import AgentKitState
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -50,179 +51,12 @@ if TYPE_CHECKING:
     from langchain_agentkit.extension import Extension
 
 
-def _validate_handler_signature(
-    handler: Any,
-    class_name: str,
-    valid_params: frozenset[str],
-    label: str,
-) -> type:
-    """Validate handler signature and extract state type.
-
-    Returns the state type inferred from the handler's first parameter
-    annotation. If no annotation is present, defaults to ``AgentKitState``.
-    """
-    sig = inspect.signature(handler)
-    params = list(sig.parameters.values())
-
-    if not params:
-        raise ValueError(
-            f"class {class_name}({label}): handler must accept at least "
-            f"'state' as its first parameter"
-        )
-
-    first = params[0]
-    if first.kind not in (
-        inspect.Parameter.POSITIONAL_ONLY,
-        inspect.Parameter.POSITIONAL_OR_KEYWORD,
-    ):
-        raise ValueError(
-            f"class {class_name}({label}): handler's first parameter must be "
-            f"positional ('state'), got {first.kind.name}"
-        )
-
-    state_type: type = AgentKitState
-    if first.annotation is not inspect.Parameter.empty:
-        state_type = first.annotation
-
-    for param in params[1:]:
-        if param.kind == inspect.Parameter.VAR_KEYWORD:
-            continue
-        if param.kind == inspect.Parameter.KEYWORD_ONLY:
-            if param.name not in valid_params:
-                raise ValueError(
-                    f"class {class_name}({label}): unknown handler parameter "
-                    f"'{param.name}'. Valid parameters: state, "
-                    f"{', '.join(sorted(valid_params))}"
-                )
-        elif param.kind in (
-            inspect.Parameter.POSITIONAL_ONLY,
-            inspect.Parameter.POSITIONAL_OR_KEYWORD,
-        ):
-            raise ValueError(
-                f"class {class_name}({label}): handler parameter '{param.name}' "
-                f"must be keyword-only (after *). "
-                f"Signature should be: handler(state, *, {param.name}, ...)"
-            )
-
-    return state_type
-
-
-# Valid injectable parameter names for handler (besides 'state')
-_INJECTABLE_PARAMS = frozenset({"llm", "tools", "prompt", "runtime"})
-
-
-class _AgentMeta(type):
-    """Metaclass that intercepts class body and returns a StateGraph.
-
-    When a class inherits from ``agent``, this metaclass:
-
-    1. Extracts ``model``, ``tools``, ``extensions``, ``prompt``, ``handler``,
-       ``skills``, ``max_turns`` from the class body.
-    2. Validates the handler signature and infers state type from annotation.
-    3. Builds an ``AgentKit`` from extensions and prompt source.
-    4. Resolves model via ``AgentKit.resolve_model()`` if it's a string.
-    5. Merges user tools with kit tools.
-    6. Builds and returns an uncompiled ``StateGraph`` with the ReAct loop.
-
-    The result is NOT a class — it's a ``StateGraph``. Call ``.compile()``
-    to get a runnable graph, optionally passing a checkpointer for
-    ``interrupt()`` support.
-    """
-
-    def __new__(
-        mcs,
-        name: str,
-        bases: tuple[type, ...],
-        namespace: dict[str, Any],
-    ) -> Any:
-        # The `agent` base class itself — create normally
-        if not bases:
-            return super().__new__(mcs, name, bases, namespace)
-
-        # Subclass of agent → intercept and return StateGraph
-
-        # Extract handler (required)
-        handler = namespace.get("handler")
-        if handler is None:
-            raise ValueError(f"class {name}(agent) must define an async def handler(...) function")
-        if not callable(handler):
-            raise ValueError(
-                f"class {name}(agent): handler must be callable, got {type(handler).__name__}"
-            )
-
-        # Validate handler signature (state type is resolved by kit.state_schema)
-        _validate_handler_signature(handler, name, _INJECTABLE_PARAMS, "agent")
-
-        # Extract model (required) — string or BaseChatModel
-        model_raw = namespace.get("model")
-        if model_raw is None:
-            raise ValueError(
-                f"class {name}(agent) must define a model attribute "
-                f"(e.g. model = ChatOpenAI(model='gpt-4o') or model = 'gpt-4o')"
-            )
-
-        # Extract tools — supports list, "inherit" sentinel, or absent (no tools)
-        user_tools_raw = namespace.get("tools", [])
-        tools_inherit = False
-        if isinstance(user_tools_raw, str):
-            if user_tools_raw != "inherit":
-                raise ValueError(
-                    f"class {name}(agent): tools must be a list or 'inherit', "
-                    f"got string '{user_tools_raw}'"
-                )
-            user_tools: list[BaseTool] = []
-            tools_inherit = True
-        elif isinstance(user_tools_raw, (list, tuple)):
-            user_tools = list(user_tools_raw)
-        else:
-            raise ValueError(
-                f"class {name}(agent): tools must be a list or 'inherit', "
-                f"got {type(user_tools_raw).__name__}"
-            )
-
-        extensions: list[Extension] = namespace.get("extensions", [])
-        if not isinstance(extensions, (list, tuple)):
-            raise ValueError(
-                f"class {name}(agent): extensions must be a list, got {type(extensions).__name__}"
-            )
-
-        prompt_source: str | Path | list[str | Path] | None = namespace.get("prompt")
-        description: str = namespace.get("description", "")
-        skills: list[str] = namespace.get("skills", [])
-        max_turns: int | None = namespace.get("max_turns")
-
-        graph = _build_agent_graph(
-            handler=handler,
-            model=model_raw,
-            extensions=list(extensions),
-            tools=list(user_tools),
-            prompt=prompt_source,
-            name=name,
-        )
-
-        # Attach metaclass-specific metadata
-        graph.description = description
-        graph.tools_inherit = tools_inherit
-        graph.skills = skills
-        graph.max_turns = max_turns
-
-        return graph
-
-
-class agent(metaclass=_AgentMeta):  # noqa: N801
-    """Legacy metaclass that intercepts class body and returns a StateGraph.
-
-    Prefer the ``Agent`` base class for new code. The metaclass is retained
-    for backward compatibility.
-    """
-
-
 # Properties that are callables but must NOT be called by _resolve()
 # because they take arguments (model_resolver) or are the handler itself.
 _NO_CALL = frozenset({"handler", "model_resolver"})
 
 
-def _build_agent_graph(
+async def _build_agent_graph(
     *,
     handler: Any,
     model: Any,
@@ -233,10 +67,14 @@ def _build_agent_graph(
     name: str = "agent",
     stream_tool_results: bool = True,
 ) -> Any:
-    """Shared graph-building pipeline for both Agent and legacy metaclass.
+    """Build the ReAct graph for an :class:`Agent`.
 
-    Creates an AgentKit, runs async setup, compiles the graph, and
-    attaches rebuild metadata.
+    Creates an :class:`AgentKit`, awaits async extension setup,
+    compiles the graph, and attaches rebuild metadata. Async because
+    extension setup may issue backend I/O (skill discovery, env probe,
+    etc.) and because backends may hold loop-bound resources — running
+    setup in a worker thread with a fresh loop would break those
+    bindings.
     """
     kit = AgentKit(
         extensions=extensions,
@@ -248,7 +86,7 @@ def _build_agent_graph(
         stream_tool_results=stream_tool_results,
     )
 
-    _run_coroutine(run_extension_setup(kit))
+    await run_extension_setup(kit)
 
     # Resolve model string → BaseChatModel once, store back so
     # kit.compile() doesn't re-resolve through model_resolver.
@@ -267,40 +105,6 @@ def _build_agent_graph(
     return state_graph
 
 
-def _run_coroutine(coro: Any) -> Any:
-    """Run an awaitable synchronously, handling running event loops.
-
-    Bridges sync and async contexts, spawning a thread when needed.
-    """
-    if not inspect.isawaitable(coro):
-        return coro
-
-    try:
-        asyncio.get_running_loop()
-        has_loop = True
-    except RuntimeError:
-        has_loop = False
-
-    if has_loop:
-        result_box: list[Any] = [None]
-        exc_box: list[BaseException | None] = [None]
-
-        def _run() -> None:
-            try:
-                result_box[0] = asyncio.run(coro)  # type: ignore[arg-type]
-            except BaseException as e:
-                exc_box[0] = e
-
-        t = threading.Thread(target=_run)
-        t.start()
-        t.join()
-        if exc_box[0] is not None:
-            raise exc_box[0]
-        return result_box[0]
-
-    return asyncio.run(coro)  # type: ignore[arg-type]
-
-
 class Agent:
     """Declarative agent with flexible property resolution.
 
@@ -315,7 +119,7 @@ class Agent:
     ``handler`` is always a function defined on the class (no ``self``),
     passed directly to ``kit.compile(handler)``.
 
-    Two entry points:
+    Two async entry points (callers must ``await``):
 
     - ``compile(**kwargs)`` — returns a compiled, invocable graph.
       Pass ``checkpointer``, ``recursion_limit``, etc.
@@ -332,7 +136,7 @@ class Agent:
             async def handler(state, *, llm, tools, prompt, runtime):
                 ...
 
-        app = Researcher().compile()
+        app = await Researcher().compile()
 
     Example — dynamic backend::
 
@@ -349,13 +153,13 @@ class Agent:
             async def handler(state, *, llm, tools, prompt, runtime):
                 ...
 
-        app = Researcher(backend=DaytonaBackend(sandbox)).compile()
+        app = await Researcher(backend=DaytonaBackend(sandbox)).compile()
     """
 
     model: Any = None
     model_resolver: Any = None
     prompt: Any = None
-    extensions: Any = []
+    extensions: Any = ()
     tools: Any = []
     stream_tool_results: bool = True
 
@@ -378,8 +182,15 @@ class Agent:
             val = await val
         return val
 
-    def graph(self) -> Any:
+    async def graph(self) -> Any:
         """Resolve all properties and build an uncompiled ``StateGraph``.
+
+        Async because property resolution may await async methods
+        (``async def prompt(self)``, ``async def model(self)``, …) and
+        because extension setup awaits backend I/O. Callers must
+        ``await``::
+
+            state_graph = await Researcher().graph()
 
         Use this when you need the raw graph for composition — passing
         to ``AgentsExtension(agents=[...])``, ``TeamExtension(agents=[...])``,
@@ -388,11 +199,11 @@ class Agent:
         Returns:
             An uncompiled ``StateGraph``.
         """
-        model = _run_coroutine(self._resolve("model"))
-        prompt = _run_coroutine(self._resolve("prompt"))
-        extensions = _run_coroutine(self._resolve("extensions"))
-        tools = _run_coroutine(self._resolve("tools"))
-        model_resolver = _run_coroutine(self._resolve("model_resolver"))
+        model = await self._resolve("model")
+        prompt = await self._resolve("prompt")
+        extensions = await self._resolve("extensions")
+        tools = await self._resolve("tools")
+        model_resolver = await self._resolve("model_resolver")
 
         # Get handler as raw function, not bound method. When defined
         # in a class body as `async def handler(state, *, llm): ...`,
@@ -405,7 +216,7 @@ class Agent:
             raise ValueError(f"{type(self).__name__} must define a handler function")
 
         cls = type(self)
-        state_graph = _build_agent_graph(
+        state_graph = await _build_agent_graph(
             handler=handler,
             model=model,
             model_resolver=model_resolver,
@@ -424,11 +235,15 @@ class Agent:
 
         return state_graph
 
-    def compile(self, **kwargs: Any) -> Any:
+    async def compile(self, **kwargs: Any) -> Any:
         """Build and compile in one step — returns a runnable graph.
 
-        Shorthand for ``self.graph().compile(**kwargs)``. Pass
-        ``checkpointer``, ``recursion_limit``, etc. as keyword arguments.
+        Async shorthand for ``(await self.graph()).compile(**kwargs)``.
+        Pass ``checkpointer``, ``recursion_limit``, etc. as keyword
+        arguments. Callers must ``await``::
+
+            graph = await Researcher(backend=backend).compile()
+            result = await graph.ainvoke({"messages": [...]})
 
         When ``stream_tool_results=False`` (or any extension suppresses a
         tool via :meth:`Extension.stream_tool_results`), the returned
@@ -444,7 +259,7 @@ class Agent:
         """
         from langchain_agentkit.streaming import wrap_if_filtering
 
-        state_graph = self.graph()
+        state_graph = await self.graph()
         compiled = state_graph.compile(**kwargs)
         kit = getattr(state_graph, "_agentkit_kit", None)
         suppressed = kit.suppressed_tool_names() if kit is not None else frozenset()

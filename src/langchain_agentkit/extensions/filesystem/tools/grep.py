@@ -17,10 +17,10 @@ _GREP_DESCRIPTION = """A powerful search tool built on ripgrep
   Usage:
   - ALWAYS use Grep for search tasks. NEVER invoke `grep` or `rg` as a Bash command. The Grep tool has been optimized for correct permissions and access.
   - Supports full regex syntax (e.g., "log.*Error", "function\\s+\\w+")
-  - Filter files with glob parameter (e.g., "*.js", "**/*.tsx") or type parameter (e.g., "js", "py", "rust")
+  - Filter files with glob parameter (e.g., "*.md", "**/*.json") or type parameter (e.g., "md", "json", "yaml")
   - Output modes: "content" shows matching lines, "files_with_matches" shows only file paths (default), "count" shows match counts
   - Use Agent tool for open-ended searches requiring multiple rounds
-  - Pattern syntax: Uses ripgrep (not grep) - literal braces need escaping (use `interface\\{\\}` to find `interface{}` in Go code)
+  - Pattern syntax: Uses ripgrep (not grep) - literal braces, parens, and brackets need escaping (use `\\{value\\}` to match the literal text `{value}`)
   - Multiline matching: By default patterns match within single lines only. For cross-line patterns like `struct \\{[\\s\\S]*?field`, use `multiline: true`"""
 
 if TYPE_CHECKING:
@@ -60,6 +60,15 @@ _TYPE_GLOB_MAP: dict[str, str] = {
     "md": "*.md",
     "sql": "*.sql",
     "r": "*.r",
+    "txt": "*.txt",
+    "csv": "*.csv",
+    "tsv": "*.tsv",
+    "rst": "*.rst",
+    "tex": "*.tex",
+    "org": "*.org",
+    "ini": "*.ini",
+    "toml": "*.toml",
+    "env": "*.env",
 }
 
 

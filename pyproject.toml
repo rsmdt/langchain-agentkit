@@ -33,6 +33,7 @@ dev = [
     "ruff>=0.8",
     "types-PyYAML>=6.0",
     "daytona-sdk>=0.158",
+    "agentfs-sdk>=0.6,<0.7",
 ]
 eval = [
     "agentevals>=0.0.9",
@@ -41,6 +42,9 @@ eval = [
 ]
 daytona = [
     "daytona-sdk>=0.158",
+]
+agentfs = [
+    "agentfs-sdk>=0.6,<0.7",
 ]
 
 [project.urls]

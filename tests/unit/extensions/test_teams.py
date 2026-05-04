@@ -738,7 +738,7 @@ class TestRouterRunExitWiring:
         result = cond({"messages": []})
         assert result == "_run_exit"
 
-    def test_after_run_fires_on_router_termination_path(self):
+    async def test_after_run_fires_on_router_termination_path(self):
         """End-to-end: a TeamExtension + after_run hook sees after_run invoked.
 
         Build a real agent with both TeamExtension and an extension that
@@ -748,11 +748,11 @@ class TestRouterRunExitWiring:
         graph-modifier step did not break the build by referencing a
         missing ``_run_exit`` node.
         """
-        from unittest.mock import AsyncMock, MagicMock
+        from unittest.mock import MagicMock
 
         from langchain_core.messages import AIMessage, HumanMessage
 
-        from langchain_agentkit import agent
+        from langchain_agentkit import Agent
         from langchain_agentkit.extension import Extension
 
         after_run_calls: list[str] = []
@@ -764,33 +764,26 @@ class TestRouterRunExitWiring:
 
         agent_a = _make_mock_agent("researcher")
 
-        bound_llm = MagicMock()
-        bound_llm.ainvoke = AsyncMock(return_value=AIMessage(content="done"))
-        mock_llm = MagicMock()
-        mock_llm.bind_tools = MagicMock(return_value=bound_llm)
-
-        class my_agent(agent):
-            model = mock_llm
+        class MyAgent(Agent):
+            model = MagicMock()
             extensions = [
                 TeamExtension(agents=[agent_a]),
                 LifecycleExtension(),
             ]
 
-            async def handler(state, *, llm, tools, prompt):
-                bound = llm.bind_tools(tools)
-                response = await bound.ainvoke(state["messages"])
-                return {"messages": [response]}
+            async def handler(state, *, llm, tools, prompt):  # noqa: N805
+                return {"messages": [AIMessage(content="done")]}
 
-        compiled = my_agent.compile()
+        instance = MyAgent()
+        state_graph = await instance.graph()
+        compiled = state_graph.compile()
 
         # Both lifecycle nodes and router should be present in the graph.
-        assert "_run_exit" in my_agent.nodes
-        assert "_run_entry" in my_agent.nodes
-        assert "router" in my_agent.nodes
+        assert "_run_exit" in state_graph.nodes
+        assert "_run_entry" in state_graph.nodes
+        assert "router" in state_graph.nodes
 
-        import asyncio
-
-        asyncio.run(compiled.ainvoke({"messages": [HumanMessage(content="hi")]}))
+        await compiled.ainvoke({"messages": [HumanMessage(content="hi")]})
 
         assert after_run_calls == ["after_run"]
 
