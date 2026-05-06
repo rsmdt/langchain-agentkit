@@ -160,7 +160,16 @@ class Agent:
     model_resolver: Any = None
     prompt: Any = None
     extensions: Any = ()
-    tools: Any = []
+    # ``tools`` defaults to ``"inherit"`` so sub-agents borrow their parent's
+    # toolset by default at delegation time. Override with an explicit list to
+    # supply a fixed toolset; include the literal ``"inherit"`` sentinel in
+    # that list to add tools on top of the inherited set instead of replacing
+    # it. Examples:
+    #   tools = "inherit"            # parent's tools (default)
+    #   tools = []                   # no tools, even if delegated to
+    #   tools = [my_tool]            # just my_tool, no inherit
+    #   tools = [my_tool, "inherit"] # my_tool + parent's tools at delegation
+    tools: Any = "inherit"
     stream_tool_results: bool = True
 
     def __init__(self, **kwargs: Any) -> None:
@@ -202,8 +211,22 @@ class Agent:
         model = await self._resolve("model")
         prompt = await self._resolve("prompt")
         extensions = await self._resolve("extensions")
-        tools = await self._resolve("tools")
+        raw_tools = await self._resolve("tools")
         model_resolver = await self._resolve("model_resolver")
+
+        # Parse ``tools``: detect the ``"inherit"`` sentinel and split the
+        # value into a clean tool list + the ``tools_inherit`` flag the
+        # delegation runtime reads. Bare ``"inherit"`` (default) is treated
+        # as ``["inherit"]``. ``None`` is normalized to ``[]``.
+        tools_seq: list[Any]
+        if raw_tools is None:
+            tools_seq = []
+        elif isinstance(raw_tools, str):
+            tools_seq = [raw_tools]
+        else:
+            tools_seq = list(raw_tools)
+        tools_inherit = "inherit" in tools_seq
+        clean_tools = [t for t in tools_seq if t != "inherit"]
 
         # Get handler as raw function, not bound method. When defined
         # in a class body as `async def handler(state, *, llm): ...`,
@@ -221,7 +244,7 @@ class Agent:
             model=model,
             model_resolver=model_resolver,
             extensions=list(extensions) if extensions else [],
-            tools=list(tools) if tools else [],
+            tools=clean_tools,
             prompt=prompt,
             name=getattr(self, "name", cls.__name__),
             stream_tool_results=bool(getattr(self, "stream_tool_results", True)),
@@ -229,7 +252,7 @@ class Agent:
 
         # Attach Agent-specific metadata
         state_graph.description = getattr(self, "description", "")
-        state_graph.tools_inherit = getattr(self, "tools_inherit", False)
+        state_graph.tools_inherit = tools_inherit
         state_graph.skills = getattr(self, "skills", [])
         state_graph.max_turns = getattr(self, "max_turns", None)
 

@@ -36,7 +36,7 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 from langchain_core.tools import tool
 
-from langchain_agentkit.agent import agent
+from langchain_agentkit import Agent
 from langchain_agentkit.extensions.resilience import (
     ResilienceExtension,
     ToolErrorEvent,
@@ -97,7 +97,7 @@ def _make_flaky_tool() -> tuple[Any, dict[str, int]]:
 # ------------------------------------------------------------------
 
 
-def _build_agent(
+async def _build_agent(
     failing_tool: Any,
     events: list[ToolErrorEvent] | None = None,
 ) -> Any:
@@ -106,7 +106,7 @@ def _build_agent(
         on_tool_error_caught=(events.append if events is not None else None),
     )
 
-    class resilient_agent(agent):
+    class ResilientAgent(Agent):
         model = llm
         tools = [failing_tool]
         extensions = [resilience]
@@ -124,7 +124,7 @@ def _build_agent(
             response = await bound.ainvoke(messages)
             return {"messages": [response]}
 
-    return resilient_agent.compile()
+    return await ResilientAgent().compile()
 
 
 # ------------------------------------------------------------------
@@ -170,7 +170,7 @@ class TestResilienceExploitAlwaysFailingTool:
 
     async def test_loop_recovers_and_produces_final_answer(self):
         events: list[ToolErrorEvent] = []
-        graph = _build_agent(_make_always_failing_tool(), events)
+        graph = await _build_agent(_make_always_failing_tool(), events)
 
         result = await graph.ainvoke(
             {"messages": [HumanMessage(content="What is the weather in Paris?")]}
@@ -216,7 +216,7 @@ class TestResilienceExploitFlakyToolRerunsLoop:
     async def test_agent_retries_after_synthetic_error(self):
         events: list[ToolErrorEvent] = []
         failing_tool, tool_state = _make_flaky_tool()
-        graph = _build_agent(failing_tool, events)
+        graph = await _build_agent(failing_tool, events)
 
         result = await graph.ainvoke(
             {"messages": [HumanMessage(content="What is the weather in Paris?")]}

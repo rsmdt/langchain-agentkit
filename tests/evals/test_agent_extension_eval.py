@@ -1,4 +1,4 @@
-# ruff: noqa: N801, N805
+# ruff: noqa: N805
 """Real-LLM integration evals for AgentsExtension delegation pipeline.
 
 Tests exercise the FULL compiled graph flow: lead agent receives a message,
@@ -22,7 +22,7 @@ import os
 import pytest
 from langchain_core.messages import HumanMessage
 
-from langchain_agentkit.agent import agent
+from langchain_agentkit import Agent
 from langchain_agentkit.extensions.agents import AgentsExtension
 
 pytestmark = [
@@ -51,11 +51,11 @@ def _get_llm():
 # ---------------------------------------------------------------------------
 
 
-def _build_calculator():
+async def _build_calculator():
     """Calculator subagent — answers math with just the number."""
     _llm = _get_llm()
 
-    class calculator(agent):
+    class Calculator(Agent):
         model = _llm
         description = "Answers simple math questions with just the numeric result"
         prompt = (
@@ -70,14 +70,14 @@ def _build_calculator():
             response = await llm.ainvoke(messages)
             return {"messages": [response], "sender": "calculator"}
 
-    return calculator
+    return await Calculator().graph()
 
 
-def _build_greeter():
+async def _build_greeter():
     """Greeter subagent — responds with a greeting."""
     _llm = _get_llm()
 
-    class greeter(agent):
+    class Greeter(Agent):
         model = _llm
         description = "Greets people warmly in one sentence"
         prompt = (
@@ -92,7 +92,7 @@ def _build_greeter():
             response = await llm.ainvoke(messages)
             return {"messages": [response], "sender": "greeter"}
 
-    return greeter
+    return await Greeter().graph()
 
 
 # ---------------------------------------------------------------------------
@@ -100,11 +100,11 @@ def _build_greeter():
 # ---------------------------------------------------------------------------
 
 
-def _build_lead_with_extension(mw: AgentsExtension):
+async def _build_lead_with_extension(mw: AgentsExtension):
     """Build a lead agent that uses AgentsExtension to delegate."""
     _llm = _get_llm()
 
-    class lead(agent):
+    class Lead(Agent):
         model = _llm
         extensions = [mw]
         prompt = (
@@ -120,7 +120,7 @@ def _build_lead_with_extension(mw: AgentsExtension):
             response = await llm.bind_tools(tools).ainvoke(messages)
             return {"messages": [response], "sender": "lead"}
 
-    return lead
+    return await Lead().graph()
 
 
 # ---------------------------------------------------------------------------
@@ -133,9 +133,9 @@ class TestDelegationFullFlow:
 
     async def test_delegate_math_to_calculator(self):
         """Lead receives 'What is 2+2?', delegates to calculator, returns '4'."""
-        calculator = _build_calculator()
+        calculator = await _build_calculator()
         mw = AgentsExtension(agents=[calculator])
-        lead = _build_lead_with_extension(mw)
+        lead = await _build_lead_with_extension(mw)
 
         graph = lead.compile()
         result = await graph.ainvoke({"messages": [HumanMessage(content="What is 2+2?")]})
@@ -145,9 +145,9 @@ class TestDelegationFullFlow:
 
     async def test_delegate_multiplication(self):
         """Verify delegation works for a different math problem."""
-        calculator = _build_calculator()
+        calculator = await _build_calculator()
         mw = AgentsExtension(agents=[calculator])
-        lead = _build_lead_with_extension(mw)
+        lead = await _build_lead_with_extension(mw)
 
         graph = lead.compile()
         result = await graph.ainvoke({"messages": [HumanMessage(content="What is 7 times 8?")]})
@@ -166,10 +166,10 @@ class TestMultiAgentDelegation:
 
     async def test_delegates_to_correct_agent(self):
         """With calculator+greeter, math goes to calculator."""
-        calculator = _build_calculator()
-        greeter = _build_greeter()
+        calculator = await _build_calculator()
+        greeter = await _build_greeter()
         mw = AgentsExtension(agents=[calculator, greeter])
-        lead = _build_lead_with_extension(mw)
+        lead = await _build_lead_with_extension(mw)
 
         graph = lead.compile()
         result = await graph.ainvoke({"messages": [HumanMessage(content="What is 3+5?")]})
@@ -187,14 +187,14 @@ class TestDynamicDelegation:
 
     async def test_dynamic_delegation(self):
         """Lead delegates to a dynamic reasoning agent."""
-        calculator = _build_calculator()
+        calculator = await _build_calculator()
         mw = AgentsExtension(agents=[calculator], ephemeral=True)
 
         mw.set_parent_llm_getter(_get_llm)
 
         _llm = _get_llm()
 
-        class dynamic_lead(agent):
+        class DynamicLead(Agent):
             model = _llm
             extensions = [mw]
             prompt = (
@@ -210,7 +210,7 @@ class TestDynamicDelegation:
                 response = await llm.bind_tools(tools).ainvoke(messages)
                 return {"messages": [response], "sender": "dynamic_lead"}
 
-        graph = dynamic_lead.compile()
+        graph = (await DynamicLead().graph()).compile()
         result = await graph.ainvoke({"messages": [HumanMessage(content="Write about the ocean")]})
 
         final = result["messages"][-1].content
@@ -227,9 +227,9 @@ class TestScopedContext:
 
     async def test_subagent_answers_only_delegated_question(self):
         """Parent has unrelated history; subagent answers only the math question."""
-        calculator = _build_calculator()
+        calculator = await _build_calculator()
         mw = AgentsExtension(agents=[calculator])
-        lead = _build_lead_with_extension(mw)
+        lead = await _build_lead_with_extension(mw)
 
         graph = lead.compile()
 

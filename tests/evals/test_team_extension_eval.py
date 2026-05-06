@@ -1,4 +1,4 @@
-# ruff: noqa: N801, N805
+# ruff: noqa: N805
 """Real-LLM integration evals for TeamExtension coordination.
 
 Tests exercise the FULL compiled graph flow: lead agent receives a message,
@@ -22,7 +22,7 @@ import os
 import pytest
 from langchain_core.messages import HumanMessage
 
-from langchain_agentkit.agent import agent
+from langchain_agentkit import Agent
 from langchain_agentkit.extensions.tasks import TasksExtension
 from langchain_agentkit.extensions.teams import TeamExtension
 
@@ -52,11 +52,12 @@ def _get_llm():
 # ---------------------------------------------------------------------------
 
 
-def _build_worker():
+async def _build_worker():
     """General-purpose worker that answers questions concisely."""
     _llm = _get_llm()
 
-    class worker(agent):
+    class Worker(Agent):
+        name = "worker"
         model = _llm
         description = "General-purpose worker that answers questions concisely"
         prompt = (
@@ -71,14 +72,15 @@ def _build_worker():
             response = await llm.ainvoke(messages)
             return {"messages": [response], "sender": "worker"}
 
-    return worker
+    return await Worker().graph()
 
 
-def _build_math_worker():
+async def _build_math_worker():
     """Math-focused worker that answers with just the number."""
     _llm = _get_llm()
 
-    class math_worker(agent):
+    class MathWorker(Agent):
+        name = "math_worker"
         model = _llm
         description = "Answers math questions with just the numeric result"
         prompt = (
@@ -93,7 +95,7 @@ def _build_math_worker():
             response = await llm.ainvoke(messages)
             return {"messages": [response], "sender": "math_worker"}
 
-    return math_worker
+    return await MathWorker().graph()
 
 
 # ---------------------------------------------------------------------------
@@ -116,11 +118,11 @@ IMPORTANT: You MUST call the tools — never answer questions yourself.\
 """
 
 
-def _build_team_lead(mw_team, mw_tasks):
+async def _build_team_lead(mw_team, mw_tasks):
     """Build a lead agent with team and task extensions."""
     _llm = _get_llm()
 
-    class team_lead(agent):
+    class TeamLead(Agent):
         model = _llm
         extensions = [mw_tasks, mw_team]
         prompt = _TEAM_LEAD_PROMPT
@@ -132,7 +134,7 @@ def _build_team_lead(mw_team, mw_tasks):
             response = await llm.bind_tools(tools).ainvoke(messages)
             return {"messages": [response], "sender": "team_lead"}
 
-    return team_lead
+    return await TeamLead().graph()
 
 
 # ---------------------------------------------------------------------------
@@ -145,10 +147,10 @@ class TestTeamSingleWorkerLifecycle:
 
     async def test_team_single_worker_lifecycle(self):
         """Lead creates team, assigns 'Capital of Japan?', reports 'Tokyo'."""
-        worker = _build_worker()
+        worker = await _build_worker()
         mw_team = TeamExtension(agents=[worker])
         mw_tasks = TasksExtension()
-        lead = _build_team_lead(mw_team, mw_tasks)
+        lead = await _build_team_lead(mw_team, mw_tasks)
 
         graph = lead.compile()
         result = await graph.ainvoke(
@@ -188,11 +190,11 @@ class TestTeamMultiAgent:
 
     async def test_team_multi_agent(self):
         """Worker answers factual question, math_worker answers math."""
-        worker = _build_worker()
-        math_worker = _build_math_worker()
+        worker = await _build_worker()
+        math_worker = await _build_math_worker()
         mw_team = TeamExtension(agents=[worker, math_worker])
         mw_tasks = TasksExtension()
-        lead = _build_team_lead(mw_team, mw_tasks)
+        lead = await _build_team_lead(mw_team, mw_tasks)
 
         graph = lead.compile()
         result = await graph.ainvoke(
@@ -234,8 +236,8 @@ class TestTeamMultiAgent:
 class TestTeamToolsExposed:
     """Verify TeamExtension exposes exactly 4 tools."""
 
-    def test_team_tools_exposed(self):
-        worker = _build_worker()
+    async def test_team_tools_exposed(self):
+        worker = await _build_worker()
         mw = TeamExtension(agents=[worker])
         tool_names = sorted(t.name for t in mw.tools)
 
@@ -255,10 +257,10 @@ class TestTeamToolsExposed:
 class TestTeamStateSchema:
     """Verify state_schema returns TeamState."""
 
-    def test_team_state_schema(self):
+    async def test_team_state_schema(self):
         from langchain_agentkit.extensions.teams.state import TeamState
 
-        worker = _build_worker()
+        worker = await _build_worker()
         mw = TeamExtension(agents=[worker])
         assert mw.state_schema is TeamState
 
@@ -271,8 +273,8 @@ class TestTeamStateSchema:
 class TestTeamPromptRoster:
     """Verify prompt() includes registered agent names."""
 
-    def test_team_prompt_roster(self):
-        worker = _build_worker()
+    async def test_team_prompt_roster(self):
+        worker = await _build_worker()
         mw = TeamExtension(agents=[worker])
         prompt = mw.prompt(state={"messages": []})
 
@@ -303,11 +305,11 @@ IMPORTANT: You MUST call the tools — never answer questions yourself.\
 """
 
 
-def _build_multi_turn_lead(mw_team, mw_tasks):
+async def _build_multi_turn_lead(mw_team, mw_tasks):
     """Lead that handles both fresh creation and continuation across turns."""
     _llm = _get_llm()
 
-    class team_lead_mt(agent):
+    class TeamLeadMultiTurn(Agent):
         model = _llm
         extensions = [mw_tasks, mw_team]
         prompt = _MULTI_TURN_LEAD_PROMPT
@@ -319,7 +321,7 @@ def _build_multi_turn_lead(mw_team, mw_tasks):
             response = await llm.bind_tools(tools).ainvoke(messages)
             return {"messages": [response], "sender": "team_lead_mt"}
 
-    return team_lead_mt
+    return await TeamLeadMultiTurn().graph()
 
 
 # ---------------------------------------------------------------------------
@@ -343,10 +345,10 @@ class TestTeamCrossTurnRehydration:
         """Turn 1: Ask capital of Japan. Turn 2: Ask population of that capital."""
         from langgraph.checkpoint.memory import InMemorySaver
 
-        worker = _build_worker()
+        worker = await _build_worker()
         mw_team = TeamExtension(agents=[worker])
         mw_tasks = TasksExtension()
-        lead = _build_multi_turn_lead(mw_team, mw_tasks)
+        lead = await _build_multi_turn_lead(mw_team, mw_tasks)
         checkpointer = InMemorySaver()
         graph = lead.compile(checkpointer=checkpointer)
         config = {"configurable": {"thread_id": "rehydrate-test"}}
@@ -428,10 +430,10 @@ class TestTeamMessageHistoryPersistence:
 
         from langchain_agentkit.extensions.teams.filter import is_team_tagged, team_member_of
 
-        worker = _build_worker()
+        worker = await _build_worker()
         mw_team = TeamExtension(agents=[worker])
         mw_tasks = TasksExtension()
-        lead = _build_multi_turn_lead(mw_team, mw_tasks)
+        lead = await _build_multi_turn_lead(mw_team, mw_tasks)
         checkpointer = InMemorySaver()
         graph = lead.compile(checkpointer=checkpointer)
         config = {"configurable": {"thread_id": "history-persist-test"}}
@@ -493,10 +495,10 @@ class TestTeamDissolveAfterRehydration:
         """Turn 1: create + work. Turn 2: dissolve only."""
         from langgraph.checkpoint.memory import InMemorySaver
 
-        worker = _build_worker()
+        worker = await _build_worker()
         mw_team = TeamExtension(agents=[worker])
         mw_tasks = TasksExtension()
-        lead = _build_multi_turn_lead(mw_team, mw_tasks)
+        lead = await _build_multi_turn_lead(mw_team, mw_tasks)
         checkpointer = InMemorySaver()
         graph = lead.compile(checkpointer=checkpointer)
         config = {"configurable": {"thread_id": "dissolve-rehydrate-test"}}
@@ -561,10 +563,10 @@ class TestTeamInternalDialogueStructure:
             is_team_tagged,
         )
 
-        worker = _build_worker()
+        worker = await _build_worker()
         mw_team = TeamExtension(agents=[worker])
         mw_tasks = TasksExtension()
-        lead = _build_multi_turn_lead(mw_team, mw_tasks)
+        lead = await _build_multi_turn_lead(mw_team, mw_tasks)
         checkpointer = InMemorySaver()
         graph = lead.compile(checkpointer=checkpointer)
         config = {"configurable": {"thread_id": "dialogue-structure-test"}}
@@ -662,10 +664,10 @@ class TestTeamInternalDialogueStructure:
 
         from langchain_agentkit.extensions.teams.filter import filter_team_messages
 
-        worker = _build_worker()
+        worker = await _build_worker()
         mw_team = TeamExtension(agents=[worker])
         mw_tasks = TasksExtension()
-        lead = _build_multi_turn_lead(mw_team, mw_tasks)
+        lead = await _build_multi_turn_lead(mw_team, mw_tasks)
         checkpointer = InMemorySaver()
         graph = lead.compile(checkpointer=checkpointer)
         config = {"configurable": {"thread_id": "rehydrate-dialogue-test"}}

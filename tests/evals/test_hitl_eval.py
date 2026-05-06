@@ -30,8 +30,7 @@ from langgraph.graph import END, START, StateGraph
 from langgraph.prebuilt import ToolNode
 from langgraph.types import Command
 
-from langchain_agentkit import AgentKit, FilesystemExtension, HITLExtension
-from langchain_agentkit.agent import agent
+from langchain_agentkit import Agent, AgentKit, FilesystemExtension, HITLExtension
 from langchain_agentkit.backends.os import OSBackend
 from langchain_agentkit.extensions.hitl import InterruptConfig
 from tests.evals.datasets import (
@@ -142,10 +141,10 @@ def _build_ask_user_agent():
     return graph.compile()
 
 
-def _build_tool_approval_agent():
+async def _build_tool_approval_agent():
     """Build agent with HITL tool approval for interrupt/resume evals.
 
-    Uses the ``agent`` metaclass so the wrap_tool hook is properly wired
+    Uses the ``Agent`` base class so the wrap_tool hook is properly wired
     into the ToolNode via the HookRunner.
     """
     from langchain_core.tools import tool
@@ -157,7 +156,7 @@ def _build_tool_approval_agent():
 
     _llm = _get_llm()
 
-    class approval_agent(agent):
+    class ApprovalAgent(Agent):
         model = _llm
         tools = [write_file]
         extensions = [
@@ -181,7 +180,7 @@ def _build_tool_approval_agent():
             response = await bound.ainvoke(messages)
             return {"messages": [response]}
 
-    return approval_agent.compile(checkpointer=InMemorySaver())
+    return await ApprovalAgent().compile(checkpointer=InMemorySaver())
 
 
 # ------------------------------------------------------------------
@@ -263,7 +262,7 @@ class TestToolApprovalApproveFlow:
     @pytest.mark.asyncio
     async def test_approve_allows_tool_execution(self):
         """When user approves, the tool should execute and return a result."""
-        graph = _build_tool_approval_agent()
+        graph = await _build_tool_approval_agent()
         config = {"configurable": {"thread_id": "approve-test"}}
 
         # Step 1: Invoke — LLM should call write_file, HITL interrupts
@@ -300,7 +299,7 @@ class TestToolApprovalRejectFlow:
     @pytest.mark.asyncio
     async def test_reject_prevents_tool_execution(self):
         """When user rejects, the tool should NOT execute."""
-        graph = _build_tool_approval_agent()
+        graph = await _build_tool_approval_agent()
         config = {"configurable": {"thread_id": "reject-test"}}
 
         # Step 1: Invoke — triggers interrupt

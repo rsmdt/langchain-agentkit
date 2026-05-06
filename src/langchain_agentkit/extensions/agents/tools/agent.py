@@ -128,7 +128,24 @@ def _compile_agent(
     if getattr(graph, "tools_inherit", False) and parent_tools_getter is not None:
         parent_tools = parent_tools_getter()
         if parent_tools:
-            tool_node = ToolNode(parent_tools)
+            # Merge: sub-agent's own tools first, then parent's tools.
+            # Dedupe by name (first wins) so an explicit sub-agent tool
+            # shadows a parent tool of the same name. The sub-agent's own
+            # tools came from its ``tools = [t1, "inherit"]`` declaration —
+            # the kit already built them into the existing ``tools`` node.
+            existing_tools: list[BaseTool] = []
+            if "tools" in graph.nodes:
+                existing_node = graph.nodes["tools"]
+                existing_tools = list(getattr(existing_node, "tools_by_name", {}).values())
+
+            merged: list[BaseTool] = list(existing_tools)
+            seen: set[str] = {t.name for t in merged}
+            for t in parent_tools:
+                if t.name not in seen:
+                    merged.append(t)
+                    seen.add(t.name)
+
+            tool_node = ToolNode(merged)
             if "tools" in graph.nodes:
                 graph.nodes["tools"] = tool_node
             else:
