@@ -19,6 +19,8 @@ every available backend:
 from __future__ import annotations
 
 import os
+import shutil
+import sys
 import tempfile
 from pathlib import Path
 
@@ -93,6 +95,21 @@ def _agentfs_available() -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Bubblewrap helpers
+# ---------------------------------------------------------------------------
+
+
+def _bubblewrap_available() -> bool:
+    """Bubblewrap conformance runs only on Linux with bwrap installed.
+
+    No SDK or env vars required. The CI/dev path is to invoke this
+    suite inside ``tests/docker/Dockerfile`` so the matrix executes
+    on a host where ``bwrap`` is real.
+    """
+    return sys.platform == "linux" and shutil.which("bwrap") is not None
+
+
+# ---------------------------------------------------------------------------
 # Parameterized backend fixture
 # ---------------------------------------------------------------------------
 
@@ -101,6 +118,8 @@ if _daytona_available():
     _BACKEND_IDS.append("daytona")
 if _agentfs_available():
     _BACKEND_IDS.append("agentfs")
+if _bubblewrap_available():
+    _BACKEND_IDS.append("bubblewrap")
 
 
 @pytest.fixture(params=_BACKEND_IDS)
@@ -135,6 +154,12 @@ async def backend(request):
                 yield AgentFSBackend(agent)
             finally:
                 await agent.close()
+
+    elif request.param == "bubblewrap":
+        from langchain_agentkit.backends.bubblewrap import BubblewrapBackend
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            yield BubblewrapBackend(tmpdir)
 
 
 # ---------------------------------------------------------------------------

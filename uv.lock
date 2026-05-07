@@ -732,6 +732,9 @@ dependencies = [
 agentfs = [
     { name = "agentfs-sdk" },
 ]
+bubblewrap = [
+    { name = "pyseccomp", marker = "sys_platform == 'linux'" },
+]
 daytona = [
     { name = "daytona-sdk" },
 ]
@@ -741,6 +744,7 @@ dev = [
     { name = "langchain-openai" },
     { name = "mypy" },
     { name = "poethepoet" },
+    { name = "pyseccomp", marker = "sys_platform == 'linux'" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-xdist" },
@@ -767,6 +771,8 @@ requires-dist = [
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "openevals", marker = "extra == 'eval'", specifier = ">=0.1" },
     { name = "poethepoet", marker = "extra == 'dev'", specifier = ">=0.32" },
+    { name = "pyseccomp", marker = "sys_platform == 'linux' and extra == 'bubblewrap'", specifier = ">=0.1.2" },
+    { name = "pyseccomp", marker = "sys_platform == 'linux' and extra == 'dev'", specifier = ">=0.1.2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.5" },
@@ -774,7 +780,7 @@ requires-dist = [
     { name = "ruff", marker = "extra == 'dev'", specifier = ">=0.8" },
     { name = "types-pyyaml", marker = "extra == 'dev'", specifier = ">=6.0" },
 ]
-provides-extras = ["dev", "eval", "daytona", "agentfs"]
+provides-extras = ["dev", "eval", "daytona", "agentfs", "bubblewrap"]
 
 [[package]]
 name = "langchain-core"
@@ -1760,6 +1766,15 @@ source = { registry = "https://pypi.org/simple" }
 sdist = { url = "https://files.pythonhosted.org/packages/b0/77/a5b8c569bf593b0140bde72ea885a803b82086995367bf2037de0159d924/pygments-2.19.2.tar.gz", hash = "sha256:636cb2477cec7f8952536970bc533bc43743542f70392ae026374600add5b887", size = 4968631, upload-time = "2025-06-21T13:39:12.283Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/c7/21/705964c7812476f378728bdf590ca4b771ec72385c533964653c68e86bdc/pygments-2.19.2-py3-none-any.whl", hash = "sha256:86540386c03d588bb81d44bc3928634ff26449851e99741617ecb9037ee5ec0b", size = 1225217, upload-time = "2025-06-21T13:39:07.939Z" },
+]
+
+[[package]]
+name = "pyseccomp"
+version = "0.1.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/08/e2/f761ad7bd34745af8c8aa6d76a71a240eef45ee4635e2022dcc1b133b4d8/pyseccomp-0.1.2.tar.gz", hash = "sha256:0d54efacf71bda4bdfd21233f5444b730cbecf593d602f796e6412a8682258bd", size = 4943, upload-time = "2021-01-02T22:48:01.278Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/cd/5a/2c454fe11c9bf0d8d77a8d89d05e9f2f4203b39c000d0e38a060c273ab7f/pyseccomp-0.1.2-py3-none-any.whl", hash = "sha256:19177748e1202603ca4b2c41d728916402c018c4fee49dca1e3568ea218b7c23", size = 5667, upload-time = "2021-01-02T22:48:00.578Z" },
 ]
 
 [[package]]

@@ -34,6 +34,7 @@ dev = [
     "types-PyYAML>=6.0",
     "daytona-sdk>=0.158",
     "agentfs-sdk>=0.6,<0.7",
+    "pyseccomp>=0.1.2; sys_platform == 'linux'",
 ]
 eval = [
     "agentevals>=0.0.9",
@@ -45,6 +46,9 @@ daytona = [
 ]
 agentfs = [
     "agentfs-sdk>=0.6,<0.7",
+]
+bubblewrap = [
+    "pyseccomp>=0.1.2; sys_platform == 'linux'",
 ]
 
 [project.urls]
