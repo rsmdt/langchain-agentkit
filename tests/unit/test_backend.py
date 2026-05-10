@@ -1,6 +1,6 @@
 """OSBackend-specific tests.
 
-Tests for behavior unique to OSBackend that is NOT part of BackendProtocol:
+Tests for behavior unique to OSBackend that is NOT part of FilesystemProtocol:
 symlinks, absolute path resolution, ls(), exists(), delete().
 
 Protocol-level tests (read, write, edit, glob, grep, execute) live in
@@ -12,14 +12,14 @@ from __future__ import annotations
 import os
 import tempfile
 
-from langchain_agentkit.backends import BackendProtocol
+from langchain_agentkit.backends import FilesystemProtocol
 from langchain_agentkit.backends.os import OSBackend
 
 
 class TestProtocolConformance:
     def test_is_backend_protocol(self):
         with tempfile.TemporaryDirectory() as tmpdir:
-            assert isinstance(OSBackend(tmpdir), BackendProtocol)
+            assert isinstance(OSBackend(tmpdir), FilesystemProtocol)
 
     def test_has_execute(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -86,7 +86,7 @@ class TestSymlinks:
 
 
 class TestConvenienceMethods:
-    """ls(), exists(), delete() — not part of BackendProtocol."""
+    """ls(), exists(), delete() — not part of FilesystemProtocol."""
 
     async def test_exists(self):
         with tempfile.TemporaryDirectory() as tmpdir:

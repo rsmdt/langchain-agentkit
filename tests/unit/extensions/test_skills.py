@@ -224,7 +224,7 @@ class TestDirectoryMode:
 
 
 class TestBackendMode:
-    """Mode C: skills discovered via BackendProtocol (async setup)."""
+    """Mode C: skills discovered via FilesystemProtocol (async setup)."""
 
     async def test_discovers_skills_from_backend(self):
         with tempfile.TemporaryDirectory() as tmpdir:

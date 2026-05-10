@@ -176,7 +176,7 @@ def test_prompt_applies_max_bytes_cap(tmp_path: Path) -> None:
 
 
 class _FakeBackend:
-    """Minimal BackendProtocol stand-in for memory-read tests."""
+    """Minimal FilesystemProtocol stand-in for memory-read tests."""
 
     def __init__(self, files: dict[str, str]) -> None:
         self.files = files

@@ -34,7 +34,7 @@ def read_tree(
         dest_path: Virtual root path the tuples should target.
 
     Returns:
-        ``list[tuple[str, bytes]]`` shaped for ``FileTransferBackend.upload``.
+        ``list[tuple[str, bytes]]`` shaped for ``FilesystemProtocol.upload``.
     """
     src = Path(local_path)
     dest = dest_path.rstrip("/")

@@ -24,7 +24,7 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
 
-    from langchain_agentkit.backends.protocol import BackendProtocol
+    from langchain_agentkit.backends.protocol import FilesystemProtocol
 
 _PROMPT_FILE = Path(__file__).parent / "prompt.md"
 _agent_delegation_template = PromptTemplate.from_file(_PROMPT_FILE)
@@ -103,7 +103,7 @@ class AgentsExtension(Extension):
 
     Args:
         agents: List of agent objects, or a string/Path to a directory.
-        backend: Optional BackendProtocol for remote filesystem discovery.
+        backend: Optional FilesystemProtocol for remote filesystem discovery.
         ephemeral: Enable dynamic (on-the-fly) agents.
         default_conciseness: Append conciseness directive.
         delegation_timeout: Max seconds to wait for a subagent response.
@@ -132,7 +132,7 @@ class AgentsExtension(Extension):
         self,
         *,
         agents: list[Any] | str | Path,
-        backend: BackendProtocol | None = None,
+        backend: FilesystemProtocol | None = None,
         ephemeral: bool = False,
         default_conciseness: bool = True,
         delegation_timeout: float = 300.0,

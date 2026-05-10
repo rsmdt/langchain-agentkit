@@ -111,7 +111,7 @@ PROBED_TOOLS: tuple[str, ...] = (
 
 @dataclass(slots=True, frozen=True)
 class SandboxEnvironment:
-    """Snapshot of the shell environment a ``SandboxBackend`` runs commands in.
+    """Snapshot of the shell environment a ``SandboxProtocol`` runs commands in.
 
     Surfaced to the LLM via the ``<env>`` block in the system prompt. The
     LLM uses this to pick correct shell flags (BSD vs GNU vs busybox),

@@ -30,7 +30,7 @@ from typing import TYPE_CHECKING, Any
 from langchain_core.tools import StructuredTool, ToolException
 
 from langchain_agentkit.backends.os import OSBackend
-from langchain_agentkit.backends.protocol import SandboxBackend
+from langchain_agentkit.backends.protocol import SandboxProtocol
 from langchain_agentkit.extension import Extension
 from langchain_agentkit.extensions.filesystem.tools import create_filesystem_tools
 from langchain_agentkit.extensions.filesystem.tools.bash import _build_bash_tool
@@ -47,7 +47,7 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
 
-    from langchain_agentkit.backends.protocol import BackendProtocol
+    from langchain_agentkit.backends.protocol import FilesystemProtocol
     from langchain_agentkit.backends.results import SandboxEnvironment
 
 logger = logging.getLogger(__name__)
@@ -90,7 +90,7 @@ class FilesystemExtension(Extension):
     model why and how to fix it.
 
     Args:
-        backend: A ``BackendProtocol`` implementation.
+        backend: A ``FilesystemProtocol`` implementation.
         root: Root directory for the default OS filesystem backend.
         permissions: Optional permission ruleset. When ``None``, all
             operations are allowed (no gating).
@@ -106,7 +106,7 @@ class FilesystemExtension(Extension):
     def __init__(
         self,
         *,
-        backend: BackendProtocol | None = None,
+        backend: FilesystemProtocol | None = None,
         root: str | Path = ".",
         permissions: PermissionRuleset | None = None,
         tools: Sequence[BaseTool] | None = None,
@@ -118,14 +118,14 @@ class FilesystemExtension(Extension):
             tuple(tools) if tools is not None else None
         )
         self._tools_cache: list[BaseTool] | None = None
-        self._env: SandboxEnvironment | None = None  # Populated by setup() for SandboxBackend
+        self._env: SandboxEnvironment | None = None  # Populated by setup() for SandboxProtocol
 
     async def setup(  # type: ignore[override]
         self, *, extensions: list[Extension], **_: Any
     ) -> None:
         """Detect HITLExtension sibling and probe backend environment.
 
-        Async because :class:`SandboxBackend.environment` may issue a
+        Async because :class:`SandboxProtocol.environment` may issue a
         one-time shell probe against a remote sandbox.
         """
         from langchain_agentkit.extensions.hitl import HITLExtension
@@ -135,11 +135,11 @@ class FilesystemExtension(Extension):
         # the correct HITL-aware gating.
         self._tools_cache = None
         # Probe shell environment so prompt() can render the <env> block.
-        if isinstance(self._backend, SandboxBackend):
+        if isinstance(self._backend, SandboxProtocol):
             self._env = await self._backend.environment()
 
     @property
-    def backend(self) -> BackendProtocol:
+    def backend(self) -> FilesystemProtocol:
         """The backend this extension operates on."""
         return self._backend
 
@@ -166,8 +166,8 @@ class FilesystemExtension(Extension):
             tools: list[BaseTool] = list(self._custom_tools)
         else:
             tools = create_filesystem_tools(self._backend)
-            # Add Bash tool if backend implements SandboxBackend capability
-            if isinstance(self._backend, SandboxBackend):
+            # Add Bash tool if backend implements SandboxProtocol capability
+            if isinstance(self._backend, SandboxProtocol):
                 tools.append(_build_bash_tool(self._backend))
 
         if self._permissions is None:
@@ -216,7 +216,7 @@ class FilesystemExtension(Extension):
         """Render the ``<env>`` block describing the backend's shell
         environment, matching Claude Code's prompt convention.
 
-        Returns ``None`` for non-:class:`SandboxBackend` backends (no
+        Returns ``None`` for non-:class:`SandboxProtocol` backends (no
         shell available, nothing to surface). Tool-name guidance lives
         in each tool's ``description``.
         """

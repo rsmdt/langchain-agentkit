@@ -1,11 +1,10 @@
-"""BackendProtocol conformance tests — run against every backend.
+"""FilesystemProtocol conformance tests — run against every backend.
 
-These tests verify the contract of all three capability protocols:
-``BackendProtocol`` (file ops), ``SandboxBackend`` (adds execute),
-``FileTransferBackend`` (adds upload/download). Any backend that
-implements a tier must pass the corresponding tests; tests for tiers
-a backend doesn't implement are skipped via the ``sandbox_backend`` /
-``transfer_backend`` capability fixtures.
+These tests verify the contract of both capability protocols:
+``FilesystemProtocol`` (file ops + bulk transfer, required) and
+``SandboxProtocol`` (adds execute/environment, optional). Backends
+that don't claim ``SandboxProtocol`` skip the sandbox tests via the
+``sandbox_backend`` capability fixture.
 
 The ``backend`` fixture is parameterized so the same tests run against
 every available backend:
@@ -27,9 +26,8 @@ from pathlib import Path
 import pytest
 
 from langchain_agentkit.backends import (
-    BackendProtocol,
-    FileTransferBackend,
-    SandboxBackend,
+    FilesystemProtocol,
+    SandboxProtocol,
 )
 from langchain_agentkit.backends.os import OSBackend
 
@@ -163,26 +161,17 @@ async def backend(request):
 
 
 # ---------------------------------------------------------------------------
-# Capability fixtures — skip tier-specific tests when the parametrized
-# backend doesn't implement that tier. Lets BackendProtocol-only backends
-# (e.g. AgentFS) coexist in the matrix without spurious failures.
+# Capability fixture — skip sandbox tests when the parametrized backend
+# doesn't claim ``SandboxProtocol``. Lets filesystem-only backends (e.g.
+# AgentFS) coexist in the matrix without spurious failures.
 # ---------------------------------------------------------------------------
 
 
 @pytest.fixture
 def sandbox_backend(backend):
-    if not isinstance(backend, SandboxBackend):
+    if not isinstance(backend, SandboxProtocol):
         pytest.skip(
-            f"{type(backend).__name__} does not implement SandboxBackend (execute / environment)"
-        )
-    return backend
-
-
-@pytest.fixture
-def transfer_backend(backend):
-    if not isinstance(backend, FileTransferBackend):
-        pytest.skip(
-            f"{type(backend).__name__} does not implement FileTransferBackend (upload / download)"
+            f"{type(backend).__name__} does not implement SandboxProtocol (execute / environment)"
         )
     return backend
 
@@ -193,17 +182,14 @@ def transfer_backend(backend):
 
 
 class TestProtocolTiers:
-    def test_implements_backend_protocol(self, backend):
-        # Every backend in the matrix must satisfy the base file tier.
-        assert isinstance(backend, BackendProtocol)
+    def test_implements_filesystem_protocol(self, backend):
+        # Every backend in the matrix must satisfy the file tier
+        # (read/write/edit/glob/grep + upload/download).
+        assert isinstance(backend, FilesystemProtocol)
 
-    def test_implements_sandbox_backend(self, sandbox_backend):
-        # Skipped via the capability fixture for BackendProtocol-only backends.
-        assert isinstance(sandbox_backend, SandboxBackend)
-
-    def test_implements_file_transfer_backend(self, transfer_backend):
-        # Skipped via the capability fixture for BackendProtocol-only backends.
-        assert isinstance(transfer_backend, FileTransferBackend)
+    def test_implements_sandbox_protocol(self, sandbox_backend):
+        # Skipped via the capability fixture for filesystem-only backends.
+        assert isinstance(sandbox_backend, SandboxProtocol)
 
 
 # ---------------------------------------------------------------------------
@@ -396,7 +382,7 @@ class TestGrep:
 
 
 # ---------------------------------------------------------------------------
-# execute (SandboxBackend)
+# execute (SandboxProtocol)
 # ---------------------------------------------------------------------------
 
 
@@ -412,7 +398,7 @@ class TestExecute:
 
 
 # ---------------------------------------------------------------------------
-# environment (SandboxBackend)
+# environment (SandboxProtocol)
 # ---------------------------------------------------------------------------
 
 
@@ -441,7 +427,7 @@ class TestEnvironment:
 
 
 # ---------------------------------------------------------------------------
-# upload / download (FileTransferBackend)
+# upload / download (FilesystemProtocol)
 # ---------------------------------------------------------------------------
 
 

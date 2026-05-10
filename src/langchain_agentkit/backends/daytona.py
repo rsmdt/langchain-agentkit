@@ -1,8 +1,8 @@
 """DaytonaBackend — Daytona cloud sandbox backend.
 
-Implements ``BackendProtocol``, ``SandboxBackend``, and
-``FileTransferBackend`` using the Daytona SDK for ``execute()`` and
-shell commands for file operations (read, write, edit, glob, grep).
+Implements ``FilesystemProtocol`` and ``SandboxProtocol`` using the
+Daytona SDK for ``execute()`` and shell commands for file operations
+(read, write, edit, glob, grep).
 
 Requires ``pip install langchain-agentkit[daytona]`` (or
 ``pip install daytona-sdk`` directly). Importing this module fails with
@@ -211,7 +211,7 @@ class DaytonaBackend:
             raise PermissionError(f"Path traversal blocked: {path}")
         return candidate
 
-    # --- SandboxBackend ---
+    # --- SandboxProtocol ---
 
     async def execute(
         self,
@@ -281,7 +281,7 @@ class DaytonaBackend:
         )
         return self._env_cache
 
-    # --- BackendProtocol: file ops via shell ---
+    # --- FilesystemProtocol: file ops via shell ---
 
     async def read_bytes(self, path: str) -> ReadBytesResult:
         try:
@@ -484,7 +484,7 @@ class DaytonaBackend:
             matches.append(GrepMatch(path=file_path, line=line_num, text=parts[2]))
         return matches
 
-    # --- FileTransferBackend ---
+    # --- FilesystemProtocol: bulk transfer (host-side) ---
     #
     # True bulk transfer via the Daytona SDK's native multipart endpoints.
     # ``sandbox.fs.upload_files`` posts one multipart HTTP request for N

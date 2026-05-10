@@ -46,7 +46,7 @@ from langchain_agentkit.agent_kit import AgentKit, run_extension_setup
 # explicitly from its own submodule (langchain_agentkit.backends.os,
 # langchain_agentkit.backends.daytona, langchain_agentkit.backends.agentfs,
 # …) so optional-dependency gates surface at the import line.
-from langchain_agentkit.backends import BackendProtocol
+from langchain_agentkit.backends import FilesystemProtocol, SandboxProtocol
 from langchain_agentkit.composability import AgentLike, CompiledAgent, TeamAgent, wrap_if_needed
 from langchain_agentkit.extension import Extension
 
@@ -130,8 +130,9 @@ __all__ = [
     "after",
     "before",
     "wrap",
-    # Backends (capability protocol only; concrete backends and helpers live in submodules)
-    "BackendProtocol",
+    # Backends (capability protocols only; concrete backends and helpers live in submodules)
+    "FilesystemProtocol",
+    "SandboxProtocol",
     # Permissions
     "DEFAULT_RULESET",
     "PERMISSIVE_RULESET",

@@ -9,7 +9,7 @@ Two modes:
 
 1. **Local filesystem** (``backend=None``) — reads synchronously inside
    ``prompt()`` via ``pathlib.Path``. No async setup needed.
-2. **Backend-driven** (``backend=<BackendProtocol>``) — reads
+2. **Backend-driven** (``backend=<FilesystemProtocol>``) — reads
    asynchronously. An initial load runs in ``setup()``; each turn's
    ``before_model`` hook refreshes a cached body that ``prompt()``
    returns synchronously.
@@ -32,7 +32,7 @@ from langchain_agentkit.extension import Extension
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from langchain_agentkit.backends.protocol import BackendProtocol
+    from langchain_agentkit.backends.protocol import FilesystemProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -67,7 +67,7 @@ class MemoryExtension(Extension):
     for resolution order.
 
     Args:
-        backend: Optional :class:`BackendProtocol` for remote filesystem
+        backend: Optional :class:`FilesystemProtocol` for remote filesystem
             reads. When provided, ``setup()`` performs the initial async
             load and ``before_model`` refreshes the cached body every
             turn. When ``None``, ``prompt()`` reads the local filesystem
@@ -86,7 +86,7 @@ class MemoryExtension(Extension):
     trust_footer: str = (
         "Memory records may be stale. Verify facts against current state before acting on them."
     )
-    backend: BackendProtocol | None = None
+    backend: FilesystemProtocol | None = None
 
     def __post_init__(self) -> None:
         self._cached_body: str | None = None

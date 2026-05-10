@@ -13,7 +13,7 @@ from langchain_agentkit.extensions.discovery import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from langchain_agentkit.backends.protocol import BackendProtocol
+    from langchain_agentkit.backends.protocol import FilesystemProtocol
 
 
 def _parse_comma_list(value: Any) -> list[str] | None:
@@ -64,8 +64,8 @@ def discover_agents_from_directory(path: Path) -> list[AgentConfig]:
     )
 
 
-async def discover_agents_from_backend(backend: BackendProtocol, path: str) -> list[AgentConfig]:
-    """Discover agents via a BackendProtocol by globbing for .md files."""
+async def discover_agents_from_backend(backend: FilesystemProtocol, path: str) -> list[AgentConfig]:
+    """Discover agents via a FilesystemProtocol by globbing for .md files."""
     return await discover_from_backend(
         backend,
         path,

@@ -1,4 +1,4 @@
-"""Bash tool for executing shell commands via a BackendProtocol."""
+"""Bash tool for executing shell commands via a FilesystemProtocol."""
 
 from __future__ import annotations
 
@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
-    from langchain_agentkit.backends.protocol import SandboxBackend
+    from langchain_agentkit.backends.protocol import SandboxProtocol
 
 
 _BASH_DESCRIPTION = """Executes a given bash command and returns its output.
@@ -59,7 +59,7 @@ class _BashInput(BaseModel):
     )
 
 
-def _build_bash_tool(backend: SandboxBackend) -> BaseTool:
+def _build_bash_tool(backend: SandboxProtocol) -> BaseTool:
     """Build the Bash tool for shell command execution."""
 
     async def _bash(

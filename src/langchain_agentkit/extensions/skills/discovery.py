@@ -14,7 +14,7 @@ from langchain_agentkit.extensions.skills.types import SkillConfig
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from langchain_agentkit.backends.protocol import BackendProtocol
+    from langchain_agentkit.backends.protocol import FilesystemProtocol
 
 logger = logging.getLogger(__name__)
 
@@ -66,8 +66,8 @@ def discover_skills_from_directory(path: Path) -> list[SkillConfig]:
     )
 
 
-async def discover_skills_from_backend(backend: BackendProtocol, path: str) -> list[SkillConfig]:
-    """Discover skills via a BackendProtocol by globbing for SKILL.md files."""
+async def discover_skills_from_backend(backend: FilesystemProtocol, path: str) -> list[SkillConfig]:
+    """Discover skills via a FilesystemProtocol by globbing for SKILL.md files."""
     return await discover_from_backend(
         backend,
         path,

@@ -17,7 +17,7 @@ from langchain_agentkit.extensions.prompt_templates.types import (
 if TYPE_CHECKING:
     from pathlib import Path
 
-    from langchain_agentkit.backends.protocol import BackendProtocol
+    from langchain_agentkit.backends.protocol import FilesystemProtocol
 
 _logger = logging.getLogger(__name__)
 
@@ -42,9 +42,9 @@ def discover_templates_from_directory(path: Path) -> list[PromptTemplate]:
 
 
 async def discover_templates_from_backend(
-    backend: BackendProtocol, path: str
+    backend: FilesystemProtocol, path: str
 ) -> list[PromptTemplate]:
-    """Discover templates via a :class:`BackendProtocol`."""
+    """Discover templates via a :class:`FilesystemProtocol`."""
     return await discover_from_backend(
         backend,
         path,

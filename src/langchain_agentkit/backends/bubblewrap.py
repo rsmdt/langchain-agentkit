@@ -6,8 +6,7 @@ this mirrors :class:`langchain_agentkit.backends.daytona.DaytonaBackend`
 except the "sandbox" is a local Linux user-namespace process rather
 than a remote container.
 
-Implements ``BackendProtocol``, ``SandboxBackend``, and
-``FileTransferBackend`` structurally.
+Implements ``FilesystemProtocol`` and ``SandboxProtocol`` structurally.
 
 Threat model
 ============
@@ -879,7 +878,7 @@ class BubblewrapBackend:
             return argv_template
         return [str(fd) if a == "__SECCOMP_FD__" else a for a in argv_template]
 
-    # ----- SandboxBackend -------------------------------------------------
+    # ----- SandboxProtocol ------------------------------------------------
 
     async def execute(
         self,
@@ -923,7 +922,7 @@ class BubblewrapBackend:
         )
         return self._env_cache
 
-    # ----- BackendProtocol ------------------------------------------------
+    # ----- FilesystemProtocol ---------------------------------------------
 
     async def read(self, path: str, offset: int = 0, limit: int = 2000) -> ReadResult:
         try:
@@ -1150,7 +1149,7 @@ class BubblewrapBackend:
             matches.append(GrepMatch(path=file_path, line=line_num, text=parts[2]))
         return matches
 
-    # ----- FileTransferBackend -------------------------------------------
+    # ----- FilesystemProtocol: bulk transfer (host-side) -----------------
 
     async def upload(self, files: list[tuple[str, bytes]]) -> list[FileUploadResult]:
         """Bulk upload — sequential per-file writes.

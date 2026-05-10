@@ -36,7 +36,7 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
 
-    from langchain_agentkit.backends.protocol import BackendProtocol
+    from langchain_agentkit.backends.protocol import FilesystemProtocol
     from langchain_agentkit.extensions.skills.types import SkillConfig
 
 _PROMPT_FILE = Path(__file__).parent / "prompt.md"
@@ -49,7 +49,7 @@ class SkillsExtension(Extension):
     Args:
         skills: Either a list of SkillConfig objects, or a string/Path
             pointing to a directory to scan for skills.
-        backend: Optional BackendProtocol for remote filesystem discovery.
+        backend: Optional FilesystemProtocol for remote filesystem discovery.
             When provided with a path, discovery is deferred to ``setup()``.
     """
 
@@ -57,7 +57,7 @@ class SkillsExtension(Extension):
         self,
         *,
         skills: list[SkillConfig] | str | Path,
-        backend: BackendProtocol | None = None,
+        backend: FilesystemProtocol | None = None,
         budget_percent: float | None = None,
         max_description_chars: int | None = None,
         context_window: int | None = None,

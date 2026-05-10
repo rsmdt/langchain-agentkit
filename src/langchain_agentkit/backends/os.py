@@ -1,7 +1,7 @@
 """OSBackend — local filesystem + subprocess backend.
 
-Implements ``BackendProtocol``, ``SandboxBackend``, and
-``FileTransferBackend`` using the real OS filesystem with path traversal
+Implements ``FilesystemProtocol`` and ``SandboxProtocol`` using
+the real OS filesystem with path traversal
 prevention and ``asyncio.create_subprocess_shell`` for execute.
 
 Usage::
@@ -87,7 +87,7 @@ class OSBackend:
             raise PermissionError(f"Path traversal blocked: {path}")
         return resolved
 
-    # --- BackendProtocol ---
+    # --- FilesystemProtocol ---
 
     async def read(self, path: str, offset: int = 0, limit: int = 2000) -> ReadResult:
         try:
@@ -239,7 +239,7 @@ class OSBackend:
                     continue
         return matches
 
-    # --- SandboxBackend ---
+    # --- SandboxProtocol ---
 
     async def execute(
         self,
@@ -331,7 +331,7 @@ class OSBackend:
             )
         return self._env_cache
 
-    # --- FileTransferBackend ---
+    # --- FilesystemProtocol: bulk transfer (host-side) ---
 
     async def upload(self, files: list[tuple[str, bytes]]) -> list[FileUploadResult]:
         results: list[FileUploadResult] = []

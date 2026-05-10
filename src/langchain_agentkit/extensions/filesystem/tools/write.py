@@ -24,10 +24,10 @@ Usage:
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
 
-    from langchain_agentkit.backends.protocol import BackendProtocol
+    from langchain_agentkit.backends.protocol import FilesystemProtocol
 
 
-def _build_write(backend: BackendProtocol) -> BaseTool:
+def _build_write(backend: FilesystemProtocol) -> BaseTool:
     async def write(file_path: str, content: str) -> tuple[str, dict[str, Any]]:
         """Write content to a file."""
         read_result = await backend.read(file_path, limit=_FULL_READ_LIMIT)

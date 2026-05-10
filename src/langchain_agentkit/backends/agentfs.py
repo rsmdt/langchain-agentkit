@@ -1,13 +1,12 @@
 """AgentFSBackend — local SQLite-backed virtual filesystem backend.
 
-Implements ``BackendProtocol`` and ``FileTransferBackend`` on top of
-the AgentFS Python SDK (``agentfs-sdk``). AgentFS is a
-content-addressed virtual filesystem persisted in a single
-SQLite/libSQL ``.db`` file, with async file primitives over
-``turso.aio``.
+Implements ``FilesystemProtocol`` on top of the AgentFS Python SDK
+(``agentfs-sdk``). AgentFS is a content-addressed virtual filesystem
+persisted in a single SQLite/libSQL ``.db`` file, with async file
+primitives over ``turso.aio``.
 
-Capability scope: ``BackendProtocol`` + ``FileTransferBackend``.
-``SandboxBackend`` is deliberately not claimed — AgentFS has no
+Capability scope: ``FilesystemProtocol`` only.
+``SandboxProtocol`` is deliberately not claimed — AgentFS has no
 native shell-execution surface (the ``agentfs run`` CLI operates on
 a separate ``delta.db`` with the host cwd as the base layer, and
 ``agentfs exec`` is Linux-only via FUSE / macOS-only via NFS with
@@ -151,7 +150,7 @@ class AgentFSBackend:
             return "/" + abs_path[len(prefix) :]
         return abs_path
 
-    # --- BackendProtocol: file ops ---
+    # --- FilesystemProtocol: file ops ---
 
     async def read(self, path: str, offset: int = 0, limit: int = 2000) -> ReadResult:
         try:
@@ -326,7 +325,7 @@ class AgentFSBackend:
                     matches.append(GrepMatch(path=virtual_path, line=i, text=line))
         return matches
 
-    # --- FileTransferBackend ---
+    # --- FilesystemProtocol: bulk transfer (host-side) ---
     #
     # AgentFS has no native multipart endpoint — the .db is local and
     # ``write_file`` / ``read_file`` are already cheap (one SQLite

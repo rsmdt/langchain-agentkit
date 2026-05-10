@@ -405,14 +405,15 @@ ext = FilesystemExtension(root="./workspace")
 
 **Alternative backends:**
 
-`FilesystemExtension` accepts any object satisfying `BackendProtocol`. The framework ships two optional remote/persistent backends; install the one you need.
+`FilesystemExtension` accepts any object satisfying `FilesystemProtocol`. The framework ships four optional remote/sandboxed/unified-VFS backends; install the one you need.
 
 | Backend | Install | Tier | Use when |
 |---------|---------|------|----------|
-| `OSBackend` | built-in | `BackendProtocol` + `SandboxBackend` + `FileTransferBackend` | Local agent reads/writes/runs against the host filesystem. |
-| `DaytonaBackend` | `pip install langchain-agentkit[daytona]` | all three tiers | Agent works in an isolated cloud sandbox with shell access. See `examples/daytona/`. |
-| `AgentFSBackend` | `pip install langchain-agentkit[agentfs]` | `BackendProtocol` only | Agent state persists in a local SQLite-backed virtual filesystem (one `.db` file). No bash tool — AgentFS has no native exec surface. See `examples/agentfs/`. |
-| `BubblewrapBackend` | `apt-get install bubblewrap` (+ `pip install langchain-agentkit[bubblewrap]` for the default seccomp profile) | all three tiers | Linux host with multiple users' agents on one box. Per-call `bwrap` namespace isolation; bind-mounts any host directory (including AgentFS-via-FUSE) as `/workspace`. |
+| `OSBackend` | built-in | `FilesystemProtocol` + `SandboxProtocol` | Local agent reads/writes/runs against the host filesystem. |
+| `DaytonaBackend` | `pip install langchain-agentkit[daytona]` | `FilesystemProtocol` + `SandboxProtocol` | Agent works in an isolated cloud sandbox with shell access. See `examples/daytona/`. |
+| `AgentFSBackend` | `pip install langchain-agentkit[agentfs]` | `FilesystemProtocol` only | Agent state persists in a local SQLite-backed virtual filesystem (one `.db` file). No bash tool — AgentFS has no native exec surface. See `examples/agentfs/`. |
+| `BubblewrapBackend` | `apt-get install bubblewrap` (+ `pip install langchain-agentkit[bubblewrap]` for the default seccomp profile) | `FilesystemProtocol` + `SandboxProtocol` | Linux host with multiple users' agents on one box. Per-call `bwrap` namespace isolation; bind-mounts any host directory (including AgentFS-via-FUSE) as `/workspace`. |
+| `MirageBackend` | `pip install langchain-agentkit[mirage]` | `FilesystemProtocol` + `SandboxProtocol` | Agent reaches multiple services (S3, Slack, GitHub, GDrive, …) through one filesystem; supports cross-mount pipelines via tree-sitter-bash in-process shell. |
 
 ```python
 # Daytona (cloud sandbox; full capability)
@@ -440,7 +441,7 @@ ext = FilesystemExtension(backend=backend)
 
 `BubblewrapBackend` accepts any host path. To pair with AgentFS for content-addressed snapshots, mount the `.db` first via `agentfs run --mount /var/sessions/abc <db>` (Linux/FUSE), then pass that path. The backend itself is filesystem-agnostic; lifecycle of the underlying mount is the caller's responsibility.
 
-Capability gating is structural: `Bash` is registered only when the backend implements `SandboxBackend`. Pairing `AgentFSBackend` with another `SandboxBackend`-capable backend in your agent is the right composition pattern when you need both persistent file state and shell exec.
+Capability gating is structural: `Bash` is registered only when the backend implements `SandboxProtocol`. Pairing `AgentFSBackend` with another `SandboxProtocol`-capable backend in your agent is the right composition pattern when you need both persistent file state and shell exec.
 
 ### WebSearchExtension
 

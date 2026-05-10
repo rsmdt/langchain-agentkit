@@ -1,7 +1,7 @@
 """Bubblewrap-specific integration tests — runs only on Linux with bwrap.
 
 These tests verify properties of the *sandbox itself* (not the
-``BackendProtocol`` contract — that's covered by
+``FilesystemProtocol`` contract — that's covered by
 ``test_backend_protocol.py``'s parameterized matrix). Each test
 exercises a security claim made in ``BubblewrapBackend``'s docstring
 and would silently regress if the bwrap argv changed in a way that

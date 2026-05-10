@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
 
-    from langchain_agentkit.backends.protocol import BackendProtocol
+    from langchain_agentkit.backends.protocol import FilesystemProtocol
 
 
 class PromptTemplateExtension(Extension):
@@ -45,7 +45,7 @@ class PromptTemplateExtension(Extension):
         templates: Either a list of :class:`PromptTemplate` instances OR
             a directory path (``str`` / ``Path``) to scan for ``*.md``
             files with frontmatter.
-        backend: Optional :class:`BackendProtocol`. When provided with a
+        backend: Optional :class:`FilesystemProtocol`. When provided with a
             path, discovery is deferred to :meth:`setup` (async).
     """
 
@@ -53,7 +53,7 @@ class PromptTemplateExtension(Extension):
         self,
         *,
         templates: Sequence[PromptTemplate] | str | Path,
-        backend: BackendProtocol | None = None,
+        backend: FilesystemProtocol | None = None,
         tools: Sequence[BaseTool] | None = None,
     ) -> None:
         self._backend = backend

@@ -2,8 +2,8 @@
 """AgentFS-backed agent — file-only backend, no bash tool.
 
 AgentFS is a SQLite-backed virtual filesystem; ``AgentFSBackend``
-implements ``BackendProtocol`` and ``FileTransferBackend`` (no
-``SandboxBackend``, so no ``Bash`` tool is registered). Agent state —
+implements ``FilesystemProtocol`` only (no ``SandboxProtocol``, so no
+``Bash`` tool is registered). Agent state —
 including the system prompt at ``/.agentkit/AGENTS.md`` — persists in
 ``./agent-state.db``.
 

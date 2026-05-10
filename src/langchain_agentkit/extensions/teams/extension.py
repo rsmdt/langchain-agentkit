@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
 
-    from langchain_agentkit.backends.protocol import BackendProtocol
+    from langchain_agentkit.backends.protocol import FilesystemProtocol
     from langchain_agentkit.extensions.teams.bus import (
         ActiveTeam,
         TeamMessage,
@@ -75,7 +75,7 @@ class TeamExtension(Extension):
 
     Args:
         agents: Member roster — see modes above.
-        backend: Optional :class:`BackendProtocol` for async directory
+        backend: Optional :class:`FilesystemProtocol` for async directory
             discovery.
         ephemeral: Enable dynamic (on-the-fly) team agents.
         max_team_size: Maximum number of team members allowed.
@@ -98,7 +98,7 @@ class TeamExtension(Extension):
         self,
         *,
         agents: list[Any] | str | Path,
-        backend: BackendProtocol | None = None,
+        backend: FilesystemProtocol | None = None,
         ephemeral: bool = False,
         max_team_size: int = 5,
         router_timeout: float = 30.0,

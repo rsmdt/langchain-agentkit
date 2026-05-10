@@ -9,7 +9,7 @@ and surfaces the dependency at the import line.
 Usage::
 
     # Capability protocols and shared types (always available)
-    from langchain_agentkit.backends import BackendProtocol, SandboxBackend
+    from langchain_agentkit.backends import FilesystemProtocol, SandboxProtocol
 
     # Concrete backends — explicit import per-backend
     from langchain_agentkit.backends.os import OSBackend
@@ -18,12 +18,11 @@ Usage::
 
 from langchain_agentkit.backends.helpers import read_tree
 from langchain_agentkit.backends.protocol import (
-    BackendProtocol,
     ExecuteResponse,
     FileInfo,
-    FileTransferBackend,
+    FilesystemProtocol,
     GrepMatch,
-    SandboxBackend,
+    SandboxProtocol,
 )
 from langchain_agentkit.backends.results import (
     PROBED_TOOLS,
@@ -40,20 +39,19 @@ from langchain_agentkit.backends.results import (
 
 __all__ = [
     "PROBED_TOOLS",
-    "BackendProtocol",
     "EditError",
     "EditResult",
     "ExecuteResponse",
     "FileDownloadResult",
     "FileError",
     "FileInfo",
-    "FileTransferBackend",
     "FileUploadResult",
+    "FilesystemProtocol",
     "GrepMatch",
     "ReadBytesResult",
     "ReadResult",
-    "SandboxBackend",
     "SandboxEnvironment",
+    "SandboxProtocol",
     "WriteResult",
     "read_tree",
 ]

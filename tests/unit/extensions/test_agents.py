@@ -181,7 +181,7 @@ class TestDirectoryMode:
 
 
 class TestBackendMode:
-    """Mode C: agents discovered via BackendProtocol (async setup)."""
+    """Mode C: agents discovered via FilesystemProtocol (async setup)."""
 
     async def test_discovers_agents_from_backend(self):
         with tempfile.TemporaryDirectory() as tmpdir:

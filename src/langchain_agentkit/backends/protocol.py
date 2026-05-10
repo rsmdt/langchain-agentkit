@@ -3,19 +3,21 @@
 Pure data-access layer. Returns raw content; presentation concerns
 (line numbers, formatting) belong in the tool layer above.
 
-All methods are async. Three structural ``Protocol`` tiers:
+All methods are async. Two structural ``Protocol`` tiers:
 
-- :class:`BackendProtocol` — file operations. Required for every backend.
-- :class:`SandboxBackend` — adds shell ``execute``. Backends that
-  satisfy this signal that the bash tool may be registered.
-- :class:`FileTransferBackend` — adds bulk binary ``upload`` and
-  ``download``. Used by host-side seeding/extraction; **not**
-  exposed as an LLM tool.
+- :class:`FilesystemProtocol` — file operations (singleton + bulk).
+  Required for every backend. Includes ``read``/``read_bytes``/
+  ``write``/``edit``/``glob``/``grep`` (LLM-exposed) plus ``upload``/
+  ``download`` (host-side seeding and extraction; not exposed as an
+  LLM tool).
+- :class:`SandboxProtocol` — adds shell ``execute`` and
+  ``environment``. Backends that satisfy this signal that the bash
+  tool may be registered.
 
-Capability gating is structural: ``isinstance(backend, SandboxBackend)``
+Capability gating is structural: ``isinstance(backend, SandboxProtocol)``
 returns ``True`` iff the methods are present. Tool factories use that
-check to decide which tools to register; backends that lack a capability
-simply produce an agent without the corresponding tool.
+check to decide which tools to register; backends that lack the
+capability simply produce an agent without the corresponding tool.
 
 Expected, LLM-actionable failures (file not found, ambiguous edit, etc.)
 return result dataclasses with an ``error`` code from a stable ``Literal``
@@ -90,8 +92,14 @@ class ExecuteResponse(TypedDict, total=False):
 
 
 @runtime_checkable
-class BackendProtocol(Protocol):
-    """Base file capability — required for every backend.
+class FilesystemProtocol(Protocol):
+    """File system capability — required for every backend.
+
+    Combines LLM-exposed file ops (``read``/``read_bytes``/``write``/
+    ``edit``/``glob``/``grep``) with host-side bulk I/O (``upload``/
+    ``download``) under a single tier. ``upload`` and ``download``
+    feed host-side seeding and extraction (e.g. the ``read_tree``
+    helper); they're not surfaced as LLM tools.
 
     Methods that may fail in expected, LLM-actionable ways return result
     dataclasses with optional ``error`` codes. ``glob`` and ``grep`` have
@@ -122,13 +130,17 @@ class BackendProtocol(Protocol):
         ignore_case: bool = False,
     ) -> list[GrepMatch]: ...
 
+    async def upload(self, files: list[tuple[str, bytes]]) -> list[FileUploadResult]: ...
+
+    async def download(self, paths: list[str]) -> list[FileDownloadResult]: ...
+
 
 @runtime_checkable
-class SandboxBackend(BackendProtocol, Protocol):
+class SandboxProtocol(FilesystemProtocol, Protocol):
     """Adds shell execution and environment introspection.
 
     Tool factories register the bash tool only when ``isinstance(backend,
-    SandboxBackend)`` is true. The ``FilesystemExtension`` calls
+    SandboxProtocol)`` is true. The ``FilesystemExtension`` calls
     ``environment()`` during async setup and surfaces the result to the
     LLM as the ``<env>`` block of the system prompt — the LLM uses it to
     pick correct shell-flag dialect and reach for available tools.
@@ -142,16 +154,3 @@ class SandboxBackend(BackendProtocol, Protocol):
     ) -> ExecuteResponse: ...
 
     async def environment(self) -> SandboxEnvironment: ...
-
-
-@runtime_checkable
-class FileTransferBackend(BackendProtocol, Protocol):
-    """Adds bulk binary I/O. Used by host-side seeding and extraction.
-
-    Not exposed as an LLM tool. The ``seed_directory`` helper requires
-    this capability and replaces ad-hoc per-file write loops.
-    """
-
-    async def upload(self, files: list[tuple[str, bytes]]) -> list[FileUploadResult]: ...
-
-    async def download(self, paths: list[str]) -> list[FileDownloadResult]: ...

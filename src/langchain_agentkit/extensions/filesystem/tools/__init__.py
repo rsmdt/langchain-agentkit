@@ -1,4 +1,4 @@
-"""Filesystem tools operating on a BackendProtocol.
+"""Filesystem tools operating on a FilesystemProtocol.
 
 Provides five tools: ``Read``, ``Write``, ``Edit``, ``Glob``, ``Grep``.
 Parameters and descriptions follow a standard file-tool API.
@@ -27,14 +27,14 @@ from langchain_agentkit.extensions.filesystem.tools.write import _build_write
 
 
 def create_filesystem_tools(backend: Any) -> list[BaseTool]:
-    """Create filesystem tools backed by a BackendProtocol.
+    """Create filesystem tools backed by a FilesystemProtocol.
 
     Returns five tools: ``[Read, Write, Edit, Glob, Grep]``,
     all operating on the given backend. Each call creates an
     isolated read-state cache for file-unchanged dedup.
 
     Args:
-        backend: A BackendProtocol implementation.
+        backend: A FilesystemProtocol implementation.
     """
     # Per-backend read-state cache (not module-level) to prevent
     # cross-instance cache pollution in multi-agent scenarios.

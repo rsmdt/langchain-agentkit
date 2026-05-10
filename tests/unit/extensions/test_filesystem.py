@@ -5,7 +5,7 @@ from pathlib import Path
 
 from langgraph.prebuilt import ToolRuntime
 
-from langchain_agentkit.backends import BackendProtocol
+from langchain_agentkit.backends import FilesystemProtocol
 from langchain_agentkit.backends.os import OSBackend
 from langchain_agentkit.extensions.filesystem import FilesystemExtension
 from langchain_agentkit.permissions.presets import (
@@ -62,12 +62,18 @@ class TestConstructor:
             def read_bytes(self, path):
                 return b""
 
+            def upload(self, files):
+                return []
+
+            def download(self, paths):
+                return []
+
             def execute(self, command, timeout=None, workdir=None):
                 return {"output": "", "exit_code": 0, "truncated": False}
 
         ext = FilesystemExtension(backend=StubBackend())
 
-        assert isinstance(ext.backend, BackendProtocol)
+        assert isinstance(ext.backend, FilesystemProtocol)
 
     def test_root_as_path_object(self):
         with tempfile.TemporaryDirectory() as tmpdir:
