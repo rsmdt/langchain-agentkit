@@ -104,5 +104,6 @@ select = ["E", "F", "I", "B", "C90", "N", "UP", "PIE", "SIM", "TCH"]
 [tool.mypy]
 python_version = "3.12"
 strict = true
+enable_error_code = ["explicit-override"]
 packages = ["langchain_agentkit"]
 mypy_path = "src"

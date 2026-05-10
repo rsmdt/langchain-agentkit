@@ -25,7 +25,7 @@ Usage::
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from langchain_core.tools import StructuredTool, ToolException
 
@@ -120,6 +120,7 @@ class FilesystemExtension(Extension):
         self._tools_cache: list[BaseTool] | None = None
         self._env: SandboxEnvironment | None = None  # Populated by setup() for SandboxProtocol
 
+    @override
     async def setup(  # type: ignore[override]
         self, *, extensions: list[Extension], **_: Any
     ) -> None:
@@ -149,11 +150,13 @@ class FilesystemExtension(Extension):
         return self._permissions
 
     @property
+    @override
     def state_schema(self) -> None:
         """No additional state keys."""
         return None
 
     @property
+    @override
     def tools(self) -> list[BaseTool]:
         """Filesystem tools, gated by permissions."""
         if self._tools_cache is None:
@@ -206,6 +209,7 @@ class FilesystemExtension(Extension):
 
         return wrapped
 
+    @override
     def prompt(
         self,
         state: dict[str, Any],

@@ -12,7 +12,7 @@ available. Programmatic callers can also use
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from langchain_agentkit.extension import Extension
 from langchain_agentkit.extensions.prompt_templates.discovery import (
@@ -85,6 +85,7 @@ class PromptTemplateExtension(Extension):
         )
         self._tools_cache: list[BaseTool] | None = None
 
+    @override
     async def setup(self, **_: Any) -> None:  # type: ignore[override]
         if self._deferred_path is not None and self._backend is not None:
             from langchain_agentkit.extensions.prompt_templates.discovery import (
@@ -102,6 +103,7 @@ class PromptTemplateExtension(Extension):
         return dict(self._templates)
 
     @property
+    @override
     def tools(self) -> list[BaseTool]:
         if self._tools_cache is None:
             if self._custom_tools is not None:
@@ -110,6 +112,7 @@ class PromptTemplateExtension(Extension):
                 self._tools_cache = [build_run_command_tool(self._templates)]
         return self._tools_cache
 
+    @override
     def prompt(
         self,
         state: dict[str, Any],

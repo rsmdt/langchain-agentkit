@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any, TypedDict
+from typing import Any, TypedDict, override
 
 from langchain_agentkit.extension import Extension
 from langchain_agentkit.hooks import after, before
@@ -66,6 +66,7 @@ class MessagePersistenceExtension(Extension):
         self._persist = persist
 
     @property
+    @override
     def state_schema(self) -> type:
         return _PersistState
 

@@ -22,7 +22,7 @@ import platform
 import urllib.parse
 import urllib.request
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from langchain_core.prompts import PromptTemplate
 from langchain_core.tools import BaseTool
@@ -70,6 +70,7 @@ class DuckDuckGoSearchProvider(BaseTool):
             kwargs["headers"] = {"User-Agent": _default_user_agent()}
         super().__init__(**kwargs)
 
+    @override
     def _run(self, query: str) -> str:
         """Sync search via DuckDuckGo instant answer API."""
         params = urllib.parse.urlencode(
@@ -104,6 +105,7 @@ class DuckDuckGoSearchProvider(BaseTool):
             return "No results found."
         return "\n".join(results)
 
+    @override
     async def _arun(self, query: str) -> str:
         """Async version — runs sync in executor (urllib has no async)."""
         loop = asyncio.get_event_loop()
@@ -136,6 +138,7 @@ class QwantSearchProvider(BaseTool):
             kwargs["headers"] = {"User-Agent": _default_user_agent()}
         super().__init__(**kwargs)
 
+    @override
     def _run(self, query: str) -> str:
         """Sync search via Qwant API."""
         params = urllib.parse.urlencode(
@@ -161,6 +164,7 @@ class QwantSearchProvider(BaseTool):
             results.append(f"- [{title}]({item_url}): {snippet}")
         return "\n".join(results)
 
+    @override
     async def _arun(self, query: str) -> str:
         """Async version — runs sync in executor."""
         loop = asyncio.get_event_loop()
@@ -229,15 +233,18 @@ class WebSearchExtension(Extension):
         return PromptTemplate.from_template(str(prompt_template))
 
     @property
+    @override
     def state_schema(self) -> None:
         """No additional state keys."""
         return None
 
     @property
+    @override
     def tools(self) -> list[BaseTool]:
         """Returns [WebSearch] — same list object on every access."""
         return self._tools
 
+    @override
     def prompt(
         self,
         state: dict[str, Any],

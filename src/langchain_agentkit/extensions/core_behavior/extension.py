@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from langchain_agentkit.extension import Extension
 
@@ -50,6 +50,7 @@ class CoreBehaviorExtension(Extension):
     ``Bash`` is available, it pivots to shell-based conventions.
     """
 
+    @override
     def prompt(
         self,
         state: dict[str, Any],

@@ -24,6 +24,7 @@ import os
 import platform
 import re
 import shutil
+from pathlib import Path
 from typing import Any
 
 from langchain_agentkit.backends.execution import (
@@ -219,19 +220,20 @@ class OSBackend:
         glob: str | None = None,
         ignore_case: bool = False,
     ) -> list[GrepMatch]:
-        search_path = self._resolve(path or "/")
+        search_root = Path(self._resolve(path or "/"))
+        backend_root = Path(self._root)
         matches: list[GrepMatch] = []
         flags = re.IGNORECASE if ignore_case else 0
         regex = re.compile(pattern, flags)
 
-        for root, _dirs, files in os.walk(search_path):
+        for dirpath, _dirs, files in search_root.walk():
             for fname in sorted(files):
                 if glob and not fnmatch.fnmatch(fname, glob):
                     continue
-                full = os.path.join(root, fname)
-                rel = "/" + os.path.relpath(full, self._root)
+                full = dirpath / fname
+                rel = "/" + str(full.relative_to(backend_root))
                 try:
-                    with open(full, encoding="utf-8") as f:
+                    with full.open(encoding="utf-8") as f:
                         for i, line in enumerate(f, 1):
                             if regex.search(line):
                                 matches.append(GrepMatch(path=rel, line=i, text=line))

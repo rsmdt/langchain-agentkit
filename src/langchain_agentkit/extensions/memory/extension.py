@@ -25,7 +25,7 @@ import os
 import re
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from langchain_agentkit.extension import Extension
 
@@ -94,13 +94,16 @@ class MemoryExtension(Extension):
     # --- Extension protocol ---
 
     @property
+    @override
     def tools(self) -> list[Any]:
         return []
 
     @property
+    @override
     def state_schema(self) -> type | None:
         return None
 
+    @override
     async def setup(self, **_: Any) -> None:  # type: ignore[override]
         """Prime the backend cache so the first turn sees a body."""
         if self.backend is not None:
@@ -117,6 +120,7 @@ class MemoryExtension(Extension):
             self._cached_body = await self._load_body_async()
         return None
 
+    @override
     def prompt(
         self,
         state: dict[str, Any],

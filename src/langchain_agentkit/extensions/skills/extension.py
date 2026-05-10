@@ -17,7 +17,7 @@ Two modes:
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from langchain_core.prompts import PromptTemplate
 
@@ -93,6 +93,7 @@ class SkillsExtension(Extension):
         )
         self._tools_cache: list[BaseTool] | None = None
 
+    @override
     async def setup(self, **_: Any) -> None:  # type: ignore[override]
         """Run deferred async discovery if a backend path was provided."""
         if self._deferred_path is not None and self._backend is not None:
@@ -110,10 +111,12 @@ class SkillsExtension(Extension):
         return list(self._configs)
 
     @property
+    @override
     def state_schema(self) -> None:
         return None
 
     @property
+    @override
     def tools(self) -> list[BaseTool]:
         if self._tools_cache is None:
             if self._custom_tools is not None:
@@ -129,6 +132,7 @@ class SkillsExtension(Extension):
                 ]
         return self._tools_cache
 
+    @override
     def prompt(
         self,
         state: dict[str, Any],

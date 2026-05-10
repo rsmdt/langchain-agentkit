@@ -30,7 +30,7 @@ import asyncio
 import hashlib
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from langchain_core.messages import HumanMessage
 
@@ -119,12 +119,14 @@ class ContextCompactionExtension(Extension):
         self._llm_getter: Callable[[], Any] | None = None
         self._in_flight: asyncio.Lock = asyncio.Lock()
 
+    @override
     async def setup(self, **kwargs: Any) -> None:  # type: ignore[override]
         """Capture the kit's LLM getter for summarizer fallback."""
         llm_getter = kwargs.get("llm_getter")
         if callable(llm_getter):
             self._llm_getter = llm_getter
 
+    @override
     def prompt(
         self,
         state: dict[str, Any],

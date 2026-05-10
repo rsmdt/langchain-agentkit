@@ -20,7 +20,7 @@ Advanced case — decorators with per-tool filtering::
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import Any
+from typing import Any, override
 
 # Named method patterns recognized as hooks
 _NAMED_HOOK_METHODS: dict[str, tuple[str, str]] = {
@@ -53,6 +53,7 @@ class Extension:
 
     _decorated_hooks: dict[tuple[str, str], list[Any]]
 
+    @override
     def __init_subclass__(cls, **kwargs: Any) -> None:
         super().__init_subclass__(**kwargs)
         hooks: dict[tuple[str, str], list[Any]] = defaultdict(list)

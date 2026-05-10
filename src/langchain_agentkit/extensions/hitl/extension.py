@@ -62,7 +62,7 @@ Resume payload::
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, override
 
 from langchain_core.messages import ToolMessage
 from langchain_core.messages.tool import ToolCall
@@ -184,6 +184,7 @@ class HITLExtension(Extension):
         self._tools_cache: list[BaseTool] | None = None
 
     @property
+    @override
     def tools(self) -> list[BaseTool]:
         """Returns the configured tool list.
 

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from langchain_core.prompts import PromptTemplate
 
@@ -210,6 +210,7 @@ class AgentsExtension(Extension):
         """
         return self._model_resolver  # type: ignore[no-any-return]
 
+    @override
     async def setup(  # type: ignore[override]
         self,
         *,
@@ -387,9 +388,11 @@ class AgentsExtension(Extension):
         return self._agents_by_name
 
     @property
+    @override
     def tools(self) -> list[BaseTool]:
         return self._tools  # type: ignore[return-value]
 
+    @override
     def prompt(
         self,
         state: dict[str, Any],

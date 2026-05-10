@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+from typing import override
 
 from langchain_core.tools import BaseTool
 from pydantic import ConfigDict
@@ -39,6 +40,7 @@ class _WebSearchTool(BaseTool):
     description: str = _WEB_SEARCH_DESCRIPTION
     providers: list[BaseTool]
 
+    @override
     async def _arun(self, query: str) -> str:
         """Fan out to all providers concurrently, capturing errors per-provider."""
         results = await asyncio.gather(*[self._call_provider(p, query) for p in self.providers])
@@ -51,6 +53,7 @@ class _WebSearchTool(BaseTool):
         except Exception as e:
             return (provider.name, f"Error: {e}")
 
+    @override
     def _run(self, query: str) -> str:
         """Sync fallback — sequential provider calls."""
         sections = []

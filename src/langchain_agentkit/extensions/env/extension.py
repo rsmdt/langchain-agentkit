@@ -5,7 +5,7 @@ from __future__ import annotations
 import os
 import platform as _platform
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from langchain_agentkit.extension import Extension
 
@@ -47,6 +47,7 @@ class EnvExtension(Extension):
     def __init__(self, cwd: Callable[[], Path] | None = None) -> None:
         self._cwd = cwd
 
+    @override
     def prompt(
         self,
         state: dict[str, Any],

@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from langchain_core.prompts import PromptTemplate
 
@@ -222,9 +222,11 @@ class TeamExtension(Extension):
         return self._token_counter
 
     @property
+    @override
     def tools(self) -> list[BaseTool]:
         return self._tools  # type: ignore[return-value]
 
+    @override
     def prompt(
         self,
         state: dict[str, Any],
@@ -275,11 +277,13 @@ class TeamExtension(Extension):
 
         return base_prompt
 
+    @override
     def dependencies(self) -> list[Any]:
         from langchain_agentkit.extensions.tasks.extension import TasksExtension
 
         return [TasksExtension()]
 
+    @override
     async def setup(  # type: ignore[override]
         self,
         *,
@@ -374,6 +378,7 @@ class TeamExtension(Extension):
         self._skills_resolver = _resolve_skills
 
     @property
+    @override
     def state_schema(self) -> type:
         from langchain_agentkit.extensions.teams.state import TeamState
 

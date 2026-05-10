@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from langchain_core.prompts import PromptTemplate
 
@@ -92,6 +92,7 @@ class TasksExtension(Extension):
 
         self._tools = tuple(create_task_tools(team_active=team_active))
 
+    @override
     def setup(  # type: ignore[override]
         self, *, extensions: list[Extension], **_: Any
     ) -> None:
@@ -102,15 +103,18 @@ class TasksExtension(Extension):
         self._build_tools(team_active=has_team)
 
     @property
+    @override
     def state_schema(self) -> type:
         from langchain_agentkit.extensions.tasks.state import TasksState
 
         return TasksState
 
     @property
+    @override
     def tools(self) -> list[BaseTool]:
         return self._tools  # type: ignore[return-value]
 
+    @override
     def prompt(
         self,
         state: dict[str, Any],
