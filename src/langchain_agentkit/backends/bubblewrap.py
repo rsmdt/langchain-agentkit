@@ -661,7 +661,7 @@ class BubblewrapBackend:
         # memfd_create is Linux-only; raises AttributeError elsewhere.
         # That's fine — bwrap is Linux-only, and we never reach here
         # except after a successful bwrap spawn.
-        fd: int = os.memfd_create("bwrap-seccomp", flags=0)  # type: ignore[attr-defined]
+        fd: int = os.memfd_create("bwrap-seccomp", flags=0)  # type: ignore[attr-defined,unused-ignore]
         try:
             os.write(fd, self._seccomp_program)
             os.lseek(fd, 0, os.SEEK_SET)
@@ -1395,7 +1395,7 @@ def default_seccomp_program() -> bytes:
         ImportError: If ``pyseccomp`` isn't installed.
     """
     try:
-        import pyseccomp  # type: ignore[import-not-found]
+        import pyseccomp  # type: ignore[import-not-found,import-untyped,unused-ignore]
     except ImportError as exc:
         raise ImportError(
             "default_seccomp_program() requires pyseccomp. "
