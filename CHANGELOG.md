@@ -9,6 +9,36 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.28.0] — 2026-05-10
+
+### Added
+- **MirageBackend** for multi-mount filesystems — wrap a `mirage.Workspace` to expose RAM, Disk, S3, Google Drive, Slack, GitHub, Linear, and other resources under a single filesystem with cross-mount pipelines via an in-process tree-sitter-bash shell. Install via `pip install langchain-agentkit[mirage]`.
+- **BubblewrapBackend** for Linux-local sandboxing — runs every operation in a per-call `bwrap` process with rlimits, tmpfs sizing, optional cgroup v2 limits, and an optional seccomp filter (ships a ~100-syscall default allow-list). Designed for multi-tenant production; hardened against CVE-2024-42472. Install via `pip install langchain-agentkit[bubblewrap]`.
+- **AgentFSBackend** over `agentfs-sdk` (turso.aio), available via the `[agentfs]` extra.
+- `read_tree()` helper in `langchain_agentkit.backends` for preparing directory trees as `backend.upload(...)`-ready tuples.
+- **Sub-agent tool inheritance** — sub-agents now borrow their parent's toolset by default via an `"inherit"` sentinel in `tools`. Pass a list to fix the toolset, or include `"inherit"` to extend it.
+- New examples for **Mirage** and **Bubblewrap** backends, each with the standard `.agentkit/` tree (system prompt, reviewer agent, summarize skill).
+- Per-backend example READMEs (AgentFS, Daytona, Bubblewrap, Mirage) and a dedicated **FilesystemExtension Backends** section in the root README explaining the protocol split, capability gating, and links to each example.
+
+### Changed
+- **BREAKING**: Minimum Python version is now **3.12** (was 3.11). CI matrix updated to 3.12/3.13.
+- **BREAKING**: Backend protocol surface unified and renamed:
+  - `BackendProtocol` → `FilesystemProtocol`
+  - `SandboxBackend` → `SandboxProtocol`
+  - `FileTransferBackend` is merged into `FilesystemProtocol` (upload/download are now part of the base filesystem tier).
+  No compatibility shims — update imports from `langchain_agentkit` and `langchain_agentkit.backends`.
+- **BREAKING**: `Agent.graph()` and `Agent.compile()` are now **async**. Awaiting setup in the caller's loop is required for loop-bound backend state (e.g. AgentFS turso connections); the prior sync bridge has been removed.
+- **BREAKING**: The `tools_inherit` attribute on agents is removed; inheritance is now encoded inside `tools` via the `"inherit"` sentinel (default).
+- Internal modernization on the Python 3.12 baseline: PEP 695 (`type` alias keyword, inline `def fn[T](...)` generic-function syntax), `@override` decorators across all `Extension` subclasses with mypy `explicit-override` enforcement enabled, and `Path.walk()` replacing `os.walk + os.path.*` in `OSBackend.grep`.
+- README refreshed with CI, Downloads, and Ruff badges, a Table of Contents, an updated logo (`agentkit.png`), and PyPI trove classifiers so the Python-versions badge renders on release.
+- `CLAUDE.md` restructured around commands, invariants, and pointers; longer detail on tests, releases, and architecture moved to `docs/`.
+
+### Removed
+- **BREAKING**: The legacy `agent` metaclass and its tests have been removed. Migrate to the public `Agent` class (`class Foo(Agent): ...`, `await Foo().graph()`).
+
+### Fixed
+- Platform-asymmetric `# type: ignore` annotations in `bubblewrap.py` (and `extensions/filesystem/tools/read.py`) now cover both the macOS dev path and the Linux CI path, eliminating mypy `unused-ignore` errors that surfaced under strict mode on cross-platform builds.
+
 ## [0.27.0] — 2026-04-30
 
 ### Changed
