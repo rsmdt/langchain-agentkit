@@ -58,7 +58,7 @@ from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, TypeAlias
+from typing import Any
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 
@@ -102,9 +102,7 @@ class StrategyContext:
         return f"{self.metadata_prefix}_{suffix}"
 
 
-SubagentOutputStrategy: TypeAlias = Callable[
-    ["SubagentOutput", "StrategyContext"], list[BaseMessage]
-]
+type SubagentOutputStrategy = Callable[["SubagentOutput", "StrategyContext"], list[BaseMessage]]
 
 
 # ---------------------------------------------------------------------------

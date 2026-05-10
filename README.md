@@ -7,7 +7,7 @@
 Composable extension framework for LangGraph agents.
 
 [![PyPI](https://img.shields.io/pypi/v/langchain-agentkit)](https://pypi.org/project/langchain-agentkit/)
-[![Python 3.11+](https://img.shields.io/pypi/pyversions/langchain-agentkit)](https://pypi.org/project/langchain-agentkit/)
+[![Python 3.12+](https://img.shields.io/pypi/pyversions/langchain-agentkit)](https://pypi.org/project/langchain-agentkit/)
 [![CI](https://github.com/rsmdt/langchain-agentkit/actions/workflows/ci.yml/badge.svg)](https://github.com/rsmdt/langchain-agentkit/actions/workflows/ci.yml)
 [![Downloads](https://img.shields.io/pypi/dm/langchain-agentkit)](https://pypi.org/project/langchain-agentkit/)
 [![Ruff](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/astral-sh/ruff/main/assets/badge/v2.json)](https://github.com/astral-sh/ruff)
@@ -42,7 +42,7 @@ Composable extension framework for LangGraph agents.
 pip install langchain-agentkit
 ```
 
-Requires Python 3.11+.
+Requires Python 3.12+.
 
 ## Quick Start
 

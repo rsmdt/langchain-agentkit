@@ -8,20 +8,18 @@ both skill and agent discovery.  Extension-specific modules supply a
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any, TypeVar
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from collections.abc import Callable
     from pathlib import Path
 
-    from langchain_agentkit.backends.protocol import BackendProtocol
+    from langchain_agentkit.backends.protocol import FilesystemProtocol
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar("T")
 
-
-def discover_from_directory(
+def discover_from_directory[T](
     path: Path,
     *,
     file_pattern: str,
@@ -66,8 +64,8 @@ def discover_from_directory(
     return configs
 
 
-async def discover_from_backend(
-    backend: BackendProtocol,
+async def discover_from_backend[T](
+    backend: FilesystemProtocol,
     path: str,
     *,
     file_pattern: str,
@@ -75,7 +73,7 @@ async def discover_from_backend(
     namer: Callable[[T], str],
     label: str,
 ) -> list[T]:
-    """Discover configs via a :class:`BackendProtocol`.
+    """Discover configs via a :class:`FilesystemProtocol`.
 
     Args:
         backend: Backend to read files from.
