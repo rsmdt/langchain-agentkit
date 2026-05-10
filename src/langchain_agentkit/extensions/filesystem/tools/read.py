@@ -124,7 +124,7 @@ def _detect_image_dimensions(data: bytes) -> dict[str, int] | None:
     try:
         import io
 
-        from PIL import Image as PILImage  # type: ignore[import-not-found]
+        from PIL import Image as PILImage  # type: ignore[import-not-found,unused-ignore]
 
         img = PILImage.open(io.BytesIO(data))
         w, h = img.size

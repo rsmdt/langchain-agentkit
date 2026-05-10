@@ -34,6 +34,7 @@ dev = [
     "daytona-sdk>=0.158",
     "agentfs-sdk>=0.6,<0.7",
     "pyseccomp>=0.1.2; sys_platform == 'linux'",
+    "mirage-ai>=0.0.2a0,<0.1",
 ]
 eval = [
     "agentevals>=0.0.9",
@@ -48,6 +49,9 @@ agentfs = [
 ]
 bubblewrap = [
     "pyseccomp>=0.1.2; sys_platform == 'linux'",
+]
+mirage = [
+    "mirage-ai>=0.0.2a0,<0.1",
 ]
 
 [project.urls]

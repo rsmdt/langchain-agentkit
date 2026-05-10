@@ -13,6 +13,8 @@ every available backend:
 - ``daytona`` — only when DAYTONA_API_URL is set and SDK is installed
 - ``agentfs`` — only when the agentfs-sdk is installed (no env vars
   required; uses a temp .db file)
+- ``mirage`` — only when the mirage-ai SDK is installed (no env vars
+  required; uses an in-memory ``RAMResource`` mounted at ``/``)
 """
 
 from __future__ import annotations
@@ -108,6 +110,24 @@ def _bubblewrap_available() -> bool:
 
 
 # ---------------------------------------------------------------------------
+# Mirage helpers
+# ---------------------------------------------------------------------------
+
+
+def _mirage_available() -> bool:
+    """Mirage conformance runs whenever the mirage-ai SDK is importable.
+
+    No env vars or external services required — the fixture mounts an
+    in-memory ``RAMResource`` at ``/``.
+    """
+    try:
+        import mirage  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+# ---------------------------------------------------------------------------
 # Parameterized backend fixture
 # ---------------------------------------------------------------------------
 
@@ -118,6 +138,8 @@ if _agentfs_available():
     _BACKEND_IDS.append("agentfs")
 if _bubblewrap_available():
     _BACKEND_IDS.append("bubblewrap")
+if _mirage_available():
+    _BACKEND_IDS.append("mirage")
 
 
 @pytest.fixture(params=_BACKEND_IDS)
@@ -158,6 +180,21 @@ async def backend(request):
 
         with tempfile.TemporaryDirectory() as tmpdir:
             yield BubblewrapBackend(tmpdir)
+
+    elif request.param == "mirage":
+        from mirage import MountMode, RAMResource, Workspace
+
+        from langchain_agentkit.backends.mirage import MirageBackend
+
+        # Mount the RAM resource WRITE so the conformance suite (which
+        # writes test fixtures into / before reading them back) can
+        # actually persist data. The default ``MountMode.READ`` would
+        # surface ``permission_denied`` on every write.
+        ws = Workspace({"/": (RAMResource(), MountMode.WRITE)})
+        try:
+            yield MirageBackend(ws)
+        finally:
+            await ws.close()
 
 
 # ---------------------------------------------------------------------------
@@ -393,7 +430,10 @@ class TestExecute:
         assert "hello" in result["output"]
 
     async def test_nonzero_exit(self, sandbox_backend):
-        result = await sandbox_backend.execute("exit 1")
+        # ``false`` is portable across real shells and MirageBackend's
+        # curated command set; ``exit 1`` is a bash builtin that Mirage's
+        # in-process shell doesn't dispatch.
+        result = await sandbox_backend.execute("false")
         assert result["exit_code"] == 1
 
 
@@ -404,8 +444,6 @@ class TestExecute:
 
 class TestEnvironment:
     async def test_returns_environment_snapshot(self, sandbox_backend):
-        from langchain_agentkit.backends import PROBED_TOOLS
-
         env = await sandbox_backend.environment()
         # os encodes uname -srm shape: kernel-name + release + arch.
         # The leading word identifies the platform family unambiguously.
@@ -413,12 +451,19 @@ class TestEnvironment:
         assert env.os.split()[0] in {"Linux", "Darwin", "Windows"}
         # cwd reflects backend root / workdir
         assert env.cwd
-        # shell is a non-empty string (typically /bin/sh, /bin/bash, or /bin/zsh)
+        # shell is a non-empty string. Real-shell backends report the
+        # POSIX path (``/bin/bash`` etc.); virtualized shells like
+        # MirageBackend report a synthetic identifier (``mirage-bash``).
         assert env.shell
-        # available_tools is a frozenset and a subset of PROBED_TOOLS
-        # (no specific tool is required to be installed in test environments)
+        # available_tools is a frozenset of tool names. The size and
+        # contents depend on the backend's probing strategy:
+        # OS/Daytona/Bubblewrap/AgentFS probe against ``PROBED_TOOLS``
+        # (so the result is a subset); MirageBackend exposes its full
+        # in-process command registry (typically dozens of names plus
+        # any resource-specific commands). The protocol contract is
+        # just "frozenset of strings the LLM can rely on."
         assert isinstance(env.available_tools, frozenset)
-        assert env.available_tools.issubset(set(PROBED_TOOLS))
+        assert all(isinstance(t, str) and t for t in env.available_tools)
 
     async def test_cached(self, sandbox_backend):
         env1 = await sandbox_backend.environment()
