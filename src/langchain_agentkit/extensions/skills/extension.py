@@ -112,11 +112,6 @@ class SkillsExtension(Extension):
 
     @property
     @override
-    def state_schema(self) -> None:
-        return None
-
-    @property
-    @override
     def tools(self) -> list[BaseTool]:
         if self._tools_cache is None:
             if self._custom_tools is not None:

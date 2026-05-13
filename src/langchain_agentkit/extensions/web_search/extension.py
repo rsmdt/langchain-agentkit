@@ -234,12 +234,6 @@ class WebSearchExtension(Extension):
 
     @property
     @override
-    def state_schema(self) -> None:
-        """No additional state keys."""
-        return None
-
-    @property
-    @override
     def tools(self) -> list[BaseTool]:
         """Returns [WebSearch] — same list object on every access."""
         return self._tools
