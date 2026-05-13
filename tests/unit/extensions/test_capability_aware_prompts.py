@@ -1,4 +1,15 @@
-"""Tests for capability-aware prompt composition (I3)."""
+"""Tests for capability-aware prompt composition.
+
+Verifies that the kit's :class:`PromptComposition` machinery passes the
+composed tool-name set to each extension's ``prompt()`` so they can
+emit guidance keyed on which tools are actually registered.
+
+A smoke test against :class:`FilesystemExtension` confirms the wiring
+end-to-end (its tool-preference appendix only appears when ``Bash`` is
+in the composed set). Detailed appendix-branching tests live in
+``tests/unit/extensions/test_filesystem.py`` since they're properties
+of :class:`FilesystemExtension`, not the kit infrastructure.
+"""
 
 from __future__ import annotations
 
@@ -9,7 +20,7 @@ from pydantic import Field
 
 from langchain_agentkit.agent_kit import AgentKit
 from langchain_agentkit.extension import Extension
-from langchain_agentkit.extensions.core_behavior import CoreBehaviorExtension
+from langchain_agentkit.extensions.filesystem import FilesystemExtension
 
 
 class _FakeTool(BaseTool):
@@ -29,25 +40,12 @@ def _kit(tool_names: list[str], extension: Extension) -> AgentKit:
     )
 
 
-def test_core_behavior_bash_with_specialized_tools() -> None:
-    kit = _kit(["Bash", "Read", "Grep"], CoreBehaviorExtension())
+def test_kit_forwards_tool_names_to_filesystem_extension() -> None:
+    """Kit composition reaches FilesystemExtension and triggers its appendix."""
+    kit = _kit(["Bash"], FilesystemExtension())
     composition = kit.compose({}, None)
-    assert "Dedicated file tools are available" in composition.prompt
-    assert "Reserve `Bash`" in composition.prompt
-
-
-def test_core_behavior_bash_only() -> None:
-    kit = _kit(["Bash"], CoreBehaviorExtension())
-    composition = kit.compose({}, None)
-    assert "Shell-only environment" in composition.prompt
-    assert "Dedicated file tools are available" not in composition.prompt
-
-
-def test_core_behavior_no_bash_no_appendix() -> None:
-    kit = _kit(["Read", "Grep"], CoreBehaviorExtension())
-    composition = kit.compose({}, None)
-    assert "Shell-only environment" not in composition.prompt
-    assert "Dedicated file tools are available" not in composition.prompt
+    # Bash + extension-contributed specialized tools → one-line preference directive.
+    assert "prefer it over `Bash`" in composition.prompt
 
 
 def test_legacy_prompt_signature_still_works() -> None:

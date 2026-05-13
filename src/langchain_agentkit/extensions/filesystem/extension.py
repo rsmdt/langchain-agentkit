@@ -72,6 +72,12 @@ _TOOL_TARGET_ARG: dict[str, str] = {
     "Bash": "command",
 }
 
+# Specialized file-inspection tools — when present alongside Bash, the
+# prompt steers the model toward them over raw shell equivalents.
+_SPECIALIZED_FS_TOOLS: frozenset[str] = frozenset({"Read", "Write", "Edit", "Glob", "Grep"})
+
+_BASH_WITH_SPECIALIZED_APPENDIX = "When a dedicated file tool fits the task, prefer it over `Bash`."
+
 
 class FilesystemExtension(Extension):
     """Extension providing standard filesystem tools.
@@ -151,12 +157,6 @@ class FilesystemExtension(Extension):
 
     @property
     @override
-    def state_schema(self) -> None:
-        """No additional state keys."""
-        return None
-
-    @property
-    @override
     def tools(self) -> list[BaseTool]:
         """Filesystem tools, gated by permissions."""
         if self._tools_cache is None:
@@ -217,25 +217,43 @@ class FilesystemExtension(Extension):
         *,
         tools: frozenset[str] = frozenset(),
     ) -> str | None:
-        """Render the ``<env>`` block describing the backend's shell
-        environment, matching Claude Code's prompt convention.
+        """Render the ``<env>`` block plus a Bash-vs-dedicated-tools appendix.
 
-        Returns ``None`` for non-:class:`SandboxProtocol` backends (no
-        shell available, nothing to surface). Tool-name guidance lives
-        in each tool's ``description``.
+        Two independent sections:
+
+        * **<env> block** — backend shell environment (cwd, OS, shell,
+          detected shell utilities). Emitted only when the backend
+          implements :class:`SandboxProtocol`.
+        * **Tool-preference line** — emitted only when ``Bash`` is
+          registered *alongside* at least one specialized FS tool, since
+          the model cannot infer the preference from tool descriptions
+          alone. With Bash alone, no preference line is emitted — the
+          tool's own description is sufficient.
+
+        Returns ``None`` when neither section applies.
         """
-        if self._env is None:
+        sections: list[str] = []
+
+        if self._env is not None:
+            e = self._env
+            tool_list = (
+                " ".join(sorted(e.available_tools)) if e.available_tools else "(none detected)"
+            )
+            sections.append(
+                "<env>\n"
+                f"Working directory: {e.cwd}\n"
+                f"OS: {e.os}\n"
+                f"Shell: {e.shell}\n"
+                f"Available: {tool_list}\n"
+                "</env>"
+            )
+
+        if "Bash" in tools and tools & _SPECIALIZED_FS_TOOLS:
+            sections.append(_BASH_WITH_SPECIALIZED_APPENDIX)
+
+        if not sections:
             return None
-        e = self._env
-        tool_list = " ".join(sorted(e.available_tools)) if e.available_tools else "(none detected)"
-        return (
-            "<env>\n"
-            f"Working directory: {e.cwd}\n"
-            f"OS: {e.os}\n"
-            f"Shell: {e.shell}\n"
-            f"Available: {tool_list}\n"
-            "</env>"
-        )
+        return "\n\n".join(sections)
 
 
 # ---------------------------------------------------------------------------

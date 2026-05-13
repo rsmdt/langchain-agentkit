@@ -135,16 +135,50 @@ class TestPrompt:
             result = ext.prompt({}, _TEST_RUNTIME)
 
             assert result is not None
+            # Default tools=frozenset() → no appendix, just env block.
             assert result.startswith("<env>\n")
             assert result.endswith("\n</env>")
-            # Required fields render as labeled lines.
             assert "Working directory: " in result
             assert "OS: " in result
             assert "Shell: " in result
             assert "Available: " in result
-            # Must not mention tool names.
             for name in ("Read", "Write", "Edit", "Glob", "Grep", "Bash"):
                 assert name not in result
+
+
+class TestPromptAppendix:
+    """Bash-vs-dedicated-tools appendix branching."""
+
+    def test_bash_with_specialized_tools_emits_preference_line(self):
+        """Bash + a specialized FS tool → one-line preference directive."""
+        ext = FilesystemExtension()
+        out = ext.prompt({}, None, tools=frozenset({"Bash", "Read", "Grep"}))
+        assert out is not None
+        assert "prefer it over `Bash`" in out
+
+    def test_bash_alone_emits_no_appendix(self):
+        """Bash alone → no appendix; the tool's own description is sufficient."""
+        ext = FilesystemExtension()
+        out = ext.prompt({}, None, tools=frozenset({"Bash"}))
+        # No env (setup not called) and Bash alone → nothing to contribute.
+        assert out is None
+
+    def test_no_bash_no_appendix(self):
+        ext = FilesystemExtension()
+        out = ext.prompt({}, None, tools=frozenset({"Read", "Grep"}))
+        # No env (setup not called) and no Bash → nothing to contribute.
+        assert out is None
+
+    async def test_env_block_plus_appendix_when_both_apply(self):
+        """Env block + preference line both render when Bash + specialized are present."""
+        with tempfile.TemporaryDirectory() as tmpdir:
+            ext = FilesystemExtension(root=tmpdir)
+            await ext.setup(extensions=[])
+            out = ext.prompt({}, _TEST_RUNTIME, tools=frozenset({"Bash", "Read"}))
+            assert out is not None
+            assert out.startswith("<env>\n")
+            assert "</env>" in out
+            assert "prefer it over `Bash`" in out
 
 
 class TestStateSchema:
