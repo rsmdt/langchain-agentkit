@@ -283,7 +283,18 @@ class Agent:
         from langchain_agentkit.streaming import wrap_if_filtering
 
         state_graph = await self.graph()
+        # ``recursion_limit`` is a *runtime* config, not a compile-time arg —
+        # extract it and apply post-compile via ``with_config``. If the caller
+        # didn't supply one, derive it from ``max_turns`` (1 turn = handler +
+        # ToolNode = 2 graph steps).
+        recursion_limit = kwargs.pop("recursion_limit", None)
+        if recursion_limit is None:
+            max_turns = getattr(state_graph, "max_turns", None)
+            if max_turns is not None:
+                recursion_limit = max_turns * 2
         compiled = state_graph.compile(**kwargs)
+        if recursion_limit is not None:
+            compiled = compiled.with_config(recursion_limit=recursion_limit)
         kit = getattr(state_graph, "_agentkit_kit", None)
         suppressed = kit.suppressed_tool_names() if kit is not None else frozenset()
         return wrap_if_filtering(compiled, suppressed)

@@ -368,8 +368,11 @@ def build_ephemeral_graph(
     kit = AgentKit(extensions=[], prompt=prompt, tools=agent_tools, model=llm, name=name)
     graph = kit.compile(_handler)
     compile_kwargs: dict[str, Any] = {}
-    if max_turns is not None:
-        compile_kwargs["recursion_limit"] = max_turns * 2
     if checkpointer is not None:
         compile_kwargs["checkpointer"] = checkpointer
-    return graph.compile(**compile_kwargs)
+    compiled = graph.compile(**compile_kwargs)
+    # ``recursion_limit`` is a runtime config, not a compile-time arg —
+    # apply via ``with_config`` after compile. 1 turn = 2 graph steps.
+    if max_turns is not None:
+        compiled = compiled.with_config(recursion_limit=max_turns * 2)
+    return compiled

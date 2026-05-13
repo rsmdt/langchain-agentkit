@@ -167,6 +167,12 @@ def _compile_agent(
                 graph.add_edge("tools", agent_node_name)
 
     compiled = graph.compile()
+    # Honor ``max_turns`` attached to the StateGraph (1 ReAct turn = handler
+    # + ToolNode = 2 graph steps). ``recursion_limit`` is a runtime config
+    # in LangGraph, so it is applied via ``with_config`` after compile.
+    max_turns = getattr(graph, "max_turns", None)
+    if max_turns is not None:
+        compiled = compiled.with_config(recursion_limit=max_turns * 2)
     compiled_cache[name] = compiled
     return compiled
 

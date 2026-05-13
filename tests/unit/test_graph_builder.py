@@ -133,3 +133,36 @@ class TestBuildEphemeralGraphBindsTools:
         assert "echoed:hello" in tool_results[0].content
         # And the final AI response comes after the tool result.
         assert result["messages"][-1].content == "final"
+
+
+class TestBuildEphemeralGraphMaxTurns:
+    """``max_turns`` must be applied as ``recursion_limit`` on the compiled graph."""
+
+    @pytest.mark.asyncio
+    async def test_max_turns_sets_recursion_limit(self):
+        """max_turns=N → compiled.config['recursion_limit'] == N * 2."""
+        mock_llm = MagicMock()
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content="done"))
+
+        graph = build_ephemeral_graph(
+            name="bounded",
+            llm=mock_llm,
+            prompt="you are bounded",
+            max_turns=6,
+        )
+
+        assert graph.config["recursion_limit"] == 12
+
+    @pytest.mark.asyncio
+    async def test_no_max_turns_no_recursion_limit(self):
+        """Absent max_turns leaves recursion_limit unset (LangGraph default applies)."""
+        mock_llm = MagicMock()
+        mock_llm.ainvoke = AsyncMock(return_value=AIMessage(content="done"))
+
+        graph = build_ephemeral_graph(
+            name="unbounded",
+            llm=mock_llm,
+            prompt="you are unbounded",
+        )
+
+        assert "recursion_limit" not in (getattr(graph, "config", None) or {})

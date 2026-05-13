@@ -99,6 +99,51 @@ class TestCompileOrResolve:
         assert result1 is result2
         assert graph._compile_count == 1  # Only compiled once
 
+    def test_predefined_agent_max_turns_applied(self):
+        """graph.max_turns flows into recursion_limit via with_config (1 turn = 2 steps)."""
+        from langchain_agentkit.extensions.agents.tools.agent import _compile_or_resolve
+
+        with_config_calls: dict = {}
+        bound = MagicMock(name="bound-graph")
+        compiled = MagicMock(name="compiled-bounded")
+        compiled.with_config = lambda **cfg: (with_config_calls.update(cfg), bound)[1]
+
+        class FakeGraph:
+            name = "bounded"
+            tools_inherit = False
+            nodes: dict = {}
+            max_turns = 5
+
+            def compile(self, **kwargs):  # noqa: ANN003, ANN201, ARG002
+                return compiled
+
+        result = _compile_or_resolve(FakeGraph(), {}, None)
+
+        assert with_config_calls == {"recursion_limit": 10}
+        assert result is bound
+
+    def test_predefined_agent_no_max_turns_omits_recursion_limit(self):
+        """When graph.max_turns is unset, with_config is not invoked."""
+        from langchain_agentkit.extensions.agents.tools.agent import _compile_or_resolve
+
+        compiled = MagicMock(name="compiled-unbounded")
+        # If with_config is invoked, the test fails — call_count will be > 0.
+        compiled.with_config = MagicMock(name="with_config")
+
+        class FakeGraph:
+            name = "unbounded"
+            tools_inherit = False
+            nodes: dict = {}
+            # No max_turns attribute at all.
+
+            def compile(self, **kwargs):  # noqa: ANN003, ANN201, ARG002
+                return compiled
+
+        result = _compile_or_resolve(FakeGraph(), {}, None)
+
+        assert compiled.with_config.call_count == 0
+        assert result is compiled
+
     def test_agent_like_not_cached(self):
         from langchain_agentkit.extensions.agents.tools.agent import _compile_or_resolve
 

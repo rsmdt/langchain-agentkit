@@ -200,3 +200,50 @@ class TestAgentClass:
         result = await Override(model=mock_llm_instance).graph()
 
         assert isinstance(result, StateGraph)
+
+    async def test_compile_applies_max_turns_as_recursion_limit(self):
+        """Agent.max_turns is translated to recursion_limit = max_turns * 2."""
+        mock_llm = MagicMock()
+
+        class Bounded(Agent):
+            model = mock_llm
+            max_turns = 7
+
+            async def handler(state, *, llm):
+                return {"messages": [AIMessage(content="ok")], "sender": "b"}
+
+        compiled = await Bounded().compile()
+
+        assert compiled.config["recursion_limit"] == 14
+
+    async def test_compile_explicit_recursion_limit_wins(self):
+        """Caller-supplied recursion_limit overrides max_turns translation."""
+        mock_llm = MagicMock()
+
+        class Bounded(Agent):
+            model = mock_llm
+            max_turns = 7
+
+            async def handler(state, *, llm):
+                return {"messages": [AIMessage(content="ok")], "sender": "b"}
+
+        compiled = await Bounded().compile(recursion_limit=99)
+
+        assert compiled.config["recursion_limit"] == 99
+
+    async def test_compile_no_max_turns_omits_recursion_limit(self):
+        """When max_turns is unset, no recursion_limit override is applied."""
+        mock_llm = MagicMock()
+
+        class Unbounded(Agent):
+            model = mock_llm
+
+            async def handler(state, *, llm):
+                return {"messages": [AIMessage(content="ok")], "sender": "u"}
+
+        compiled = await Unbounded().compile()
+
+        # No explicit recursion_limit in the bound config (LangGraph applies
+        # its default of 25 at invocation if absent). ``config`` itself may
+        # be ``None`` when nothing was bound via ``with_config``.
+        assert "recursion_limit" not in (compiled.config or {})
