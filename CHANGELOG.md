@@ -9,6 +9,24 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.29.0] — 2026-05-14
+
+### Added
+- New `HistoryStrategy` plug-in point on `HistoryExtension` with three built-in strategies: `CountStrategy` (keep last N messages), `TokenStrategy` (keep tail within a token budget), and `CompactionStrategy` (LLM-driven summarization when context fills). Strategies may implement `async setup(*, llm_getter)` and `contribute_prompt()` to access the kit LLM and inject system-prompt guidance.
+- `Agent.compile` now honors a class-level `max_turns` attribute (1 ReAct turn = 2 graph steps); an explicit `recursion_limit=` kwarg still wins when provided.
+
+### Changed
+- **BREAKING**: History and compaction are unified under a single `HistoryExtension` driven by pluggable strategies. `HistoryExtension` always emits `ReplaceMessages` — the previous transparent mode is gone.
+- **BREAKING**: `CoreBehaviorExtension` no longer inspects the composed tool set or emits Bash/FS guidance; its prompt body is now static and tool-agnostic. The Bash-vs-dedicated-tools preference directive now lives on `FilesystemExtension`, which contributes it (alongside the `<env>` block) only when both Bash and a specialized FS tool are registered.
+- Compaction now collapses history into a single synthetic `HumanMessage` summary rather than bisecting at a turn boundary, eliminating orphan-tool-call edge cases at the cost of finer-grained cut points.
+
+### Fixed
+- `recursion_limit` is now applied via `compiled.with_config(...)` after compile in `Agent.compile`, `build_ephemeral_graph`, and `_compile_agent`. Passing it as a `compile()` kwarg was silently a no-op on some LangGraph versions.
+
+### Removed
+- **BREAKING**: `ContextCompactionExtension` is removed. Its responsibilities are now covered by `HistoryExtension` configured with `CompactionStrategy`; its internal helpers (token accounting, summarizer, file ops) have moved under `history/` as private modules.
+- The previous "shell-only" appendix on `FilesystemExtension.prompt()` is dropped — each tool's own description now carries sufficient guidance.
+
 ## [0.28.0] — 2026-05-10
 
 ### Added
