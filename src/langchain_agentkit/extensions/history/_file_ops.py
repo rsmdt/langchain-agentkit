@@ -1,6 +1,6 @@
 """File-operation index — what files did the conversation touch?
 
-During compaction we scan the to-be-discarded prefix for ``Read`` /
+During compaction we scan the to-be-discarded history for ``Read`` /
 ``Write`` / ``Edit`` tool calls and extract the paths. The resulting
 ``<read-files>`` / ``<modified-files>`` block is appended to the summary
 so the post-compaction model can quickly reconstitute "what did we

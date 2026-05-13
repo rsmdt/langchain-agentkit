@@ -1,119 +1,98 @@
-"""HistoryExtension — context window management via pluggable strategies."""
+"""HistoryExtension — rewrite graph state messages via a pluggable strategy.
+
+This extension owns one thing: rewriting ``state["messages"]`` before
+each LLM call. *What* the rewrite looks like is delegated entirely to
+the strategy.
+
+Three built-in strategies cover the common cases:
+
+* :class:`CountStrategy` — roll-over: keep the last N messages.
+* :class:`TokenStrategy` — roll-over: keep the tail within a token budget.
+* :class:`CompactionStrategy` — collapse: when context fills, replace
+  the conversation with one LLM-generated summary message.
+
+Or supply any object implementing :class:`HistoryStrategy`.
+
+Rewrites are persisted to graph state via :class:`ReplaceMessages`, so
+the checkpointer stays in sync with what the LLM sees. There is no
+"transparent" mode — every strategy is destructive.
+"""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, override
 
 from langchain_agentkit.extension import Extension
-from langchain_agentkit.extensions.history.strategies import (
-    _truncate_by_count,
-    _truncate_by_tokens,
-)
+from langchain_agentkit.extensions.history.state import ReplaceMessages
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Awaitable, Callable
+
+    from langgraph.prebuilt import ToolRuntime
 
     from langchain_agentkit.extensions.history.strategies import HistoryStrategy
 
 
 class HistoryExtension(Extension):
-    """Extension that manages message history before each LLM call.
+    """Rewrite ``state["messages"]`` before each LLM call via a strategy.
 
-    Truncates messages to fit the configured window.  The LLM only sees
-    the truncated window, and dropped messages are replaced in graph
-    state via a custom reducer so the checkpointer stays lean.
+    Example::
 
-    Built-in strategies::
+        # Roll-over strategies
+        HistoryExtension(strategy=CountStrategy(max_messages=50))
+        HistoryExtension(strategy=TokenStrategy(max_tokens=4000))
 
-        # Keep the last 50 messages
-        HistoryExtension(strategy="count", max_messages=50)
+        # Collapse-on-trigger strategy
+        HistoryExtension(strategy=CompactionStrategy(reserve_tokens=16_384))
 
-        # Keep messages within a token budget
-        HistoryExtension(strategy="tokens", max_tokens=4000)
+        # Custom
+        class KeepLastTurn:
+            async def transform(self, messages, *, runtime):
+                return messages[-1:] if messages else []
 
-        # With a custom token counter
-        HistoryExtension(strategy="tokens", max_tokens=4000, token_counter=my_fn)
-
-    Custom strategy (any object with ``transform(messages) -> messages``)::
-
-        HistoryExtension(strategy=MySummarizationStrategy())
+        HistoryExtension(strategy=KeepLastTurn())
     """
 
-    def __init__(
+    def __init__(self, *, strategy: HistoryStrategy) -> None:
+        self._strategy = strategy
+
+    @override
+    async def setup(self, **kwargs: Any) -> None:  # type: ignore[override]
+        """Forward ``llm_getter`` to the strategy if it implements ``setup``."""
+        strategy_setup = getattr(self._strategy, "setup", None)
+        if callable(strategy_setup):
+            await strategy_setup(llm_getter=kwargs.get("llm_getter"))
+
+    @override
+    def prompt(
+        self,
+        state: dict[str, Any],
+        runtime: ToolRuntime | None = None,
+        *,
+        tools: frozenset[str] = frozenset(),
+    ) -> str | dict[str, str] | None:
+        """Forward the strategy's prompt contribution, if it has one."""
+        contribute = getattr(self._strategy, "contribute_prompt", None)
+        if callable(contribute):
+            result: str | dict[str, str] | None = contribute()
+            return result
+        return None
+
+    async def wrap_model(
         self,
         *,
-        strategy: Literal["count", "tokens"] | HistoryStrategy,
-        max_messages: int | None = None,
-        max_tokens: int | None = None,
-        token_counter: Callable[[Any], int] | None = None,
-    ) -> None:
-        if isinstance(strategy, str):
-            self._init_builtin(strategy, max_messages, max_tokens, token_counter)
-        else:
-            self._custom_strategy = strategy
-            self._builtin: str | None = None
-
-    def _init_builtin(
-        self,
-        strategy: str,
-        max_messages: int | None,
-        max_tokens: int | None,
-        token_counter: Callable[[Any], int] | None,
-    ) -> None:
-        if strategy == "count":
-            if max_messages is None:
-                raise ValueError("max_messages is required for strategy='count'")
-            if max_messages < 1:
-                raise ValueError("max_messages must be >= 1")
-            self._builtin = "count"
-            self._max_messages = max_messages
-        elif strategy == "tokens":
-            if max_tokens is None:
-                raise ValueError("max_tokens is required for strategy='tokens'")
-            if max_tokens < 1:
-                raise ValueError("max_tokens must be >= 1")
-            self._builtin = "tokens"
-            self._max_tokens = max_tokens
-            self._token_counter = token_counter
-        else:
-            raise ValueError(
-                f"Unknown strategy '{strategy}'. Use 'count', 'tokens', "
-                f"or pass a custom HistoryStrategy object."
-            )
-
-    async def wrap_model(self, *, state: dict[str, Any], handler: Any, runtime: Any) -> Any:
-        """Truncate messages, call the LLM, and replace graph state.
-
-        1. Compute the truncated window from ``state["messages"]``.
-        2. Pass the truncated state to the inner handler (LLM sees only
-           the window).
-        3. Return ``ReplaceMessages(kept + response)`` so the custom
-           reducer replaces the full list in one operation.
-        """
-        from langchain_agentkit.extensions.history.state import ReplaceMessages
-
+        state: dict[str, Any],
+        handler: Callable[[dict[str, Any]], Awaitable[Any]],
+        runtime: Any,
+    ) -> Any:
+        """Rewrite messages, call the LLM with the rewritten list, persist the result."""
         original = list(state.get("messages", []))
-        kept = self._transform(original)
+        transformed = await self._strategy.transform(original, runtime=runtime)
 
-        # LLM sees only the truncated window
-        truncated_state = {**state, "messages": kept}
-        result = await handler(truncated_state)
+        result = await handler({**state, "messages": transformed})
 
-        # Replace the entire messages list: kept window + new response
         if isinstance(result, dict):
             new_messages = result.get("messages", [])
-            result["messages"] = ReplaceMessages(kept + list(new_messages))
+            result["messages"] = ReplaceMessages(list(transformed) + list(new_messages))
 
         return result
-
-    def _transform(self, messages: list[Any]) -> list[Any]:
-        """Apply the strategy to transform the message list."""
-        if self._builtin == "count":
-            return _truncate_by_count(messages, max_messages=self._max_messages)
-        if self._builtin == "tokens":
-            return _truncate_by_tokens(
-                messages,
-                max_tokens=self._max_tokens,
-                token_counter=self._token_counter,
-            )
-        return self._custom_strategy.transform(messages)

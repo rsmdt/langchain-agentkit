@@ -192,8 +192,8 @@ class ResilienceExtension(Extension):
 
         The repair inserts synthetic ``ToolMessage`` entries immediately
         after each offending ``AIMessage``. Downstream extensions
-        (``HistoryExtension``, ``ContextCompactionExtension``) see the
-        repaired list and treat it as a complete turn.
+        (``HistoryExtension`` and its strategies) see the repaired
+        list and treat it as a complete turn.
 
         This hook only fires from ``wrap_model`` — i.e. when the graph
         is entering the model node. Pending HITL interrupts pause the

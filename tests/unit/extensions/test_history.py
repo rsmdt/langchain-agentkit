@@ -1,4 +1,4 @@
-"""Tests for HistoryExtension and history strategies."""
+"""Tests for HistoryExtension and the built-in roll-over strategies."""
 
 from __future__ import annotations
 
@@ -7,8 +7,10 @@ from typing import Any
 import pytest
 
 from langchain_agentkit.extensions.history import (
+    CountStrategy,
     HistoryExtension,
     HistoryStrategy,
+    TokenStrategy,
 )
 from langchain_agentkit.hook_runner import HookRunner
 
@@ -69,7 +71,7 @@ async def _run_wrap(
 
 
 # ===========================================================================
-# strategy="count"
+# CountStrategy
 # ===========================================================================
 
 
@@ -78,14 +80,14 @@ class TestCountStrategy:
     async def test_basic_truncation(self):
         from langchain_agentkit.extensions.history.state import ReplaceMessages
 
-        ext = HistoryExtension(strategy="count", max_messages=3)
+        ext = HistoryExtension(strategy=CountStrategy(max_messages=3))
         result = await _run_wrap(ext, _msgs(6))
         assert isinstance(result["messages"], ReplaceMessages)
 
     @pytest.mark.asyncio
     async def test_handler_receives_truncated_messages(self):
         """The inner handler (LLM) sees only the truncated window."""
-        ext = HistoryExtension(strategy="count", max_messages=2)
+        ext = HistoryExtension(strategy=CountStrategy(max_messages=2))
         messages = _msgs(5)
         received: list[Any] = []
 
@@ -99,9 +101,8 @@ class TestCountStrategy:
 
     @pytest.mark.asyncio
     async def test_fewer_than_limit(self):
-        ext = HistoryExtension(strategy="count", max_messages=10)
+        ext = HistoryExtension(strategy=CountStrategy(max_messages=10))
         messages = _msgs(3)
-
         received: list[Any] = []
 
         async def spy_handler(state: Any) -> dict[str, Any]:
@@ -114,10 +115,9 @@ class TestCountStrategy:
 
     @pytest.mark.asyncio
     async def test_preserves_system_message(self):
-        ext = HistoryExtension(strategy="count", max_messages=3)
+        ext = HistoryExtension(strategy=CountStrategy(max_messages=3))
         sys_msg = FakeSystemMessage("system")
-        messages = [sys_msg] + _msgs(5)
-
+        messages = [sys_msg, *_msgs(5)]
         received: list[Any] = []
 
         async def spy_handler(state: Any) -> dict[str, Any]:
@@ -132,10 +132,9 @@ class TestCountStrategy:
 
     @pytest.mark.asyncio
     async def test_system_message_only_when_budget_is_one(self):
-        ext = HistoryExtension(strategy="count", max_messages=1)
+        ext = HistoryExtension(strategy=CountStrategy(max_messages=1))
         sys_msg = FakeSystemMessage("system")
-        messages = [sys_msg] + _msgs(5)
-
+        messages = [sys_msg, *_msgs(5)]
         received: list[Any] = []
 
         async def spy_handler(state: Any) -> dict[str, Any]:
@@ -148,38 +147,33 @@ class TestCountStrategy:
 
     @pytest.mark.asyncio
     async def test_empty_list(self):
-        ext = HistoryExtension(strategy="count", max_messages=5)
+        ext = HistoryExtension(strategy=CountStrategy(max_messages=5))
         result = await _run_wrap(ext, [])
         assert result["messages"][-1] == FakeMessage("response")
 
     def test_rejects_zero(self):
         with pytest.raises(ValueError, match="max_messages must be >= 1"):
-            HistoryExtension(strategy="count", max_messages=0)
+            CountStrategy(max_messages=0)
 
     def test_rejects_negative(self):
         with pytest.raises(ValueError, match="max_messages must be >= 1"):
-            HistoryExtension(strategy="count", max_messages=-1)
-
-    def test_requires_max_messages(self):
-        with pytest.raises(ValueError, match="max_messages is required"):
-            HistoryExtension(strategy="count")
+            CountStrategy(max_messages=-1)
 
 
 # ===========================================================================
-# strategy="tokens"
+# TokenStrategy
 # ===========================================================================
 
 
-class TestTokensStrategy:
+class TestTokenStrategy:
     @staticmethod
     def _counter(msg: Any) -> int:
         return len(msg.content)
 
     @pytest.mark.asyncio
     async def test_basic_truncation(self):
-        ext = HistoryExtension(strategy="tokens", max_tokens=10, token_counter=self._counter)
+        ext = HistoryExtension(strategy=TokenStrategy(max_tokens=10, token_counter=self._counter))
         messages = [FakeMessage("aaaa"), FakeMessage("bbbb"), FakeMessage("cccc")]
-
         received: list[Any] = []
 
         async def spy_handler(state: Any) -> dict[str, Any]:
@@ -192,10 +186,9 @@ class TestTokensStrategy:
 
     @pytest.mark.asyncio
     async def test_preserves_system_message(self):
-        ext = HistoryExtension(strategy="tokens", max_tokens=10, token_counter=self._counter)
+        ext = HistoryExtension(strategy=TokenStrategy(max_tokens=10, token_counter=self._counter))
         sys_msg = FakeSystemMessage("system")  # 6 tokens
         messages = [sys_msg, FakeMessage("aaaa"), FakeMessage("bbbb"), FakeMessage("cccc")]
-
         received: list[Any] = []
 
         async def spy_handler(state: Any) -> dict[str, Any]:
@@ -208,9 +201,8 @@ class TestTokensStrategy:
 
     @pytest.mark.asyncio
     async def test_custom_counter(self):
-        ext = HistoryExtension(strategy="tokens", max_tokens=2, token_counter=lambda _: 1)
+        ext = HistoryExtension(strategy=TokenStrategy(max_tokens=2, token_counter=lambda _: 1))
         messages = _msgs(5)
-
         received: list[Any] = []
 
         async def spy_handler(state: Any) -> dict[str, Any]:
@@ -223,9 +215,8 @@ class TestTokensStrategy:
 
     @pytest.mark.asyncio
     async def test_single_message_exceeding_budget(self):
-        ext = HistoryExtension(strategy="tokens", max_tokens=1, token_counter=self._counter)
+        ext = HistoryExtension(strategy=TokenStrategy(max_tokens=1, token_counter=self._counter))
         messages = [FakeMessage("this is a long message")]
-
         received: list[Any] = []
 
         async def spy_handler(state: Any) -> dict[str, Any]:
@@ -238,23 +229,18 @@ class TestTokensStrategy:
 
     @pytest.mark.asyncio
     async def test_empty_list(self):
-        ext = HistoryExtension(strategy="tokens", max_tokens=100)
+        ext = HistoryExtension(strategy=TokenStrategy(max_tokens=100))
         result = await _run_wrap(ext, [])
         assert result["messages"][-1] == FakeMessage("response")
 
     def test_rejects_zero(self):
         with pytest.raises(ValueError, match="max_tokens must be >= 1"):
-            HistoryExtension(strategy="tokens", max_tokens=0)
-
-    def test_requires_max_tokens(self):
-        with pytest.raises(ValueError, match="max_tokens is required"):
-            HistoryExtension(strategy="tokens")
+            TokenStrategy(max_tokens=0)
 
     @pytest.mark.asyncio
     async def test_default_counter(self):
-        ext = HistoryExtension(strategy="tokens", max_tokens=5)
+        ext = HistoryExtension(strategy=TokenStrategy(max_tokens=5))
         msg = FakeMessage("x" * 20)  # 5 tokens via len//4
-
         received: list[Any] = []
 
         async def spy_handler(state: Any) -> dict[str, Any]:
@@ -277,12 +263,11 @@ class TestCustomStrategy:
         calls: list[list[Any]] = []
 
         class SpyStrategy:
-            def transform(self, messages: list[Any]) -> list[Any]:
+            async def transform(self, messages: list[Any], *, runtime: Any) -> list[Any]:
                 calls.append(list(messages))
                 return messages[-1:]
 
         ext = HistoryExtension(strategy=SpyStrategy())
-
         received: list[Any] = []
 
         async def spy_handler(state: Any) -> dict[str, Any]:
@@ -296,7 +281,7 @@ class TestCustomStrategy:
 
     def test_custom_class_satisfies_protocol(self):
         class MyStrategy:
-            def transform(self, messages: list[Any]) -> list[Any]:
+            async def transform(self, messages: list[Any], *, runtime: Any) -> list[Any]:
                 return messages
 
         assert isinstance(MyStrategy(), HistoryStrategy)
@@ -308,21 +293,49 @@ class TestCustomStrategy:
 
 
 class TestHistoryExtension:
-    def test_unknown_strategy_rejected(self):
-        with pytest.raises(ValueError, match="Unknown strategy"):
-            HistoryExtension(strategy="summarize")  # type: ignore[arg-type]
-
     def test_no_tools(self):
-        ext = HistoryExtension(strategy="count", max_messages=10)
+        ext = HistoryExtension(strategy=CountStrategy(max_messages=10))
         assert ext.tools == []
 
-    def test_no_prompt(self):
-        ext = HistoryExtension(strategy="count", max_messages=10)
+    def test_no_prompt_when_strategy_has_none(self):
+        ext = HistoryExtension(strategy=CountStrategy(max_messages=10))
         assert ext.prompt({}) is None
 
+    def test_forwards_strategy_prompt(self):
+        class TalkativeStrategy:
+            async def transform(self, messages: list[Any], *, runtime: Any) -> list[Any]:
+                return messages
+
+            def contribute_prompt(self) -> dict[str, str]:
+                return {"reminder": "hello"}
+
+        ext = HistoryExtension(strategy=TalkativeStrategy())
+        assert ext.prompt({}) == {"reminder": "hello"}
+
     def test_no_state_schema(self):
-        ext = HistoryExtension(strategy="count", max_messages=10)
+        ext = HistoryExtension(strategy=CountStrategy(max_messages=10))
         assert ext.state_schema is None
+
+    @pytest.mark.asyncio
+    async def test_setup_forwards_llm_getter_to_strategy(self):
+        captured: dict[str, Any] = {}
+
+        class StrategyWithSetup:
+            async def transform(self, messages: list[Any], *, runtime: Any) -> list[Any]:
+                return messages
+
+            async def setup(self, *, llm_getter: Any) -> None:
+                captured["llm_getter"] = llm_getter
+
+        ext = HistoryExtension(strategy=StrategyWithSetup())
+        await ext.setup(llm_getter=lambda: "the-llm")
+        assert captured["llm_getter"]() == "the-llm"
+
+    @pytest.mark.asyncio
+    async def test_setup_skipped_when_strategy_has_no_setup(self):
+        # Should not raise — strategy without setup is allowed.
+        ext = HistoryExtension(strategy=CountStrategy(max_messages=5))
+        await ext.setup(llm_getter=lambda: None)
 
 
 # ===========================================================================
@@ -333,10 +346,9 @@ class TestHistoryExtension:
 class TestHookRunnerIntegration:
     @pytest.mark.asyncio
     async def test_wrap_model_discovered_by_hook_runner(self):
-        ext = HistoryExtension(strategy="count", max_messages=2)
+        ext = HistoryExtension(strategy=CountStrategy(max_messages=2))
         runner = HookRunner([ext])
         messages = _msgs(5)
-
         received: list[Any] = []
 
         async def spy_handler(request: Any) -> dict[str, Any]:
@@ -360,9 +372,8 @@ class TestReplaceMessages:
     async def test_returns_replace_messages_list(self):
         from langchain_agentkit.extensions.history.state import ReplaceMessages
 
-        ext = HistoryExtension(strategy="count", max_messages=2)
+        ext = HistoryExtension(strategy=CountStrategy(max_messages=2))
         result = await _run_wrap(ext, _id_msgs(5))
-
         assert isinstance(result["messages"], ReplaceMessages)
 
     @pytest.mark.asyncio
@@ -371,29 +382,26 @@ class TestReplaceMessages:
 
         from langchain_agentkit.extensions.history.state import ReplaceMessages
 
-        ext = HistoryExtension(strategy="count", max_messages=2)
+        ext = HistoryExtension(strategy=CountStrategy(max_messages=2))
         msgs = _id_msgs(5)
         result = await _run_wrap(ext, msgs)
 
         sentinel = result["messages"]
         assert isinstance(sentinel, ReplaceMessages)
-        # First element is RemoveMessage("__remove_all__")
         assert isinstance(sentinel[0], RemoveMessage)
         assert sentinel[0].id == "__remove_all__"
-        # Remaining: kept window (last 2) + handler response
         assert sentinel[1:] == list(msgs[-2:]) + [FakeMessage("response")]
 
     @pytest.mark.asyncio
     async def test_all_fit_still_returns_sentinel(self):
         from langchain_agentkit.extensions.history.state import ReplaceMessages
 
-        ext = HistoryExtension(strategy="count", max_messages=10)
+        ext = HistoryExtension(strategy=CountStrategy(max_messages=10))
         msgs = _id_msgs(3)
         result = await _run_wrap(ext, msgs)
 
         sentinel = result["messages"]
         assert isinstance(sentinel, ReplaceMessages)
-        # RemoveAll + all messages + response
         assert sentinel[1:] == list(msgs) + [FakeMessage("response")]
 
     def test_works_with_add_messages_reducer(self):
@@ -406,7 +414,5 @@ class TestReplaceMessages:
         new = ReplaceMessages([HumanMessage(content="new", id="2")])
 
         result = add_messages(old, new)
-
-        # Old message should be gone, only new remains
         assert len(result) == 1
         assert result[0].content == "new"

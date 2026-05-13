@@ -9,7 +9,7 @@ from unittest.mock import MagicMock
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
 from langchain_agentkit import Agent
-from langchain_agentkit.extensions.history import HistoryExtension
+from langchain_agentkit.extensions.history import CountStrategy, HistoryExtension
 from langchain_agentkit.extensions.persistence import MessagePersistenceExtension
 
 
@@ -209,7 +209,7 @@ class TestMessagePersistenceWithHistoryExtension:
             # Window=2 with lots of prior messages — truncation will drop
             # pre-turn messages between before_run and after_run.
             extensions = [
-                HistoryExtension(strategy="count", max_messages=2),
+                HistoryExtension(strategy=CountStrategy(max_messages=2)),
                 MessagePersistenceExtension(persist=sink),
             ]
 

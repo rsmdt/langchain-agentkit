@@ -13,7 +13,7 @@ from dataclasses import dataclass
 from math import ceil
 from typing import TYPE_CHECKING, Any
 
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -63,13 +63,7 @@ def _content_chars(content: Any) -> int:
 
 
 def estimate_tokens(message: Any) -> int:
-    """Approximate token count for ``message`` using chars / 4.
-
-    Handles LangChain's polymorphic content (str or list-of-dicts) and
-    attaches a fixed image surcharge when an image block is present.
-    Tool-call payloads on ``AIMessage`` are counted toward the message
-    size so compaction triggers see tool-heavy turns realistically.
-    """
+    """Approximate token count for ``message`` using chars / 4."""
     chars = _content_chars(getattr(message, "content", ""))
     if isinstance(message, AIMessage):
         for call in getattr(message, "tool_calls", None) or []:
@@ -144,21 +138,3 @@ def estimate_context_tokens(messages: Sequence[Any]) -> ContextUsageEstimate:
 def should_compact(ctx_tokens: int, context_window: int, reserve_tokens: int) -> bool:
     """Trigger when remaining headroom falls below ``reserve_tokens``."""
     return ctx_tokens > context_window - reserve_tokens
-
-
-# Message type helpers used by cutpoint / serialization logic below.
-_USER_LIKE = (HumanMessage, SystemMessage)
-_ASSISTANT_LIKE = (AIMessage,)
-_TOOL_LIKE = (ToolMessage,)
-
-
-def is_user_like(msg: Any) -> bool:
-    return isinstance(msg, _USER_LIKE)
-
-
-def is_assistant_like(msg: Any) -> bool:
-    return isinstance(msg, _ASSISTANT_LIKE)
-
-
-def is_tool_like(msg: Any) -> bool:
-    return isinstance(msg, _TOOL_LIKE)

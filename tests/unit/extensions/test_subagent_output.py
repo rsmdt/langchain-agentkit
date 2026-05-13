@@ -291,20 +291,20 @@ class TestAgentsExtensionOrderingCheck:
         return AgentsExtension(agents=[agent], **kwargs)
 
     async def test_raises_when_agents_declared_before_history(self):
-        from langchain_agentkit.extensions.history import HistoryExtension
+        from langchain_agentkit.extensions.history import CountStrategy, HistoryExtension
 
         agents_ext = self._make_ext()  # trace_hidden default
-        history_ext = HistoryExtension(strategy="count", max_messages=100)
+        history_ext = HistoryExtension(strategy=CountStrategy(max_messages=100))
         extensions = [agents_ext, history_ext]  # wrong order
 
         with pytest.raises(ValueError, match="must be declared AFTER HistoryExtension"):
             await agents_ext.setup(extensions=extensions)
 
     async def test_passes_when_agents_declared_after_history(self):
-        from langchain_agentkit.extensions.history import HistoryExtension
+        from langchain_agentkit.extensions.history import CountStrategy, HistoryExtension
 
         agents_ext = self._make_ext()
-        history_ext = HistoryExtension(strategy="count", max_messages=100)
+        history_ext = HistoryExtension(strategy=CountStrategy(max_messages=100))
         extensions = [history_ext, agents_ext]  # correct order
 
         # Should not raise.
@@ -312,10 +312,10 @@ class TestAgentsExtensionOrderingCheck:
 
     async def test_no_check_when_last_message_strategy(self):
         """Non-hiding strategies don't need the ordering rule — no check fires."""
-        from langchain_agentkit.extensions.history import HistoryExtension
+        from langchain_agentkit.extensions.history import CountStrategy, HistoryExtension
 
         agents_ext = self._make_ext(output_mode="last_message")
-        history_ext = HistoryExtension(strategy="count", max_messages=100)
+        history_ext = HistoryExtension(strategy=CountStrategy(max_messages=100))
         extensions = [agents_ext, history_ext]  # would be wrong for trace_hidden
 
         # Should not raise — last_message doesn't tag, so ordering is irrelevant.

@@ -1,18 +1,15 @@
-"""LLM-driven conversation summarization for compaction.
+"""LLM-driven conversation summarization for :class:`CompactionStrategy`.
 
-Serializes the to-be-discarded prefix as a plaintext transcript wrapped
-in ``<conversation>`` tags (so the model treats it as data, not a chat to
-continue), hands it to the LLM with a structured section schema, and
-returns the model's response text.
+Serializes the to-be-discarded history as a plaintext transcript wrapped
+in ``<conversation>`` tags (so the model treats it as data, not a chat
+to continue), hands it to the LLM with a structured section schema, and
+returns the response text.
 
 Two prompts:
 
 * :data:`SUMMARIZATION_PROMPT` — initial summary.
 * :data:`UPDATE_SUMMARIZATION_PROMPT` — merges a new transcript into an
   existing summary from a prior compaction round.
-
-A separate :data:`TURN_PREFIX_SUMMARIZATION_PROMPT` summarizes the
-initial half of a split turn so the retained suffix stays coherent.
 """
 
 from __future__ import annotations
@@ -27,7 +24,6 @@ if TYPE_CHECKING:
 
     from langchain_core.language_models import BaseChatModel
 
-# ---- System / user prompts --------------------------------------------------
 
 SUMMARIZATION_SYSTEM_PROMPT = (
     "You are a context summarization assistant. Your task is to read a "
@@ -109,27 +105,10 @@ Use this EXACT format:
 
 Keep each section concise. Preserve exact file paths, function names, and error messages."""
 
-TURN_PREFIX_SUMMARIZATION_PROMPT = """This is the PREFIX of a turn that was too large to keep. The SUFFIX (recent work) is retained.
-
-Summarize the prefix to provide context for the retained suffix:
-
-## Original Request
-[What did the user ask for in this turn?]
-
-## Early Progress
-- [Key decisions and work done in the prefix]
-
-## Context for Suffix
-- [Information needed to understand the retained recent work]
-
-Be concise. Focus on what's needed to understand the kept suffix."""
 
 # Tool results are truncated to this many characters when serialized for
 # the summarizer — summaries rarely need full tool output verbatim.
 _TOOL_RESULT_MAX_CHARS = 2000
-
-
-# ---- Transcript serialization ---------------------------------------------
 
 
 def _text_from_content(content: Any) -> str:
@@ -198,22 +177,18 @@ def serialize_conversation(messages: Iterable[Any]) -> str:
     return "\n\n".join(out)
 
 
-# ---- LLM invocation --------------------------------------------------------
-
-
 async def generate_summary(
     messages: Iterable[Any],
     llm: BaseChatModel,
     *,
-    reserve_tokens: int,
     previous_summary: str | None = None,
     custom_instructions: str | None = None,
 ) -> str:
     """Ask ``llm`` to summarize the serialized transcript.
 
-    Returns only the assistant text. Adds the previous summary (if any)
-    inside ``<previous-summary>`` tags and switches to the update prompt
-    so the summary accumulates cleanly across compaction rounds.
+    Adds the previous summary (if any) inside ``<previous-summary>``
+    tags and switches to the update prompt so the summary accumulates
+    cleanly across compaction rounds.
     """
     transcript = serialize_conversation(messages)
     base = UPDATE_SUMMARIZATION_PROMPT if previous_summary else SUMMARIZATION_PROMPT
@@ -225,23 +200,6 @@ async def generate_summary(
         user_text += f"<previous-summary>\n{previous_summary}\n</previous-summary>\n\n"
     user_text += base
 
-    prompt_messages = [
-        SystemMessage(content=SUMMARIZATION_SYSTEM_PROMPT),
-        HumanMessage(content=user_text),
-    ]
-    response = await llm.ainvoke(prompt_messages)
-    return _text_from_content(getattr(response, "content", ""))
-
-
-async def generate_turn_prefix_summary(
-    messages: Iterable[Any],
-    llm: BaseChatModel,
-) -> str:
-    """Summarize the early half of a turn that was too large to keep whole."""
-    transcript = serialize_conversation(messages)
-    user_text = (
-        f"<conversation>\n{transcript}\n</conversation>\n\n{TURN_PREFIX_SUMMARIZATION_PROMPT}"
-    )
     prompt_messages = [
         SystemMessage(content=SUMMARIZATION_SYSTEM_PROMPT),
         HumanMessage(content=user_text),

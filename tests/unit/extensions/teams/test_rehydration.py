@@ -522,20 +522,20 @@ class TestTwoTurnScenario:
 class TestHookOrderingEnforcement:
     @pytest.mark.asyncio
     async def test_setup_raises_if_history_precedes_team(self):
-        from langchain_agentkit.extensions.history.extension import HistoryExtension
+        from langchain_agentkit.extensions.history import CountStrategy, HistoryExtension
 
         team = TeamExtension(agents=[_make_mock_agent("researcher")])
-        history = HistoryExtension(strategy="count", max_messages=50)
+        history = HistoryExtension(strategy=CountStrategy(max_messages=50))
 
         with pytest.raises(ValueError, match="TeamExtension must be listed before"):
             await team.setup(extensions=[history, team])
 
     @pytest.mark.asyncio
     async def test_setup_passes_if_team_precedes_history(self):
-        from langchain_agentkit.extensions.history.extension import HistoryExtension
+        from langchain_agentkit.extensions.history import CountStrategy, HistoryExtension
 
         team = TeamExtension(agents=[_make_mock_agent("researcher")])
-        history = HistoryExtension(strategy="count", max_messages=50)
+        history = HistoryExtension(strategy=CountStrategy(max_messages=50))
 
         await team.setup(extensions=[team, history])  # Must not raise
 

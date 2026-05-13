@@ -82,11 +82,13 @@ from langchain_agentkit.extensions.agents.output import (
     trace_hidden_strategy,
 )
 from langchain_agentkit.extensions.agents.tools import create_agent_tools
-from langchain_agentkit.extensions.context_compaction import (
-    CompactionSettings,
-    ContextCompactionExtension,
-)
 from langchain_agentkit.extensions.filesystem.tools import create_filesystem_tools
+from langchain_agentkit.extensions.history import (
+    CompactionStrategy,
+    CountStrategy,
+    HistoryStrategy,
+    TokenStrategy,
+)
 from langchain_agentkit.extensions.hitl import Option, Question
 from langchain_agentkit.extensions.hitl.tools import create_ask_user_tool
 from langchain_agentkit.extensions.prompt_templates import (
@@ -141,12 +143,13 @@ __all__ = [
     "PermissionRuleset",
     # Extensions
     "AgentsExtension",
-    "CompactionSettings",
-    "ContextCompactionExtension",
+    "CompactionStrategy",
+    "CountStrategy",
     "DuckDuckGoSearchProvider",
     "FilesystemExtension",
     "HITLExtension",
     "HistoryExtension",
+    "HistoryStrategy",
     "MessagePersistenceExtension",
     "PromptTemplate",
     "PromptTemplateExtension",
@@ -155,6 +158,7 @@ __all__ = [
     "SkillsExtension",
     "TasksExtension",
     "TeamExtension",
+    "TokenStrategy",
     "WebSearchExtension",
     # Composability
     "AgentLike",

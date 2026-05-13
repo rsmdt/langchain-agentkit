@@ -1,7 +1,17 @@
-"""History strategies for managing context window size.
+"""History strategies — control how HistoryExtension rewrites messages.
 
-Each strategy implements a ``transform`` method that takes a list of messages
-and returns a (possibly shorter) list suitable for the LLM's context window.
+A strategy is any object with an async ``transform(messages, *, runtime)``
+method that returns the new message list. ``HistoryExtension`` always
+persists the strategy's output to graph state via
+:class:`ReplaceMessages` — the strategy decides what the new list is.
+
+Two simple built-ins live here:
+
+* :class:`CountStrategy` — keep the last N messages.
+* :class:`TokenStrategy` — keep the tail within a token budget.
+
+For LLM-driven summarizing compaction see
+:class:`langchain_agentkit.extensions.history.CompactionStrategy`.
 """
 
 from __future__ import annotations
@@ -14,13 +24,26 @@ if TYPE_CHECKING:
 
 @runtime_checkable
 class HistoryStrategy(Protocol):
-    """Protocol for custom history transformation strategies.
+    """Rewrites the message list before each LLM call.
 
-    Any object with a ``transform(messages) -> messages`` method satisfies
-    this protocol and can be passed to ``HistoryExtension(strategy=...)``.
+    Required: ``async transform(messages, *, runtime) -> messages``.
+
+    Optional (discovered via ``getattr``):
+
+    * ``async setup(*, llm_getter)`` — receive a handle to the kit's
+      main LLM at compile time. Strategies that need an LLM (e.g.
+      :class:`CompactionStrategy`) implement this.
+    * ``contribute_prompt() -> dict[str, str] | str | None`` — inject
+      guidance into the agent's system prompt. Returned value follows
+      :meth:`Extension.prompt` conventions.
     """
 
-    def transform(self, messages: list[Any]) -> list[Any]: ...
+    async def transform(self, messages: list[Any], *, runtime: Any) -> list[Any]: ...
+
+
+def _is_system_message(message: Any) -> bool:
+    """Class-name check that avoids importing langchain at module load."""
+    return type(message).__name__ == "SystemMessage"
 
 
 def _default_token_counter(message: Any) -> int:
@@ -31,60 +54,73 @@ def _default_token_counter(message: Any) -> int:
     return 0
 
 
-def _is_system_message(message: Any) -> bool:
-    """Check if a message is a SystemMessage without importing langchain."""
-    return type(message).__name__ == "SystemMessage"
+class CountStrategy:
+    """Keep the last ``max_messages`` messages.
 
-
-def _truncate_by_count(messages: list[Any], *, max_messages: int) -> list[Any]:
-    """Keep the last *max_messages* messages, preserving a leading SystemMessage."""
-    if len(messages) <= max_messages:
-        return messages
-
-    has_system = messages and _is_system_message(messages[0])
-    if has_system:
-        budget = max_messages - 1
-        tail = messages[1:]
-        return [messages[0]] + tail[-budget:] if budget > 0 else [messages[0]]
-
-    return messages[-max_messages:]
-
-
-def _truncate_by_tokens(
-    messages: list[Any],
-    *,
-    max_tokens: int,
-    token_counter: Callable[[Any], int] | None = None,
-) -> list[Any]:
-    """Keep the most recent messages that fit within *max_tokens*.
-
-    Walks messages in reverse, accumulating token counts until the budget
-    is exhausted.  A leading ``SystemMessage`` is always preserved with its
-    tokens reserved first.
+    A leading ``SystemMessage`` is always preserved — it's the agent's
+    persona, not part of the conversation history. When the budget is
+    1 and a system message is present, only the system message is kept.
     """
-    if not messages:
-        return messages
 
-    counter = token_counter or _default_token_counter
-    budget = max_tokens
-    has_system = _is_system_message(messages[0])
+    def __init__(self, *, max_messages: int) -> None:
+        if max_messages < 1:
+            raise ValueError("max_messages must be >= 1")
+        self._max_messages = max_messages
 
-    if has_system:
-        budget -= counter(messages[0])
-        tail = messages[1:]
-    else:
-        tail = messages
+    async def transform(self, messages: list[Any], *, runtime: Any) -> list[Any]:
+        if len(messages) <= self._max_messages:
+            return messages
 
-    kept: list[Any] = []
-    for msg in reversed(tail):
-        cost = counter(msg)
-        if budget - cost < 0 and kept:
-            break
-        kept.append(msg)
-        budget -= cost
+        has_system = bool(messages) and _is_system_message(messages[0])
+        if has_system:
+            budget = self._max_messages - 1
+            tail = messages[1:]
+            return [messages[0], *tail[-budget:]] if budget > 0 else [messages[0]]
 
-    kept.reverse()
+        return messages[-self._max_messages :]
 
-    if has_system:
-        return [messages[0]] + kept
-    return kept
+
+class TokenStrategy:
+    """Keep the most recent messages that fit within ``max_tokens``.
+
+    Walks from the newest message backward, accumulating per-message
+    token counts until the budget is exhausted. A leading
+    ``SystemMessage`` is preserved with its tokens reserved first.
+    """
+
+    def __init__(
+        self,
+        *,
+        max_tokens: int,
+        token_counter: Callable[[Any], int] | None = None,
+    ) -> None:
+        if max_tokens < 1:
+            raise ValueError("max_tokens must be >= 1")
+        self._max_tokens = max_tokens
+        self._counter = token_counter or _default_token_counter
+
+    async def transform(self, messages: list[Any], *, runtime: Any) -> list[Any]:
+        if not messages:
+            return messages
+
+        budget = self._max_tokens
+        has_system = _is_system_message(messages[0])
+
+        if has_system:
+            budget -= self._counter(messages[0])
+            tail = messages[1:]
+        else:
+            tail = messages
+
+        kept: list[Any] = []
+        for msg in reversed(tail):
+            cost = self._counter(msg)
+            if budget - cost < 0 and kept:
+                break
+            kept.append(msg)
+            budget -= cost
+
+        kept.reverse()
+        if has_system:
+            return [messages[0], *kept]
+        return kept

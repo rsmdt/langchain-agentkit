@@ -97,7 +97,7 @@ select = ["E", "F", "I", "B", "C90", "N", "UP", "PIE", "SIM", "TCH"]
 [tool.ruff.lint.per-file-ignores]
 "src/langchain_agentkit/extensions/*/tools/*.py" = ["E501"]
 # model sees, so E501 is permitted here.
-"src/langchain_agentkit/extensions/context_compaction/summarizer.py" = ["E501", "C901"]
+"src/langchain_agentkit/extensions/history/_summarizer.py" = ["E501", "C901"]
 # Bash-style argument tokenizer — the state machine is intentionally flat.
 "src/langchain_agentkit/extensions/prompt_templates/parser.py" = ["C901"]
 
