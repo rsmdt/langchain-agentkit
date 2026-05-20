@@ -50,6 +50,7 @@ import asyncio
 import contextlib
 import platform
 import posixpath
+import re
 from typing import TYPE_CHECKING
 
 # Runtime import — fails with a clear ImportError if ``mirage-ai`` isn't
@@ -348,16 +349,31 @@ class MirageBackend:
     async def glob(self, pattern: str, path: str = "/") -> list[str]:
         """Find files matching ``pattern`` via Mirage's built-in ``find``.
 
-        Recursive patterns (``**/*.py``) are translated to ``find -path``
-        predicates; flat patterns (``*.py``) use ``find -name``. Matches
-        :meth:`DaytonaBackend.glob` so the LLM gets identical results
-        regardless of which backend is wired in.
+        Recursive basename patterns (``**/<basename>`` — e.g.
+        ``**/SKILL.md``, ``**/*.md``) translate to ``find -name`` so
+        they cross arbitrary directory depths reliably. Mirage's
+        ``find -path`` predicate doesn't treat ``*`` as crossing ``/``
+        boundaries the way GNU find does, so a ``-path`` translation
+        for ``**/<basename>`` silently returns nothing on sub-path
+        mounts. Compound recursive patterns (``**/skills/*.md``) still
+        use ``find -path`` — that branch handles intra-pattern slashes
+        Mirage *does* match. Flat patterns (``*.py``) use ``-name``.
+        Matches :meth:`DaytonaBackend.glob` so the LLM gets identical
+        results regardless of which backend is wired in.
         """
         try:
             real_path = self._resolve(path)
         except PermissionError:
             return []
-        if "**" in pattern or "/" in pattern:
+        basename_match = re.match(r"^\*\*/([^/]+)$", pattern)
+        if basename_match is not None:
+            basename = basename_match.group(1)
+            cmd = (
+                f"find {_shell_quote(real_path)}"
+                f" -name {_shell_quote(basename)}"
+                f" -type f 2>/dev/null | sort"
+            )
+        elif "**" in pattern or "/" in pattern:
             find_pattern = pattern.replace("**", "*")
             full_pattern = f"{real_path.rstrip('/')}/{find_pattern}"
             cmd = (

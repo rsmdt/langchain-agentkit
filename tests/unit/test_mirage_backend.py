@@ -6,6 +6,9 @@ Behavior the integration matrix can't reach cleanly:
   sub-path namespace).
 - Exception → ``FileError`` translation table (``_map_exc``).
 - Constructor invariants (workdir normalization).
+- ``glob()`` command-translation branches — verified by intercepting
+  the emitted shell command so we cover the ``find -name`` vs
+  ``find -path`` fork without booting a real workspace.
 
 Protocol-level conformance is exercised in
 ``tests/integration/test_backend_protocol.py`` against a real
@@ -158,6 +161,59 @@ class TestMapExc:
 
 
 # ---------------------------------------------------------------------------
+# glob() command translation — branch coverage without booting a workspace
+# ---------------------------------------------------------------------------
+
+
+class TestGlobCommandTranslation:
+    """Assert which ``find`` flavor each pattern shape emits.
+
+    Behavioral coverage of the recursive-basename fix lives in
+    ``tests/integration/test_backend_protocol.py::TestGlobRecursiveBasename``
+    (which needs a real ``RAMResource`` to exercise ``find -path`` /
+    ``-name`` evaluation under a sub-path mount). These tests cover the
+    branch fork: the regex short-circuit must take ``**/<basename>``
+    patterns to ``-name`` and leave compound recursive patterns
+    (``**/skills/*.md``) on the ``-path`` branch.
+    """
+
+    async def test_basename_recursive_uses_find_name(self) -> None:
+        ws = _CommandCapturingWorkspace()
+        backend = MirageBackend(workspace=ws, workdir="/workspace")
+        await backend.glob("**/SKILL.md")
+        assert ws.last_cmd is not None
+        assert "-name 'SKILL.md'" in ws.last_cmd
+        assert "-path" not in ws.last_cmd
+
+    async def test_basename_glob_extension_uses_find_name(self) -> None:
+        ws = _CommandCapturingWorkspace()
+        backend = MirageBackend(workspace=ws, workdir="/workspace")
+        await backend.glob("**/*.md")
+        assert ws.last_cmd is not None
+        assert "-name '*.md'" in ws.last_cmd
+        assert "-path" not in ws.last_cmd
+
+    async def test_compound_recursive_keeps_find_path(self) -> None:
+        # (d) Regression: compound recursive patterns must keep the
+        # existing ``-path`` translation rather than being miscaptured
+        # by the new ``**/<basename>`` short-circuit.
+        ws = _CommandCapturingWorkspace()
+        backend = MirageBackend(workspace=ws, workdir="/workspace")
+        await backend.glob("**/skills/*.md")
+        assert ws.last_cmd is not None
+        assert "-path '/workspace/*/skills/*.md'" in ws.last_cmd
+        assert "-name" not in ws.last_cmd
+
+    async def test_flat_pattern_uses_find_name(self) -> None:
+        ws = _CommandCapturingWorkspace()
+        backend = MirageBackend(workspace=ws, workdir="/workspace")
+        await backend.glob("*.py")
+        assert ws.last_cmd is not None
+        assert "-name '*.py'" in ws.last_cmd
+        assert "-path" not in ws.last_cmd
+
+
+# ---------------------------------------------------------------------------
 # Test fixtures
 # ---------------------------------------------------------------------------
 
@@ -171,3 +227,25 @@ class _FakeWorkspace:
     ``tests/integration/test_backend_protocol.py`` validate the SDK-bound
     paths against an actual ``RAMResource`` mount.
     """
+
+
+class _CommandCapturingWorkspace:
+    """Stand-in for :class:`mirage.Workspace` that records ``execute`` calls.
+
+    Returns an empty stdout so ``glob()`` short-circuits to ``[]`` — we
+    only care about the emitted command string, not the result. Keeps
+    these unit tests fast and SDK-free while still exercising the
+    branch fork in :meth:`MirageBackend.glob`.
+    """
+
+    def __init__(self) -> None:
+        self.last_cmd: str | None = None
+
+    async def execute(self, cmd: str) -> _EmptyIO:
+        self.last_cmd = cmd
+        return _EmptyIO()
+
+
+class _EmptyIO:
+    async def stdout_str(self) -> str:
+        return ""

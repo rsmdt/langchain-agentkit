@@ -391,6 +391,97 @@ class TestGlob:
 
 
 # ---------------------------------------------------------------------------
+# glob — recursive-basename patterns on Mirage sub-path mounts
+# ---------------------------------------------------------------------------
+#
+# Mirage-specific regression: ``**/<basename>`` patterns
+# (``**/SKILL.md``, ``**/*.md``) on a sub-path mount used to translate to
+# ``find -path`` with ``*`` substituted for ``**``. Mirage's curated
+# ``find -path`` doesn't treat ``*`` as crossing ``/`` boundaries the way
+# GNU find does, so those patterns silently returned ``[]`` — breaking
+# downstream skill-discovery (agentkit's ``SkillsExtension``) for any
+# agent whose skills live under a sub-path mount. The fix translates
+# recursive-basename patterns to ``find -name`` directly; compound
+# recursive patterns (``**/skills/*.md``) keep the existing ``-path``
+# translation.
+#
+# These cases need a sub-path mount to reproduce, so they run only
+# against a dedicated Mirage workspace — not the shared backend matrix
+# (which mounts at ``/``).
+
+
+@pytest.fixture
+async def mirage_subpath_backend():
+    """Yield a ``MirageBackend`` with a sub-path RAM mount + matching workdir.
+
+    The bug only manifests when the resolved workspace path is a
+    sub-path of the workspace mount root, because Mirage's ``find -path``
+    pattern evaluation differs subtly from GNU find at the mount boundary.
+    """
+    if not _mirage_available():
+        pytest.skip("mirage-ai SDK not installed")
+
+    from mirage import MountMode, RAMResource, Workspace
+
+    from langchain_agentkit.backends.mirage import MirageBackend
+
+    ws = Workspace({"/workspace": (RAMResource(), MountMode.WRITE)})
+    try:
+        yield MirageBackend(ws, workdir="/workspace")
+    finally:
+        await ws.close()
+
+
+@pytest.fixture
+async def mirage_root_backend():
+    """Yield a ``MirageBackend`` mounted at ``/`` (regression baseline)."""
+    if not _mirage_available():
+        pytest.skip("mirage-ai SDK not installed")
+
+    from mirage import MountMode, RAMResource, Workspace
+
+    from langchain_agentkit.backends.mirage import MirageBackend
+
+    ws = Workspace({"/": (RAMResource(), MountMode.WRITE)})
+    try:
+        yield MirageBackend(ws, workdir="/")
+    finally:
+        await ws.close()
+
+
+class TestGlobRecursiveBasename:
+    async def test_subpath_mount_deeply_nested_basename(self, mirage_subpath_backend):
+        # (a) ``**/SKILL.md`` on a sub-path mount with a deeply-nested
+        # SKILL.md must return it. This is the exact scenario that
+        # broke SkillsExtension discovery before the fix.
+        await mirage_subpath_backend.write("/skills/foo/SKILL.md", "foo skill")
+        await mirage_subpath_backend.write("/skills/bar/baz/SKILL.md", "bar skill")
+        await mirage_subpath_backend.write("/skills/quux/notes.md", "not a skill")
+        matches = await mirage_subpath_backend.glob("**/SKILL.md")
+        assert sorted(matches) == [
+            "/skills/bar/baz/SKILL.md",
+            "/skills/foo/SKILL.md",
+        ]
+
+    async def test_subpath_mount_flat_depth_extension(self, mirage_subpath_backend):
+        # (b) ``**/*.md`` at a non-root mount must surface flat
+        # depth-0 files too. Pre-fix, the ``-path`` translation
+        # required at least one intermediate directory and missed them.
+        await mirage_subpath_backend.write("/top.md", "top-level note")
+        await mirage_subpath_backend.write("/notes/deep/extra.md", "deep note")
+        matches = await mirage_subpath_backend.glob("**/*.md")
+        assert sorted(matches) == ["/notes/deep/extra.md", "/top.md"]
+
+    async def test_root_mount_basename_regression(self, mirage_root_backend):
+        # (c) Root-mount regression: ``**/SKILL.md`` keeps working when
+        # the workspace is mounted at ``/`` (the pre-fix happy path).
+        await mirage_root_backend.write("/skills/foo/SKILL.md", "x")
+        await mirage_root_backend.write("/skills/bar/SKILL.md", "y")
+        matches = await mirage_root_backend.glob("**/SKILL.md")
+        assert sorted(matches) == ["/skills/bar/SKILL.md", "/skills/foo/SKILL.md"]
+
+
+# ---------------------------------------------------------------------------
 # grep
 # ---------------------------------------------------------------------------
 
