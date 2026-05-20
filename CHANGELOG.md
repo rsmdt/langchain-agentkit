@@ -9,6 +9,12 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.29.1] — 2026-05-20
+
+### Fixed
+
+- `MirageBackend.glob` now resolves recursive basename patterns like `**/SKILL.md` and `**/*.md` correctly when mounted on a sub-path. These previously returned an empty list because `find -path` doesn't cross `/` boundaries the way GNU `find` does, silently breaking skill discovery (e.g. `SkillsExtension`) for agents whose skills live under a sub-path mount. Compound patterns (`**/skills/*.md`) and root-mount behavior are unchanged.
+
 ## [0.29.0] — 2026-05-14
 
 ### Added
