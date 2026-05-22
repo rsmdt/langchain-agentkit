@@ -21,6 +21,13 @@ if _ENV_FILE.exists():
             key, _, value = line.partition("=")
             os.environ.setdefault(key.strip(), value.strip())
 
+# Single source of truth for the eval model. Override per-run with the
+# AGENTKIT_EVAL_MODEL env var; before/after baselines MUST use the same
+# model or the comparison is meaningless. Read after .env load above so a
+# project-local .env can set it. pytest imports conftest before any test
+# module, so importers see the resolved value.
+EVAL_MODEL = os.environ.get("AGENTKIT_EVAL_MODEL", "gpt-5.4-mini")
+
 
 def _load_skills_from_fixtures() -> list[SkillConfig]:
     """Load SkillConfig objects from test fixture directories."""

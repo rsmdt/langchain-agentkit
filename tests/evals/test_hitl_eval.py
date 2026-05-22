@@ -33,6 +33,7 @@ from langgraph.types import Command
 from langchain_agentkit import Agent, AgentKit, FilesystemExtension, HITLExtension
 from langchain_agentkit.backends.os import OSBackend
 from langchain_agentkit.extensions.hitl import InterruptConfig
+from tests.evals.conftest import EVAL_MODEL
 from tests.evals.datasets import (
     HITL_ASK_USER_DATASET,
     HITL_DIRECT_ACTION_DATASET,
@@ -52,7 +53,7 @@ try:
 except ImportError:
     ChatOpenAI = None  # type: ignore[assignment,misc]
 
-_MODEL = os.environ.get("AGENTKIT_EVAL_MODEL", "gpt-4o-mini")
+_MODEL = EVAL_MODEL
 
 
 def _get_llm():

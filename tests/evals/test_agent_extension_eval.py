@@ -24,6 +24,7 @@ from langchain_core.messages import HumanMessage
 
 from langchain_agentkit import Agent
 from langchain_agentkit.extensions.agents import AgentsExtension
+from tests.evals.conftest import EVAL_MODEL
 
 pytestmark = [
     pytest.mark.eval,
@@ -38,7 +39,7 @@ try:
 except ImportError:
     ChatOpenAI = None  # type: ignore[assignment,misc]
 
-_MODEL = os.environ.get("AGENTKIT_EVAL_MODEL", "gpt-5.4-mini")
+_MODEL = EVAL_MODEL
 
 
 def _get_llm():

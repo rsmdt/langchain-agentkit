@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from tests.evals.conftest import EVAL_MODEL
 from tests.evals.datasets import (
     EDIT_TOOL_DATASET,
     FILESYSTEM_MULTI_STEP_DATASET,
@@ -71,7 +72,7 @@ def _build_agent(extensions_list):
     asyncio.run(run_extension_setup(kit))
     state_schema = kit.state_schema
 
-    llm = ChatOpenAI(model="gpt-4o-mini", temperature=0)
+    llm = ChatOpenAI(model=EVAL_MODEL, temperature=0)
     bound_llm = llm.bind_tools(kit.tools)
 
     async def agent_node(state: dict) -> dict:

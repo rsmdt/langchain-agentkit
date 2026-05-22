@@ -41,6 +41,7 @@ from langchain_agentkit.extensions.resilience import (
     ResilienceExtension,
     ToolErrorEvent,
 )
+from tests.evals.conftest import EVAL_MODEL
 
 pytestmark = [
     pytest.mark.eval,
@@ -55,7 +56,7 @@ try:
 except ImportError:
     ChatOpenAI = None  # type: ignore[assignment,misc]
 
-_MODEL = os.environ.get("AGENTKIT_EVAL_MODEL", "gpt-4o-mini")
+_MODEL = EVAL_MODEL
 
 
 def _get_llm() -> Any:
