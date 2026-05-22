@@ -154,7 +154,7 @@ class TestPromptAppendix:
         ext = FilesystemExtension()
         out = ext.prompt({}, None, tools=frozenset({"Bash", "Read", "Grep"}))
         assert out is not None
-        assert "prefer it over `Bash`" in out
+        assert "Prefer the dedicated file tools over Bash" in out
 
     def test_bash_alone_emits_no_appendix(self):
         """Bash alone → no appendix; the tool's own description is sufficient."""
@@ -178,7 +178,7 @@ class TestPromptAppendix:
             assert out is not None
             assert out.startswith("<env>\n")
             assert "</env>" in out
-            assert "prefer it over `Bash`" in out
+            assert "Prefer the dedicated file tools over Bash" in out
 
 
 class TestStateSchema:

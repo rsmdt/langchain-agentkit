@@ -12,7 +12,9 @@ from langchain_agentkit.extensions.filesystem.tools.common import (
     _GlobInput,
 )
 
-_GLOB_DESCRIPTION = """Finds files by NAME or path pattern over any directory tree — "**/*.ts", "src/**/*.js" — returning matching paths sorted by modification time. It does NOT read or search file contents: to read a file you can name use Read, to search text inside files use Grep. For open-ended searches needing multiple rounds, use the Agent tool."""
+_GLOB_DESCRIPTION = """
+Find files by name or path pattern. Use when you know a filename or shape but not where it lives. Returns matching paths only; it does not read file contents or search inside them.
+"""
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool

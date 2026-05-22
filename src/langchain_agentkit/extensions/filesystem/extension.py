@@ -76,7 +76,12 @@ _TOOL_TARGET_ARG: dict[str, str] = {
 # prompt steers the model toward them over raw shell equivalents.
 _SPECIALIZED_FS_TOOLS: frozenset[str] = frozenset({"Read", "Write", "Edit", "Glob", "Grep"})
 
-_BASH_WITH_SPECIALIZED_APPENDIX = "When a dedicated file tool fits the task, prefer it over `Bash`."
+_BASH_WITH_SPECIALIZED_APPENDIX = (
+    "Prefer the dedicated file tools over Bash for file work: "
+    "Read to read a file, Write or Edit to change one, Glob to find files "
+    "by name, Grep to search inside files. Use Bash only when you genuinely "
+    "need the shell."
+)
 
 
 class FilesystemExtension(Extension):

@@ -102,12 +102,6 @@ class _TaskGetInput(BaseModel):
     state: Annotated[dict[str, Any], InjectedState]
 
 
-class _TaskStopInput(BaseModel):
-    task_id: str = Field(description="ID of the task to stop.")
-    state: Annotated[dict[str, Any], InjectedState]
-    tool_call_id: Annotated[str, InjectedToolCallId]
-
-
 # ---------------------------------------------------------------------------
 # Helpers
 # ---------------------------------------------------------------------------
@@ -152,7 +146,7 @@ def _validate_claim(
     ):
         raise ToolException(
             f"Task '{task['id']}' is already claimed by '{existing_owner}'. "
-            "Wait for them to finish or use TaskStop to release it."
+            "Wait for them to finish, or set its status back to pending to release it."
         )
 
 

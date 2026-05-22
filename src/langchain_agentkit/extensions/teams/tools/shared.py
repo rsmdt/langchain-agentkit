@@ -125,7 +125,7 @@ def _require_member(ext: TeamExtension, member_name: str) -> None:
 # Predefined agent proxy compilation
 # ---------------------------------------------------------------------------
 
-_TASK_TOOL_NAMES = frozenset({"TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"})
+_TASK_TOOL_NAMES = frozenset({"TaskCreate", "TaskUpdate", "TaskList", "TaskGet"})
 
 
 def _compile_config_with_proxy_tasks(

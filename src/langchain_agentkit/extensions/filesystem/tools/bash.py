@@ -13,12 +13,9 @@ if TYPE_CHECKING:
     from langchain_agentkit.backends.protocol import SandboxProtocol
 
 
-_BASH_DESCRIPTION = """Executes a bash command and returns its output.
-The working directory persists between commands; other shell state does not. The environment is initialized from the user's profile.
-Prefer dedicated tools over shell equivalents: Glob (not find/ls), Grep (not grep/rg), Read (not cat/head/tail), Edit (not sed/awk), Write (not echo/redirect) — better permissions and reviewability.
-- Quote paths containing spaces. Optional `timeout` in seconds; run long commands in the background.
-- Independent commands: parallel tool calls. Dependent: chain with `&&` (`;` to run regardless of failure). No newlines between commands.
-- Avoid `sleep` polling; wait on a completion signal."""
+_BASH_DESCRIPTION = """
+Run a shell command in the workspace. Use when you need to execute a shell command. Runs the command and returns its output.
+"""
 
 
 class _BashInput(BaseModel):

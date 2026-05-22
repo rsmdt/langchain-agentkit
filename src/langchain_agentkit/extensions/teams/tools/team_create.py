@@ -21,13 +21,7 @@ if TYPE_CHECKING:
     from langchain_agentkit.extensions.teams.extension import TeamExtension
 
 
-_SPAWN_TEAM_DESCRIPTION = """Create a team of concurrent agents for complex, multi-step work.
-
-Use when work needs back-and-forth coordination between specialists, has cross-dependencies, needs steering on intermediate results, or is too complex for a single delegation. Each member runs independently; coordinate via messages and status checks, and members return results automatically.
-
-- This spins up a NEW team. To hand a task to an existing teammate, use TaskCreate then TaskUpdate(owner) — don't create a team for that.
-- Member names must be unique. Only one team active at a time.
-- {id: name} for a roster agent, {prompt: text} for an ephemeral one."""
+_SPAWN_TEAM_DESCRIPTION = """Create a team of agents that work concurrently. Use when work needs several specialists running in parallel and coordinating. Sets up the team; directing the work comes after."""
 
 
 def _parse_agent_ref(agent_spec: Any) -> tuple[str, str | None, str | None]:

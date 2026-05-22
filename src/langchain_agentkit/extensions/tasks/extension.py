@@ -41,7 +41,7 @@ class TasksExtension(Extension):
             default task-management tool set entirely; the extension will
             not rebuild them in ``setup()`` for team-awareness. When
             ``None``, the extension builds its defaults (TaskCreate,
-            TaskUpdate, TaskList, TaskGet, TaskStop) and upgrades their
+            TaskUpdate, TaskList, TaskGet) and upgrades their
             descriptions if a ``TeamExtension`` sibling is detected.
         formatter: Optional custom function that renders the per-turn reminder
             from the current tasks. It must return ``""`` when there is nothing

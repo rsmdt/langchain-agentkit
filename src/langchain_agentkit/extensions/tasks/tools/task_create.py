@@ -15,27 +15,14 @@ from langchain_agentkit.extensions.tasks.tools.shared import (
     _TaskCreateInput,
 )
 
-_TASK_CREATE_DESCRIPTION = """Create a structured task list for the current session to track multi-step work and show progress.
-
-Use for non-trivial work (~3+ steps), when the user gives multiple tasks, or when asked for a todo list. Skip it for single, trivial, or conversational tasks — just do those.
-
-Fields:
-- subject — short imperative title ("Draft the outline").
-- description — what to do, with context and acceptance criteria.
-- active_form (optional) — present-continuous label shown while in_progress; defaults to subject.
-
-Tasks start `pending`. Check TaskList first to avoid duplicates; use TaskUpdate to set dependencies."""
+_TASK_CREATE_DESCRIPTION = """Record a task to track a unit of work. Use when capturing something to be done so its progress can be followed. Creates it as pending; it tracks work, it does not perform it."""
 
 
 def _task_create_description(team_active: bool = False) -> str:
     """Return the TaskCreate description, optionally with team tips."""
     base = _TASK_CREATE_DESCRIPTION
     if team_active:
-        base += (
-            "\n\nTeam tips: to give this task to an existing teammate, create it, "
-            "then set its owner via TaskUpdate. Creating a task is NOT creating a team "
-            "— use TeamCreate only to spin up new agents."
-        )
+        base += "\n\nTeam tips: a task can be assigned to a teammate."
     return base
 
 

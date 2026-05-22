@@ -12,10 +12,9 @@ from langchain_agentkit.extensions.filesystem.tools.common import (
     _WriteInput,
 )
 
-_WRITE_DESCRIPTION = """Writes a file to the local filesystem, overwriting any existing file.
-- For an existing file you MUST Read it first, or this fails.
-- Prefer Edit for changes to existing files (it sends only the diff); use Write for new files or full rewrites.
-- Don't create docs/README (*.md) unless explicitly requested. Don't write emojis unless asked."""
+_WRITE_DESCRIPTION = """
+Create a new file, or replace an existing file's contents entirely. Use when writing a file from scratch or doing a full rewrite. Replaces the whole file; it does not patch part of one.
+"""
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool

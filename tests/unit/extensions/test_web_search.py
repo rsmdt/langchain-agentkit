@@ -154,10 +154,12 @@ class TestDefaultProvider:
         mw = WebSearchExtension(providers=[])
         assert len(mw.tools) == 1
 
-    def test_default_provider_prompt_returns_none(self):
-        """WebSearchExtension contributes no system prompt."""
+    def test_default_provider_prompt_emits_sources_norm(self):
+        """WebSearchExtension contributes the Sources behavioral norm."""
         mw = WebSearchExtension()
-        assert mw.prompt({}, MagicMock()) is None
+        prompt = mw.prompt({}, MagicMock())
+        assert prompt is not None
+        assert "Sources" in prompt
 
 
 class TestWebSearchExtensionTools:
@@ -181,20 +183,24 @@ class TestWebSearchExtensionTools:
 
 
 class TestWebSearchExtensionPrompt:
-    def test_prompt_returns_none(self):
-        """All guidance lives on the WebSearch tool description."""
+    def test_prompt_emits_sources_norm(self):
+        """The Sources behavioral norm is contributed regardless of provider."""
         mock_tool = _make_mock_tool("brave_search")
         mw = WebSearchExtension(providers=[mock_tool])
 
-        assert mw.prompt({}, _TEST_RUNTIME) is None
+        prompt = mw.prompt({}, _TEST_RUNTIME)
+        assert prompt is not None
+        assert "Sources" in prompt
 
-    def test_prompt_returns_none_with_custom_template(self):
-        """Custom template no longer affects the (empty) prompt output."""
+    def test_prompt_emits_sources_norm_with_custom_template(self):
+        """Custom template no longer affects the (norm-only) prompt output."""
         mock_tool = _make_mock_tool("test_search")
         custom_template = "Use {provider_names} for all web searches."
         mw = WebSearchExtension(providers=[mock_tool], prompt_template=custom_template)
 
-        assert mw.prompt({}, _TEST_RUNTIME) is None
+        prompt = mw.prompt({}, _TEST_RUNTIME)
+        assert prompt is not None
+        assert "Sources" in prompt
 
 
 class TestWebSearchToolExecution:

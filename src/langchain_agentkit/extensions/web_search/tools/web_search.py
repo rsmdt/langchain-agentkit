@@ -8,10 +8,7 @@ from typing import override
 from langchain_core.tools import BaseTool
 from pydantic import ConfigDict
 
-_WEB_SEARCH_DESCRIPTION = """Search the web for up-to-date information beyond the model's knowledge cutoff. Returns results as markdown blocks with hyperlinks; searching happens within a single call.
-MANDATORY: end your response with a "Sources:" section listing the relevant result URLs as markdown links ([Title](URL)). Never skip it.
-- Domain filtering depends on the configured provider.
-- Use the current year when searching for recent information."""
+_WEB_SEARCH_DESCRIPTION = """Search the web for current information. Use when you need facts beyond your training or about recent events. Returns ranked results with their source URLs."""
 
 
 class _WebSearchTool(BaseTool):

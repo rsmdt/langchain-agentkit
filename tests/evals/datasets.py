@@ -258,22 +258,6 @@ TASK_LIST_DATASET = [
 ]
 
 
-TASK_STOP_DATASET = [
-    {
-        "description": "Agent stops a running task when asked",
-        "inputs": "Stop the task that is currently running.",
-        "reference_trajectory": [
-            _assistant_with_tools(
-                _tool_call("TaskList"),
-            ),
-            _assistant_with_tools(
-                _tool_call("TaskStop"),
-            ),
-        ],
-    },
-]
-
-
 # --- LS Tool Scenarios ---
 
 LS_TOOL_DATASET = [
@@ -403,7 +387,6 @@ ALL_DATASETS = {
     "task_lifecycle": TASK_LIFECYCLE_DATASET,
     "task_dependencies": TASK_DEPENDENCIES_DATASET,
     "task_list": TASK_LIST_DATASET,
-    "task_stop": TASK_STOP_DATASET,
     "hitl_ask_user": HITL_ASK_USER_DATASET,
     "hitl_direct_action": HITL_DIRECT_ACTION_DATASET,
 }

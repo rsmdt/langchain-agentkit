@@ -35,7 +35,6 @@ from tests.evals.datasets import (
     TASK_DEPENDENCIES_DATASET,
     TASK_LIFECYCLE_DATASET,
     TASK_LIST_DATASET,
-    TASK_STOP_DATASET,
     WRITE_TOOL_DATASET,
 )
 from tests.evals.eval_runner import (
@@ -390,35 +389,6 @@ class TestTaskListEval:
             dataset=TASK_LIST_DATASET,
             trajectory_mode="subset",
             tool_args_mode="ignore",
-        )
-        print_eval_results(results)
-        for r in results:
-            assert r["score"], _fail_msg(r)
-
-
-@pytest.mark.skipif(not _HAS_OPENAI, reason=skip_reason)
-class TestTaskStopEval:
-    def test_task_stop(self):
-        agent = _build_tasks_agent()
-        results = run_eval(
-            agent=agent,
-            dataset=TASK_STOP_DATASET,
-            trajectory_mode="subset",
-            tool_args_mode="ignore",
-            state_factory=lambda: {
-                "messages": [
-                    {"role": "user", "content": TASK_STOP_DATASET[0]["inputs"]},
-                ],
-                "tasks": [
-                    {
-                        "id": "running-1",
-                        "subject": "Long analysis",
-                        "description": "Running analysis",
-                        "status": "in_progress",
-                        "active_form": "Analyzing...",
-                    },
-                ],
-            },
         )
         print_eval_results(results)
         for r in results:

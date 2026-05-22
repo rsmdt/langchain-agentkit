@@ -96,7 +96,6 @@ _TOOL_NAMES = (
     "TaskUpdate",
     "TaskList",
     "TaskGet",
-    "TaskStop",
     "TeamCreate",
     "TeamMessage",
     "TeamStatus",
@@ -164,7 +163,6 @@ def test_skill_description_does_not_include_roster() -> None:
     assert "- alpha:" not in tool.description
     assert "- beta:" not in tool.description
     assert "Available skills:" not in tool.description
-    assert "system prompt" in tool.description
 
 
 def test_skill_roster_emitted_in_system_prompt() -> None:

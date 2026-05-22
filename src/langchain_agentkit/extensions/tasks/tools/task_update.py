@@ -16,14 +16,7 @@ from langchain_agentkit.extensions.tasks.tools.shared import (
     _validate_claim,
 )
 
-_TASK_UPDATE_DESCRIPTION = """Update an existing task — status, details, or dependencies.
-
-- Mark `completed` only when the outcome is fully achieved; if blocked or partial, keep it `in_progress` and create a follow-up. After completing, call TaskList for the next task.
-- `deleted` permanently removes a task.
-
-Fields: status, subject, description, active_form, owner, metadata, add_blocks, add_blocked_by.
-
-Status flow: pending → in_progress → completed (or deleted)."""
+_TASK_UPDATE_DESCRIPTION = """Change a task's status or details. Use when a task's state or content changes, such as marking it done. Modifies one existing task."""
 
 
 def _task_update(

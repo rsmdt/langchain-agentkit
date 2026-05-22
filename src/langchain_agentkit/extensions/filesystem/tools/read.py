@@ -20,11 +20,9 @@ from langchain_agentkit.extensions.filesystem.tools.common import (
     _ReadInput,
 )
 
-_READ_DESCRIPTION = """Reads a file's contents from the local filesystem; provide an absolute path. This is the tool for reading a file you can name — use it, not Glob (which only lists file names) or Grep (which searches inside files). Returns up to 2000 lines in cat -n format (line numbers from 1); for large files, read only the range you need.
-- Images (PNG, JPG, …) are returned visually.
-- PDFs: pass `pages` (e.g. "1-5", max 20/request); required for PDFs over 10 pages.
-- Jupyter notebooks (.ipynb) return all cells with outputs.
-- Reading a directory fails — use Glob. An empty file returns a system-reminder warning."""
+_READ_DESCRIPTION = """
+Read the contents of a file. Use when you have a file's path and need to see what's inside. Handles text, images, PDFs, and notebooks; returns content, not a listing or search.
+"""
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool

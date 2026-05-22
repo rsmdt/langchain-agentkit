@@ -22,9 +22,7 @@ if TYPE_CHECKING:
     from langchain_agentkit.extensions.teams.extension import TeamExtension
 
 
-_SEND_MESSAGE_DESCRIPTION = """Tell a teammate what to do — assign work, give an instruction, or hand off a task to them by name. This is the ONLY way to direct a teammate: your plain-text output is not visible to other agents, and their replies reach you automatically.
-
-Use `to: "*"` to broadcast (expensive — only when everyone needs it). Send plain text, not JSON status; use TaskUpdate to mark tasks done."""
+_SEND_MESSAGE_DESCRIPTION = """Send a teammate a message — work, an instruction, or a hand-off. Use when you need to direct a specific teammate, or all of them. Conveys instructions; it does not report a teammate's status."""
 
 
 async def _send_message(

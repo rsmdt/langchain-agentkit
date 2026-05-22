@@ -242,6 +242,9 @@ class WebSearchExtension(Extension):
         *,
         tools: frozenset[str] = frozenset(),
     ) -> str | None:
-        # No system-prompt contribution — all guidance lives on the
-        # ``WebSearch`` tool description.
-        return None
+        # The behavioral norm lives here; per-call selection guidance lives
+        # on the ``WebSearch`` tool description.
+        return (
+            'After answering, end with a "Sources:" section listing the '
+            "result URLs as markdown links."
+        )

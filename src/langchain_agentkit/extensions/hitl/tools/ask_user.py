@@ -44,10 +44,7 @@ class _AskUserInput(BaseModel):
     )
 
 
-_ASK_USER_DESCRIPTION = """Ask the user a question during execution. When you must resolve ambiguity, choose between options, or get a decision, call this instead of guessing or answering in prose.
-- Users can always pick "Other" for free-text input.
-- Set multi_select: true to allow multiple selections.
-- Put any recommended option first and append "(Recommended)" to its label."""
+_ASK_USER_DESCRIPTION = """Ask the user a question and wait for their answer. Use when you must resolve ambiguity, choose between options, or get a decision before continuing. Pauses for input; it is not for statements or rhetorical questions."""
 
 
 def create_ask_user_tool() -> BaseTool:

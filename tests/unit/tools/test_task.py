@@ -13,7 +13,6 @@ from langchain_agentkit.extensions.tasks.tools.shared import _compute_blocks
 from langchain_agentkit.extensions.tasks.tools.task_create import _task_create
 from langchain_agentkit.extensions.tasks.tools.task_get import _task_get
 from langchain_agentkit.extensions.tasks.tools.task_list import _task_list
-from langchain_agentkit.extensions.tasks.tools.task_stop import _task_stop
 from langchain_agentkit.extensions.tasks.tools.task_update import _task_update
 from langchain_agentkit.extensions.tasks.types import Task, TaskStatus
 
@@ -65,16 +64,16 @@ class TestTaskType:
 
 
 class TestCreateTaskTools:
-    def test_returns_five_tools(self):
+    def test_returns_four_tools(self):
         tools = create_task_tools()
 
-        assert len(tools) == 5
+        assert len(tools) == 4
 
     def test_tool_names(self):
         tools = create_task_tools()
         names = [t.name for t in tools]
 
-        assert names == ["TaskCreate", "TaskUpdate", "TaskList", "TaskGet", "TaskStop"]
+        assert names == ["TaskCreate", "TaskUpdate", "TaskList", "TaskGet"]
 
     def test_tools_have_descriptions(self):
         tools = create_task_tools()
@@ -86,11 +85,10 @@ class TestCreateTaskTools:
         tools = create_task_tools()
         by_name = {t.name: t for t in tools}
 
-        assert "structured task list" in by_name["TaskCreate"].description
-        assert "Mark `completed` only" in by_name["TaskUpdate"].description
-        assert "Shared queue" in by_name["TaskList"].description
-        assert "dependencies" in by_name["TaskGet"].description
-        assert "in_progress" in by_name["TaskStop"].description.lower()
+        assert "track a unit of work" in by_name["TaskCreate"].description
+        assert "marking it done" in by_name["TaskUpdate"].description
+        assert "List the current tasks" in by_name["TaskList"].description
+        assert "complete detail" in by_name["TaskGet"].description
 
 
 class TestTaskCreate:
@@ -778,57 +776,6 @@ class TestTaskGet:
 
         assert parsed["owner"] == "agent-1"
         assert parsed["metadata"]["priority"] == "high"
-
-
-class TestTaskStop:
-    def test_stops_in_progress_task(self):
-        state = {
-            "tasks": [
-                {"id": "task-1", "subject": "Running", "status": "in_progress", "active_form": ""},
-            ]
-        }
-
-        result = _task_stop(task_id="task-1", state=state, tool_call_id=FAKE_TOOL_CALL_ID)
-
-        assert isinstance(result, Command)
-        task = result.update["tasks"][0]
-        assert task["status"] == "pending"
-
-    def test_returns_stopped_flag_in_message(self):
-        state = {
-            "tasks": [
-                {"id": "task-1", "subject": "Running", "status": "in_progress", "active_form": ""},
-            ]
-        }
-
-        result = _task_stop(task_id="task-1", state=state, tool_call_id=FAKE_TOOL_CALL_ID)
-
-        content = json.loads(result.update["messages"][0].content)
-        assert content["stopped"] is True
-
-    def test_raises_on_missing_task(self):
-        with pytest.raises(ToolException, match="not found"):
-            _task_stop(task_id="nonexistent", state={"tasks": []}, tool_call_id=FAKE_TOOL_CALL_ID)
-
-    def test_raises_on_non_in_progress_task(self):
-        state = {
-            "tasks": [
-                {"id": "task-1", "subject": "Pending", "status": "pending", "active_form": ""},
-            ]
-        }
-
-        with pytest.raises(ToolException, match="not in_progress"):
-            _task_stop(task_id="task-1", state=state, tool_call_id=FAKE_TOOL_CALL_ID)
-
-    def test_raises_on_completed_task(self):
-        state = {
-            "tasks": [
-                {"id": "task-1", "subject": "Done", "status": "completed", "active_form": ""},
-            ]
-        }
-
-        with pytest.raises(ToolException, match="not in_progress"):
-            _task_stop(task_id="task-1", state=state, tool_call_id=FAKE_TOOL_CALL_ID)
 
 
 class TestComputeBlocks:

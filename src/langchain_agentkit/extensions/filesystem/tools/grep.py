@@ -12,11 +12,9 @@ from langchain_agentkit.extensions.filesystem.tools.common import (
     _GrepInput,
 )
 
-_GREP_DESCRIPTION = """Searches file CONTENTS, built on ripgrep — use this to find text inside files, not Glob (which matches file names only). Always use this rather than `grep`/`rg` via Bash (correct permissions and access).
-- Full regex syntax. Filter by `glob` ("*.md") or `type` ("json").
-- Output modes: "content", "files_with_matches" (default), "count".
-- ripgrep syntax: escape literal braces/parens/brackets. Single-line match unless `multiline: true`.
-- For open-ended, multi-round searches, use the Agent tool."""
+_GREP_DESCRIPTION = """
+Search file contents for text or a regex pattern. Use when you need to find where something appears across files. Matches inside files; it does not match by filename.
+"""
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool

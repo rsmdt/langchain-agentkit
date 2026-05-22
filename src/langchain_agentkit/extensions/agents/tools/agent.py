@@ -471,10 +471,7 @@ async def _delegate_dynamic(
 # ---------------------------------------------------------------------------
 
 
-_AGENT_DESCRIPTION = """Delegate a task to an agent and wait for the result.
-Use when a task needs tools/knowledge you lack, is independent of your current context, can run in parallel (multiple Agent calls in one turn), or benefits from isolated execution. Don't use it when the task needs your full context, is trivial, or needs back-and-forth.
-Writing the prompt: the agent sees ONLY your message — no conversation history. Brief it like a colleague who just walked in: the goal and why, what you've ruled out, enough context to make judgment calls. Never delegate understanding — include the specific facts, sources, or identifiers to use rather than "based on your findings, decide what to do." Say so if you want a short answer.
-(e.g. to compare three vendors, issue three parallel Agent calls, one per vendor.)"""
+_AGENT_DESCRIPTION = """Delegate a self-contained task to an agent and wait for its result. Use for focused, isolated work, or when several can run in parallel — for example, researching three vendors at once. The agent sees only the message you send it, none of your conversation."""
 
 
 # ---------------------------------------------------------------------------

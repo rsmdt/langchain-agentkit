@@ -24,6 +24,8 @@ class TestFilesystemPromptAlignment:
 
 
 class TestWebSearchPromptAlignment:
-    def test_returns_none(self):
+    def test_emits_sources_norm(self):
         ext = WebSearchExtension()
-        assert ext.prompt({}, MagicMock()) is None
+        prompt = ext.prompt({}, MagicMock())
+        assert prompt is not None
+        assert "Sources" in prompt

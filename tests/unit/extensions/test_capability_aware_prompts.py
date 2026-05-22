@@ -45,7 +45,7 @@ def test_kit_forwards_tool_names_to_filesystem_extension() -> None:
     kit = _kit(["Bash"], FilesystemExtension())
     composition = kit.compose({}, None)
     # Bash + extension-contributed specialized tools → one-line preference directive.
-    assert "prefer it over `Bash`" in composition.prompt
+    assert "Prefer the dedicated file tools over Bash" in composition.prompt
 
 
 def test_legacy_prompt_signature_still_works() -> None:

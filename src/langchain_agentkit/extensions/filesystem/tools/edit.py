@@ -15,11 +15,9 @@ from langchain_agentkit.extensions.filesystem.tools.common import (
     _EditInput,
 )
 
-_EDIT_DESCRIPTION = """Performs exact string replacements in a file.
-- You MUST Read the file first, or this fails.
-- Match indentation exactly as it appears after the line-number prefix (number + tab); never include that prefix in old_string/new_string.
-- old_string must be unique or the edit fails — add surrounding context, or set replace_all to change every occurrence.
-- Don't add emojis unless asked."""
+_EDIT_DESCRIPTION = """
+Replace an exact piece of text within an existing file. Use when changing part of a file in place. Matches text that already exists, exactly; it neither creates files nor searches across them.
+"""
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool

@@ -12,11 +12,7 @@ from langchain_agentkit.extensions.tasks.tools.shared import (
     _TaskListInput,
 )
 
-_TASK_LIST_DESCRIPTION = """List all tasks and their status.
-
-Use to find available work (status `pending`, no owner, empty blocked_by), check progress, spot blocked tasks, and avoid duplicates before creating. Prefer lowest ID first.
-
-Shared queue: find a pending, unowned, unblocked task, then claim it with TaskUpdate (set owner to your name)."""
+_TASK_LIST_DESCRIPTION = """List the current tasks and their status. Use when reviewing what exists or what's in progress. Read-only; it never creates or changes a task."""
 
 
 def _task_list(state: dict[str, Any]) -> str:

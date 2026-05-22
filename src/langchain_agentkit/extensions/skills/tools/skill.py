@@ -24,10 +24,7 @@ class SkillInput(BaseModel):
     skill_name: str = Field(description="Name of the skill to load (e.g. 'market-sizing')")
 
 
-_SKILL_TOOL_DESCRIPTION = """Execute a skill in the main conversation. Skills provide specialized capabilities; a user's "slash command" / "/<name>" refers to one.
-- Invoke by skill name with optional args (e.g. "summarize" args "--short"; or fully-qualified "ms-office-suite:pdf"). Available skills are listed in the system prompt.
-- When a skill matches the request, call it BEFORE any other response — never just mention a skill without calling it.
-- Don't invoke an already-running skill; don't use this for built-in CLI commands (/help, /clear). If a <command-name> tag is already in this turn, the skill is loaded — follow its instructions instead of calling again."""
+_SKILL_TOOL_DESCRIPTION = """Run a named skill. Use when a request invokes a slash-command or matches an available skill. Loads and runs that skill's instructions inline."""
 
 
 def build_skill_tool(configs: list[SkillConfig]) -> BaseTool:

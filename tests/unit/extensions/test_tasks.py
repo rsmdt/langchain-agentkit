@@ -32,7 +32,6 @@ class TestTasksExtensionTools:
         assert "TaskUpdate" in tool_names
         assert "TaskList" in tool_names
         assert "TaskGet" in tool_names
-        assert "TaskStop" in tool_names
 
     def test_constructor_with_custom_tools_uses_those(self):
         tool_a = MagicMock(spec=BaseTool)
@@ -198,10 +197,9 @@ class TestConditionalTeamTips:
 
         tool_descriptions = [t.description for t in tasks_ext.tools if t.name == "TaskCreate"]
         desc = tool_descriptions[0]
-        # Team-active TaskCreate points at an existing teammate via the
-        # TaskUpdate(owner) path — the boundary that keeps it distinct from TeamCreate.
+        # Team-active TaskCreate signals that a task can be handed to an
+        # existing teammate — the boundary that keeps it distinct from TeamCreate.
         assert "teammate" in desc
-        assert "TaskUpdate" in desc
 
 
 class TestTasksExtensionProtocol:

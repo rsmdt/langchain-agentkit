@@ -998,46 +998,6 @@ class TestTaskListSelection:
 
 
 @pytest.mark.skipif(not _HAS_OPENAI, reason=SKIP_REASON)
-class TestTaskStopSelection:
-    def test_selects_task_stop_to_release_in_progress_task(self) -> None:
-        def trial() -> tuple[bool, str]:
-            kit = _tasks_kit()
-            msg = _run(
-                _invoke_once(
-                    kit,
-                    "I can't finish task 2 right now — put it back so someone else "
-                    "can pick it up later.",
-                    extra_state={"tasks": _SEED_TASKS},
-                )
-            )
-            names = _tool_names(msg)
-            if "TaskStop" in names:
-                return True, ""
-            return False, f"tool_calls={names}"
-
-        passes, comments = _best_of_three(trial)
-        assert passes >= 2, f"{passes}/3 passed; {comments}"
-
-    def test_not_selected_for_status_request(self) -> None:
-        def trial() -> tuple[bool, str]:
-            kit = _tasks_kit()
-            msg = _run(
-                _invoke_once(
-                    kit,
-                    "What's the status of all the tasks right now?",
-                    extra_state={"tasks": _SEED_TASKS},
-                )
-            )
-            names = _tool_names(msg)
-            if "TaskStop" in names:
-                return False, f"TaskStop fired for a status request; tool_calls={names}"
-            return True, ""
-
-        passes, comments = _best_of_three(trial)
-        assert passes >= 2, f"{passes}/3 passed; {comments}"
-
-
-@pytest.mark.skipif(not _HAS_OPENAI, reason=SKIP_REASON)
 class TestTeamCreateSelection:
     def test_selects_team_create_for_coordinated_multi_specialist_work(self) -> None:
         def trial() -> tuple[bool, str]:
@@ -1293,12 +1253,6 @@ _FULLSTACK_SCENARIOS = [
         "Fetch the complete stored record for task 3 — its full description and what "
         "it's blocked by.",
         {"TaskGet"},
-        {"tasks": _SEED_TASKS},
-    ),
-    (
-        "task_stop",
-        "I can't finish task 2 right now — put it back so someone else can pick it up.",
-        {"TaskStop"},
         {"tasks": _SEED_TASKS},
     ),
     (
