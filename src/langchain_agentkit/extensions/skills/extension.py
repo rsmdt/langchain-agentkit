@@ -50,6 +50,8 @@ class SkillsExtension(Extension):
             pointing to a directory to scan for skills.
         backend: Optional FilesystemProtocol for remote filesystem discovery.
             When provided with a path, discovery is deferred to ``setup()``.
+        max_description_chars: Per-skill description cap in the system-prompt
+            roster (default 250). Set to ``0`` to disable the cap.
     """
 
     def __init__(
@@ -57,9 +59,7 @@ class SkillsExtension(Extension):
         *,
         skills: list[SkillConfig] | str | Path,
         backend: FilesystemProtocol | None = None,
-        budget_percent: float | None = None,
-        max_description_chars: int | None = None,
-        context_window: int | None = None,
+        max_description_chars: int = 250,
         tools: Sequence[BaseTool] | None = None,
     ) -> None:
         self._backend = backend
@@ -84,9 +84,7 @@ class SkillsExtension(Extension):
         else:
             msg = f"skills must be list[SkillConfig], str, or Path, got {type(skills).__name__}"
             raise TypeError(msg)
-        self._budget_percent = budget_percent
         self._max_description_chars = max_description_chars
-        self._context_window = context_window
         self._custom_tools: tuple[BaseTool, ...] | None = (
             tuple(tools) if tools is not None else None
         )
@@ -94,7 +92,6 @@ class SkillsExtension(Extension):
 
     @override
     async def setup(self, **_: Any) -> None:  # type: ignore[override]
-        """Run deferred async discovery if a backend path was provided."""
         if self._deferred_path is not None and self._backend is not None:
             from langchain_agentkit.extensions.skills.discovery import (
                 discover_skills_from_backend,
@@ -106,7 +103,6 @@ class SkillsExtension(Extension):
 
     @property
     def configs(self) -> list[SkillConfig]:
-        """The resolved skill configurations."""
         return list(self._configs)
 
     @property
@@ -115,15 +111,11 @@ class SkillsExtension(Extension):
         if self._tools_cache is None:
             if self._custom_tools is not None:
                 self._tools_cache = list(self._custom_tools)
+            elif self._configs:
+                self._tools_cache = [build_skill_tool(self._configs)]
             else:
-                self._tools_cache = [
-                    build_skill_tool(
-                        self._configs,
-                        budget_percent=self._budget_percent,
-                        max_description_chars=self._max_description_chars,
-                        context_window=self._context_window,
-                    )
-                ]
+                # No skills → no Skill tool. The extension is inert when empty.
+                self._tools_cache = []
         return self._tools_cache
 
     @override
@@ -133,29 +125,22 @@ class SkillsExtension(Extension):
         runtime: ToolRuntime | None = None,
         *,
         tools: frozenset[str] = frozenset(),
-    ) -> str:
+    ) -> str | None:
+        # No skills → contribute nothing, as if the extension were not added.
+        if not self._configs:
+            return None
         # The skill roster is fixed at construction, so it is static content:
         # it belongs in the cacheable system prompt, not the per-turn reminder.
         return _skills_system_prompt.format(skills_list=self._format_skills_list())
 
     def _format_skills_list(self) -> str:
-        if not self._configs:
-            return "(No skills available)"
-        budget_chars = None
-        if self._budget_percent is not None:
-            ctx = self._context_window or 200_000
-            budget_chars = int(ctx * self._budget_percent * 4)  # chars ≈ tokens * 4
         lines: list[str] = []
-        total = 0
         for config in sorted(self._configs, key=lambda c: c.name):
             desc = config.description
-            if self._max_description_chars is not None:
-                desc = desc[: self._max_description_chars]
-            line = f"- {config.name}: {desc}"
-            if budget_chars is not None and total + len(line) > budget_chars:
-                remaining = len(self._configs) - len(lines)
-                lines.append(f"... and {remaining} more skills")
-                break
-            lines.append(line)
-            total += len(line) + 1  # +1 for newline
+            # Cap each entry so verbose descriptions don't inflate the cached
+            # system prompt; ``max_description_chars=0`` disables the cap.
+            cap = self._max_description_chars
+            if cap and len(desc) > cap:
+                desc = desc[: cap - 1] + "…"
+            lines.append(f"- {config.name}: {desc}")
         return "\n".join(lines)

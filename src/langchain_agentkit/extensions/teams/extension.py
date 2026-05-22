@@ -32,13 +32,10 @@ _team_coordination_template = PromptTemplate.from_file(_PROMPT_FILE)
 _logger = logging.getLogger("langchain_agentkit.extensions.teams")
 
 
+# Sentinel default for ``_parent_tools_getter``: identity-checked in
+# ``setup()`` so kit-level wiring only overrides the default, not a
+# user-supplied getter. Returns ``[]`` so unwired call sites stay safe.
 def _default_tools_getter() -> list[Any]:
-    """Sentinel default for ``_parent_tools_getter``.
-
-    Identity-checked in ``setup()`` so kit-level wiring only overrides
-    the default — not a user-supplied getter that happens to equal
-    ``list``. Returns ``[]`` so unwired call sites stay safe.
-    """
     return []
 
 
@@ -210,7 +207,6 @@ class TeamExtension(Extension):
 
     @property
     def capture_buffer(self) -> list[BaseMessage]:
-        """Per-turn capture buffer for teammate-produced messages."""
         return self._capture_buffer
 
     @property
@@ -243,41 +239,22 @@ class TeamExtension(Extension):
         # system prompt. Live team status is dynamic per turn -> reminder.
         base_prompt = _team_coordination_template.format(agent_roster=agent_roster)
 
+        # The only per-turn signal the lead must act on is unread messages from
+        # teammates; live member status is one TeamStatus call away. Mirror the
+        # system prompt's term ("Agent Team") and phrase it neutrally.
         if self._active_team is not None:
-            from langchain_agentkit.extensions.teams.bus import task_status
-
-            status_icons = {
-                "running": "🔄",
-                "completed": "✅",
-                "cancelled": "🚫",
-                "failed": "❌",
-            }
-
-            team = self._active_team
-            status_lines = [f"### Active Team: {team.name}\n"]
-            for name, task in team.members.items():
-                agent_type = team.member_types.get(name, "unknown")
-                icon = status_icons[task_status(task)]
-                pending = team.bus.pending_count(name)
-                pending_str = f" ({pending} pending)" if pending > 0 else ""
-                status_lines.append(f"- {icon} **{name}** ({agent_type}){pending_str}")
-            lead_pending = team.bus.pending_count("lead")
-            if lead_pending > 0:
-                status_lines.append(
-                    f"\n⚠️ You have **{lead_pending} unread message(s)**. "
-                    "Use TeamStatus to collect them."
+            pending = self._active_team.bus.pending_count("lead")
+            if pending:
+                verb, noun, pron = (
+                    ("is", "message", "it") if pending == 1 else ("are", "messages", "them")
                 )
-            return {"prompt": base_prompt, "reminder": "\n".join(status_lines)}
-
-        # No runtime team but state might carry metadata from a previous
-        # turn whose rehydration has not yet fired (rare — e.g. graph
-        # resumed from a mid-tool checkpoint).
-        team_meta = state.get("team") if isinstance(state, dict) else None
-        if team_meta is not None:
-            return {
-                "prompt": base_prompt,
-                "reminder": "### Team configured (rehydrating on next action)",
-            }
+                return {
+                    "prompt": base_prompt,
+                    "reminder": (
+                        f"There {verb} {pending} unread {noun} from the Agent Team. "
+                        f"Use TeamStatus to collect {pron}."
+                    ),
+                }
 
         return base_prompt
 
@@ -297,17 +274,13 @@ class TeamExtension(Extension):
         tools_getter: Any = None,
         **_: Any,
     ) -> None:
-        """Validate sibling ordering, run deferred discovery, wire cross-extension hooks.
-
-        ``TeamExtension`` must appear before any ``HistoryExtension`` in
-        the ``AgentKit(extensions=[...])`` list so that its ``wrap_model``
-        filter runs outermost.  If History ran first it would truncate a
-        view that still included team-tagged messages and potentially
-        orphan the lead's own tool-call pairs.
-        """
         from langchain_agentkit.extensions.history.extension import HistoryExtension
 
         # --- Sibling ordering check ---
+        # TeamExtension must precede any HistoryExtension so its wrap_model
+        # filter runs outermost. If History ran first it would truncate a view
+        # still containing team-tagged messages and orphan the lead's tool-call
+        # pairs.
         my_index: int | None = None
         history_index: int | None = None
         for i, ext in enumerate(extensions):
@@ -389,7 +362,6 @@ class TeamExtension(Extension):
         return TeamState
 
     def graph_modifier(self, workflow: Any, node_name: str) -> Any:  # noqa: C901
-        """Inject the Router Node into the graph topology."""
         from langgraph.graph import END
 
         from langchain_agentkit.extensions.teams.filter import is_team_tagged
@@ -407,7 +379,6 @@ class TeamExtension(Extension):
         terminal: str = "_run_exit" if "_run_exit" in workflow_nodes else END
 
         async def _drain_messages(team: Any) -> list[TeamMessage]:
-            """Drain pending messages; fall back to blocking receive."""
             msgs: list[TeamMessage] = []
             lead_queue = team.bus._queues.get("lead")
             if lead_queue is not None:
@@ -475,27 +446,6 @@ class TeamExtension(Extension):
     # ------------------------------------------------------------------
 
     def build_teammate_graph(self, spec: TeammateSpec, bus: TeamMessageBus) -> Any:
-        """Build a compiled teammate graph from a ``TeammateSpec``.
-
-        Called from both ``TeamCreate`` (fresh team) and rehydration
-        (continuing team).  Dispatches on ``spec["kind"]``:
-
-        * ``"predefined"``: look up the agent by ``agent_id`` in the
-          roster.  If it's an ``AgentLike`` composable, return it
-          unchanged (the composable owns its own runtime).  Otherwise
-          route through ``_compile_with_proxy_tasks`` which rebuilds the
-          graph with proxy task tools substituted.
-        * ``"dynamic"``: build a fresh ephemeral graph via
-          ``build_ephemeral_graph``, prepending the teammate addendum
-          to the user-supplied system prompt.
-
-        Raises:
-            KeyError: if ``spec["kind"] == "predefined"`` and
-                ``spec["agent_id"]`` is not in the roster.
-            ValueError: if ``spec["kind"]`` is neither value.
-            ToolException: if ``spec["kind"] == "dynamic"`` but no
-                ``parent_llm_getter`` has been wired.
-        """
         from langchain_core.tools import ToolException
 
         from langchain_agentkit.composability import AgentLike
@@ -552,14 +502,9 @@ class TeamExtension(Extension):
     # ------------------------------------------------------------------
 
     async def rehydrate_if_needed(self, state: dict[str, Any]) -> None:
-        """Rebuild per-turn runtime from ``state["team"]`` if needed.
-
-        Idempotent within a turn: the first call wins, subsequent calls
-        (from parallel tool bodies or the before_model hook) see
-        ``self._active_team is not None`` and return immediately.
-
-        Safe to call on state with no team metadata — it's a no-op.
-        """
+        # Idempotent within a turn: the first call wins; later calls (parallel
+        # tool bodies or the before_model hook) see ``_active_team`` set and
+        # return. No-op when state carries no team metadata.
         team_meta = state.get("team") if isinstance(state, dict) else None
         if team_meta is None:
             return
@@ -578,7 +523,7 @@ class TeamExtension(Extension):
         team_meta: dict[str, Any],
         state: dict[str, Any],
     ) -> None:
-        """Inner rehydration — must be called under ``_team_lock``."""
+        # Inner rehydration — must be called under ``_team_lock``.
         from typing import cast
 
         from langchain_core.messages import trim_messages
@@ -682,7 +627,6 @@ class TeamExtension(Extension):
         state: dict[str, Any],
         runtime: Any,
     ) -> dict[str, Any] | None:
-        """Rehydrate if needed, then flush any captured teammate messages."""
         await self.rehydrate_if_needed(state)
         if not self._capture_buffer:
             return None
@@ -697,11 +641,8 @@ class TeamExtension(Extension):
         handler: Any,
         runtime: Any,
     ) -> Any:
-        """Hide team-tagged messages from the lead's LLM call.
-
-        Non-destructive: the checkpointed state keeps everything; only
-        the inner handler sees the filtered view.
-        """
+        # Non-destructive: checkpointed state keeps everything; only the
+        # inner handler sees the team-tagged messages filtered out.
         from langchain_agentkit.extensions.teams.filter import filter_out_team_messages
 
         original = list(state.get("messages") or [])
@@ -715,12 +656,9 @@ class TeamExtension(Extension):
         state: dict[str, Any],
         runtime: Any,
     ) -> dict[str, Any] | None:
-        """Turn-end cleanup: final capture flush + runtime teardown.
-
-        Returns only the message flush — does NOT set ``team: None``.
-        The team metadata persists across turns precisely so
-        rehydration works; only ``TeamDissolve`` clears it.
-        """
+        # Returns only the message flush — does NOT set ``team: None``. Team
+        # metadata persists across turns so rehydration works; only
+        # ``TeamDissolve`` clears it.
         from langchain_agentkit.extensions.teams.tools.shared import (
             _cleanup_bus,
             _shutdown_team_tasks,
@@ -766,16 +704,11 @@ def _type_label_for_spec(spec: TeammateSpec) -> str:
     return "unknown"
 
 
+# An already-completed failed task representing a degraded slot (a
+# rehydration target that couldn't be rebuilt). The slot stays visible in
+# ``active_team.members`` so ``task_status`` reports "failed" and any
+# ``TeamMessage(to=...)`` surfaces a clear ``ToolException``.
 async def _make_degraded_task(member_name: str) -> asyncio.Task[str]:
-    """Create an already-completed failed task representing a degraded slot.
-
-    Used when a rehydration target (e.g. missing roster agent) cannot
-    be rebuilt.  The slot remains visible in ``active_team.members`` so
-    ``task_status`` reports "failed" and ``_require_member`` still
-    recognizes it — any ``TeamMessage(to=...)`` call surfaces a clear
-    error via ``ToolException`` to the caller.
-    """
-
     async def _degraded() -> str:
         raise RuntimeError(f"unavailable:{member_name}")
 

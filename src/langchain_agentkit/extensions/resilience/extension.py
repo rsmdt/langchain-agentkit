@@ -70,13 +70,10 @@ if TYPE_CHECKING:
 _logger = logging.getLogger(__name__)
 
 
+# Deliberately short and deterministic so model behaviour is predictable
+# across failures. The real exception details go to logs and telemetry,
+# not to the LLM.
 def _default_error_template(exc: Exception, tool_name: str) -> str:
-    """Default synthetic ToolMessage content.
-
-    Deliberately short and deterministic so model behaviour is
-    predictable across failures. The real exception details go to logs
-    and telemetry, not to the LLM.
-    """
     return f"[tool '{tool_name}' failed: {type(exc).__name__}]"
 
 
@@ -122,13 +119,9 @@ class ResilienceExtension(Extension):
         handler: Callable[[Any], Awaitable[Any]],
         runtime: Any,
     ) -> Any:
-        """Catch unhandled tool exceptions and convert them to ToolMessages.
-
-        Sits outermost in the tool-hook chain so it wraps every other
-        extension's tool behaviour (HITL approvals, introspection,
-        etc.). Whatever they do, if it raises, the pairing invariant
-        still holds.
-        """
+        # Sits outermost in the tool-hook chain so it wraps every other
+        # extension's tool behaviour; whatever they do, if it raises, the
+        # tool-call/result pairing invariant still holds.
         try:
             return await handler(state)
         except ToolException:
@@ -181,25 +174,6 @@ class ResilienceExtension(Extension):
         handler: Callable[[Any], Awaitable[Any]],
         runtime: Any,
     ) -> Any:
-        """Repair orphan tool calls before the LLM sees the message list.
-
-        An orphan is an ``AIMessage(tool_calls=[...])`` whose
-        ``tool_call_id`` has no paired ``ToolMessage``. They originate
-        from crashed tool executions that pre-date the Layer 1 hook, pod
-        kills between checkpoint writes, or manual state edits. The
-        OpenAI Responses API rejects orphans with ``"No tool output
-        found for function call"``.
-
-        The repair inserts synthetic ``ToolMessage`` entries immediately
-        after each offending ``AIMessage``. Downstream extensions
-        (``HistoryExtension`` and its strategies) see the repaired
-        list and treat it as a complete turn.
-
-        This hook only fires from ``wrap_model`` — i.e. when the graph
-        is entering the model node. Pending HITL interrupts pause the
-        graph before the model node, so legitimate in-flight tool calls
-        are never misidentified as orphans.
-        """
         if not self._repair_orphans:
             return await handler(state)
 
@@ -219,16 +193,9 @@ class ResilienceExtension(Extension):
     def _repair_orphan_messages(
         self, messages: Sequence[BaseMessage]
     ) -> tuple[list[BaseMessage], list[OrphanRepairEvent]]:
-        """Insert synthetic ToolMessages for unpaired AIMessage tool_calls.
-
-        Walks the list once. Maintains a set of ``tool_call_id``s already
-        satisfied by a ``ToolMessage`` seen *before* the current position.
-        When an ``AIMessage`` with ``tool_calls`` is encountered, any
-        ``tool_call_id`` not yet satisfied AND not appearing in a
-        ``ToolMessage`` later in the list is synthesized on the spot so
-        the pairing is contiguous (required by OpenAI Responses API and
-        by block-aware history strategies).
-        """
+        # Synthesize each orphan in place so the pairing stays contiguous
+        # (required by the OpenAI Responses API and block-aware history
+        # strategies). An id satisfied later in the list needs no repair.
         future_outputs = {m.tool_call_id for m in messages if isinstance(m, ToolMessage)}
         out: list[BaseMessage] = []
         repairs: list[OrphanRepairEvent] = []
@@ -323,14 +290,9 @@ class ResilienceExtension(Extension):
             _logger.exception("resilience: on_tool_error_caught callback raised")
 
 
+# Defensive extraction so the extension stays robust to minor
+# framework-level shape changes and to the legacy dict-state shape.
 def _extract_tool_call(state: Any) -> dict[str, Any]:
-    """Pull the ``tool_call`` dict from a ToolCallRequest-shaped state.
-
-    wrap_tool receives a ``ToolCallRequest`` (or dict) whose ``tool_call``
-    attribute/key is a dict with ``id``, ``name``, ``args``. Defensive
-    extraction so the extension stays robust to minor framework-level
-    shape changes and to the legacy dict-state shape.
-    """
     tool_call = getattr(state, "tool_call", None)
     if tool_call is None and isinstance(state, dict):
         tool_call = state.get("tool_call")

@@ -21,44 +21,16 @@ _task_management_prompt = PromptTemplate.from_file(_PROMPTS_DIR / "prompt.md")
 
 TASK_MANAGEMENT_PROMPT = _task_management_prompt.format()
 
-_STATUS_ICONS = {
-    "completed": "x",
-    "in_progress": ">",
-    "deleted": "-",
-}
 
-
+# Returns a focus directive naming the in-progress task(s), or "" when none.
+# The full task list is deliberately not repeated — it is already in the
+# conversation via the task-tool calls, and completed/old tasks are noise.
 def format_task_context(tasks: list[dict[str, Any]]) -> str:
-    """Render the live task list for the per-turn reminder section.
-
-    Returns an empty string when there are no visible tasks. The static
-    task-management *guidance* is contributed separately to the system
-    prompt by :class:`TasksExtension`; this renders only the dynamic list.
-    """
-    visible = [t for t in tasks if t.get("status") != "deleted"]
-    if not visible:
+    in_progress = [t.get("subject", "") for t in tasks if t.get("status") == "in_progress"]
+    if not in_progress:
         return ""
-    lines = []
-    for i, task in enumerate(visible, 1):
-        status = task.get("status", "pending")
-        icon = _STATUS_ICONS.get(status, " ")
-        subject = task.get("subject", "")
-        suffix = ""
-        if status == "in_progress" and task.get("active_form"):
-            suffix = f' -- "{task["active_form"]}"'
-        owner = task.get("owner")
-        if owner:
-            suffix += f" ({owner})"
-        blocked_by = task.get("blocked_by", [])
-        if blocked_by and status == "pending":
-            dep_str = ", ".join(blocked_by)
-            suffix = f" (pending, blocked by: {dep_str})"
-        lines.append(f"{i}. [{icon}] {subject}{suffix}")
-    body = "\n".join(lines)
-    return (
-        f"## Current Tasks\n\n<tasks>\n{body}\n</tasks>\n\n"
-        "Review your current tasks before proceeding. Update task status as you work."
-    )
+    listed = "\n".join(f"- {subject}" for subject in in_progress)
+    return f"Keep your focus on:\n{listed}"
 
 
 class TasksExtension(Extension):
@@ -71,7 +43,11 @@ class TasksExtension(Extension):
             ``None``, the extension builds its defaults (TaskCreate,
             TaskUpdate, TaskList, TaskGet, TaskStop) and upgrades their
             descriptions if a ``TeamExtension`` sibling is detected.
-        formatter: Optional custom function to format tasks into a prompt section.
+        formatter: Optional custom function that renders the per-turn reminder
+            from the current tasks. It must return ``""`` when there is nothing
+            to surface (the default grounds on the in-progress task). The
+            static task-management guidance goes to the system prompt
+            separately.
     """
 
     def __init__(
@@ -89,7 +65,6 @@ class TasksExtension(Extension):
         self._build_tools(team_active=False)
 
     def _build_tools(self, *, team_active: bool) -> None:
-        """(Re)build the tool tuple with the given team-awareness flag."""
         if self._custom_tools is not None:
             self._tools = self._custom_tools
             return
@@ -101,7 +76,6 @@ class TasksExtension(Extension):
     def setup(  # type: ignore[override]
         self, *, extensions: list[Extension], **_: Any
     ) -> None:
-        """Rebuild tools with team-aware descriptions when TeamExtension is present."""
         from langchain_agentkit.extensions.teams import TeamExtension
 
         has_team = any(isinstance(e, TeamExtension) for e in extensions)

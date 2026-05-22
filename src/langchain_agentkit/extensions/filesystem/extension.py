@@ -130,11 +130,8 @@ class FilesystemExtension(Extension):
     async def setup(  # type: ignore[override]
         self, *, extensions: list[Extension], **_: Any
     ) -> None:
-        """Detect HITLExtension sibling and probe backend environment.
-
-        Async because :class:`SandboxProtocol.environment` may issue a
-        one-time shell probe against a remote sandbox.
-        """
+        # Async because ``SandboxProtocol.environment`` may issue a one-time
+        # shell probe against a remote sandbox.
         from langchain_agentkit.extensions.hitl import HITLExtension
 
         self._hitl_available = any(isinstance(e, HITLExtension) for e in extensions)
@@ -147,24 +144,20 @@ class FilesystemExtension(Extension):
 
     @property
     def backend(self) -> FilesystemProtocol:
-        """The backend this extension operates on."""
         return self._backend
 
     @property
     def permissions(self) -> PermissionRuleset | None:
-        """The permission ruleset, or None if ungated."""
         return self._permissions
 
     @property
     @override
     def tools(self) -> list[BaseTool]:
-        """Filesystem tools, gated by permissions."""
         if self._tools_cache is None:
             self._tools_cache = self._build_tools()
         return self._tools_cache
 
     def _build_tools(self) -> list[BaseTool]:
-        """Build tool list with permission gates applied."""
         if self._custom_tools is not None:
             tools: list[BaseTool] = list(self._custom_tools)
         else:
@@ -217,21 +210,6 @@ class FilesystemExtension(Extension):
         *,
         tools: frozenset[str] = frozenset(),
     ) -> str | None:
-        """Render the ``<env>`` block plus a Bash-vs-dedicated-tools appendix.
-
-        Two independent sections:
-
-        * **<env> block** — backend shell environment (cwd, OS, shell,
-          detected shell utilities). Emitted only when the backend
-          implements :class:`SandboxProtocol`.
-        * **Tool-preference line** — emitted only when ``Bash`` is
-          registered *alongside* at least one specialized FS tool, since
-          the model cannot infer the preference from tool descriptions
-          alone. With Bash alone, no preference line is emitted — the
-          tool's own description is sufficient.
-
-        Returns ``None`` when neither section applies.
-        """
         sections: list[str] = []
 
         if self._env is not None:
@@ -268,11 +246,6 @@ def _wrap_with_permission_check(
     permissions: PermissionRuleset,
     hitl_check: Any,
 ) -> BaseTool:
-    """Wrap a tool with per-call permission checking.
-
-    Returns a new StructuredTool that checks permissions before
-    delegating to the original async tool.
-    """
     original_coro = tool.coroutine  # type: ignore[attr-defined]
 
     async def _checked(**kwargs: Any) -> Any:

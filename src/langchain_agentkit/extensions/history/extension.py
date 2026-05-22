@@ -56,7 +56,6 @@ class HistoryExtension(Extension):
 
     @override
     async def setup(self, **kwargs: Any) -> None:  # type: ignore[override]
-        """Forward ``llm_getter`` to the strategy if it implements ``setup``."""
         strategy_setup = getattr(self._strategy, "setup", None)
         if callable(strategy_setup):
             await strategy_setup(llm_getter=kwargs.get("llm_getter"))
@@ -68,7 +67,6 @@ class HistoryExtension(Extension):
         handler: Callable[[dict[str, Any]], Awaitable[Any]],
         runtime: Any,
     ) -> Any:
-        """Rewrite messages, call the LLM with the rewritten list, persist the result."""
         original = list(state.get("messages", []))
         transformed = await self._strategy.transform(original, runtime=runtime)
 

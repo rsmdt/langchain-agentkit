@@ -184,10 +184,11 @@ def test_skill_roster_emitted_in_system_prompt() -> None:
 
 
 def test_skill_prompt_has_no_roster_when_no_skills() -> None:
-    """An empty skill roster must not add a dangling 'Available skills:' header."""
+    """With no skills, SkillsExtension contributes nothing to the prompt."""
     from langchain_agentkit.agent_kit import AgentKit
     from langchain_agentkit.extensions.skills.extension import SkillsExtension
 
     kit = AgentKit(extensions=[SkillsExtension(skills=[])])
     prompt = kit.compose({}, None).prompt
     assert "Available skills:" not in prompt
+    assert "## Skills" not in prompt

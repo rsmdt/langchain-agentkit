@@ -40,14 +40,8 @@ _SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
 _TRUNCATED_MARKER = "... [truncated]"
 
 
+# Port of the reference harness ``sanitizePath()``.
 def sanitize_path(name: str, *, max_length: int = 200) -> str:
-    """Port of the reference harness ``sanitizePath()``.
-
-    Replace non-alphanumerics with ``-``.  If the result fits within
-    ``max_length``, return it unchanged; otherwise truncate and append a
-    12-character SHA-256 suffix derived from the original ``name`` to
-    keep the key unique.
-    """
     replaced = _SANITIZE_RE.sub("-", name)
     if len(replaced) <= max_length:
         return replaced
@@ -95,7 +89,6 @@ class MemoryExtension(Extension):
 
     @override
     async def setup(self, **_: Any) -> None:  # type: ignore[override]
-        """Prime the backend cache so the first turn sees a body."""
         if self.backend is not None:
             self._cached_body = await self._load_body_async()
 
@@ -105,7 +98,6 @@ class MemoryExtension(Extension):
         state: dict[str, Any],
         runtime: Any,
     ) -> None:
-        """Refresh the cached memory body per turn when a backend is set."""
         if self.backend is not None:
             self._cached_body = await self._load_body_async()
         return None

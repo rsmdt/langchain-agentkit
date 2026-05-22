@@ -186,12 +186,6 @@ class HITLExtension(Extension):
     @property
     @override
     def tools(self) -> list[BaseTool]:
-        """Returns the configured tool list.
-
-        Defaults to ``[AskUser]`` when ``tools=`` was not supplied. Users
-        pass ``tools=[]`` to disable AskUser, or ``tools=[custom_tool]``
-        to fully replace the default.
-        """
         if self._tools_cache is None:
             if self._custom_tools is not None:
                 self._tools_cache = list(self._custom_tools)
@@ -206,26 +200,6 @@ class HITLExtension(Extension):
         handler: Callable[..., Any],
         runtime: Any,
     ) -> Any:
-        """Intercept tool calls and present structured approval questions.
-
-        This is a ``wrap_tool`` hook — it composes with other extensions'
-        tool hooks via the onion pattern. Unconfigured tools pass through
-        to the inner handler without interruption.
-
-        Uses the unified Question protocol. The interrupt payload contains
-        a Question with Approve/Edit/Reject options and tool context.
-
-        Resume payload::
-
-            {"answers": {"<question>": "Approve"}}
-            {"answers": {"<question>": "Edit"}, "edited_args": {...}}
-            {"answers": {"<question>": "Reject"}, "message": "reason"}
-
-        Args:
-            state: The ``ToolCallRequest`` from the tool node.
-            handler: Async callback to continue the tool execution chain.
-            runtime: The current ``ToolRuntime``.
-        """
         request = state
         tool_name = (
             request.tool_call.get("name", "")
@@ -270,7 +244,6 @@ class HITLExtension(Extension):
         request: Any,
         handler: Callable[..., Any],
     ) -> Any:
-        """Handle single-option configs without interrupting."""
         decision = config.options[0]
         if decision == "approve":
             return await handler(request)
@@ -290,7 +263,6 @@ class HITLExtension(Extension):
         request: Any,
         handler: Callable[..., Any],
     ) -> Any:
-        """Route the user's answer to the appropriate action."""
         answers: dict[str, str] = {}
         if isinstance(response, dict):
             answers = response.get("answers", {})
@@ -339,7 +311,6 @@ class HITLExtension(Extension):
         request: Any,
         config: InterruptConfig,
     ) -> str:
-        """Build the question text for the interrupt."""
         if config.question is None:
             tool_name = request.tool_call["name"]
             tool_args = request.tool_call["args"]

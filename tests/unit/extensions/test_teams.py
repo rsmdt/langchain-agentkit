@@ -248,43 +248,58 @@ class TestTeamExtensionPrompt:
         assert "coder" in result
         assert "Code specialist" in result
 
-    def test_prompt_includes_team_coordination_guidelines(self):
+    def test_prompt_includes_agent_team_guidance(self):
         agent_a = _make_mock_agent("researcher")
 
         mw = TeamExtension(agents=[agent_a])
         result = mw.prompt({})
 
-        assert "Team Coordination" in result
+        assert "## Agent Team" in result
 
-    def test_prompt_shows_active_team_status_when_team_active(self):
-        agent_a = _make_mock_agent("researcher")
-        mw = TeamExtension(agents=[agent_a])
-
-        # Simulate an active team
+    def _active_team_ext(self) -> tuple[TeamExtension, TeamMessageBus]:
         from langchain_agentkit.extensions.teams import ActiveTeam
 
+        mw = TeamExtension(agents=[_make_mock_agent("researcher")])
         bus = TeamMessageBus()
         bus.register("lead")
         bus.register("alice")
-
-        # Create a mock completed task
-        mock_task = MagicMock()
-        mock_task.done.return_value = False
-
         mw._active_team = ActiveTeam(
             name="test-team",
             bus=bus,
-            members={"alice": mock_task},
+            members={"alice": MagicMock()},
             member_types={"alice": "researcher"},
         )
+        return mw, bus
 
+    async def test_active_team_nudges_only_on_unread_messages(self):
+        mw, bus = self._active_team_ext()
+
+        # No unread messages -> no reminder, just the static guidance string.
+        assert isinstance(mw.prompt({}), str)
+
+        # Unread messages from teammates -> a neutral, headerless nudge.
+        await bus.send("alice", "lead", "result one")
+        await bus.send("alice", "lead", "result two")
         result = mw.prompt({})
 
-        # Live team status is dynamic per turn -> reminder channel; the static
-        # coordination guidance + roster stays in the system prompt.
         assert isinstance(result, dict)
-        assert "Active Team: test-team" in result["reminder"]
-        assert "alice" in result["reminder"]
+        assert result["reminder"] == (
+            "There are 2 unread messages from the Agent Team. Use TeamStatus to collect them."
+        )
+        # No member dump, no markdown headers, no second-person phrasing.
+        assert "alice" not in result["reminder"]
+        assert "###" not in result["reminder"]
+        assert "You have" not in result["reminder"]
+
+    async def test_single_unread_message_uses_singular_grammar(self):
+        mw, bus = self._active_team_ext()
+
+        await bus.send("alice", "lead", "the only result")
+        result = mw.prompt({})
+
+        assert result["reminder"] == (
+            "There is 1 unread message from the Agent Team. Use TeamStatus to collect it."
+        )
 
     def test_prompt_returns_string(self):
         agent_a = _make_mock_agent("researcher")

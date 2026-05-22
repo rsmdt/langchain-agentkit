@@ -83,18 +83,21 @@ class TestTasksExtensionPrompt:
     def test_prompt_channels_by_task_presence(self):
         mw = TasksExtension()
 
-        # No tasks: static guidance only, as a plain string.
+        # No active task: static guidance only, as a plain string.
         assert mw.prompt({"tasks": []}, _TEST_RUNTIME) == TASK_MANAGEMENT_PROMPT
         assert mw.prompt({}, _TEST_RUNTIME) == TASK_MANAGEMENT_PROMPT
+        # Pending-only also yields guidance only — nothing is in progress yet.
+        pending = {"tasks": [{"subject": "P", "status": "pending"}]}
+        assert mw.prompt(pending, _TEST_RUNTIME) == TASK_MANAGEMENT_PROMPT
 
-        # With tasks: guidance in prompt, live list in reminder.
+        # An in-progress task adds the grounding reminder.
         result_with = mw.prompt(
-            {"tasks": [{"subject": "Task", "status": "pending"}]},
+            {"tasks": [{"subject": "Active", "status": "in_progress"}]},
             _TEST_RUNTIME,
         )
         assert isinstance(result_with, dict)
         assert result_with["prompt"] == TASK_MANAGEMENT_PROMPT
-        assert "Task" in result_with["reminder"]
+        assert "Active" in result_with["reminder"]
 
     def test_custom_formatter_is_used(self):
         def my_formatter(tasks):
@@ -112,132 +115,45 @@ class TestFormatTaskContext:
         # renders only the dynamic list, which is empty when there are no tasks.
         assert format_task_context([]) == ""
 
-    def test_single_task_formatted_with_checkbox(self):
-        result = format_task_context([{"subject": "Deploy app", "status": "pending"}])
-
-        assert "Deploy app" in result
-        assert "[ ]" in result
-
-    def test_completed_task_has_x_marker(self):
-        result = format_task_context([{"subject": "Done task", "status": "completed"}])
-
-        assert "[x]" in result
-        assert "Done task" in result
-
-    def test_pending_task_has_empty_marker(self):
-        result = format_task_context([{"subject": "Pending task", "status": "pending"}])
-
-        assert "[ ]" in result
-        assert "Pending task" in result
-
-    def test_in_progress_task_has_arrow_marker(self):
-        result = format_task_context([{"subject": "Active task", "status": "in_progress"}])
-
-        assert "[>]" in result
-        assert "Active task" in result
-
-    def test_in_progress_with_active_form_shows_spinner_text(self):
-        tasks = [{"subject": "Analyzing", "status": "in_progress", "active_form": "Analyzing..."}]
-
-        result = format_task_context(tasks)
-
-        assert '[>] Analyzing -- "Analyzing..."' in result
-
-    def test_deleted_tasks_filtered_out(self):
+    def test_no_in_progress_returns_empty(self):
+        # Only an in-progress task grounds the reminder; pending/completed
+        # tasks are already visible in the conversation via the tool calls.
         tasks = [
-            {"subject": "Visible", "status": "pending"},
-            {"subject": "Hidden", "status": "deleted"},
+            {"subject": "Pending", "status": "pending"},
+            {"subject": "Done", "status": "completed"},
+        ]
+        assert format_task_context(tasks) == ""
+
+    def test_in_progress_task_grounds_the_reminder(self):
+        tasks = [
+            {"subject": "Done", "status": "completed"},
+            {"subject": "Write tests", "status": "in_progress"},
+            {"subject": "Later", "status": "pending"},
         ]
 
         result = format_task_context(tasks)
 
-        assert "Visible" in result
-        assert "Hidden" not in result
+        # Only the active task is named; the others are not repeated.
+        assert result == "Keep your focus on:\n- Write tests"
+        assert "Done" not in result
+        assert "Later" not in result
 
-    def test_blocked_by_shown_for_pending_tasks(self):
+    def test_multiple_in_progress_listed(self):
         tasks = [
-            {"subject": "Blocked task", "status": "pending", "blocked_by": ["task-1", "task-2"]},
+            {"subject": "Alpha", "status": "in_progress"},
+            {"subject": "Beta", "status": "in_progress"},
         ]
 
         result = format_task_context(tasks)
 
-        assert "blocked by: task-1, task-2" in result
-
-    def test_multiple_tasks_all_formatted(self):
-        tasks = [
-            {"subject": "First", "status": "completed"},
-            {"subject": "Second", "status": "pending"},
-            {"subject": "Third", "status": "in_progress"},
-        ]
-
-        result = format_task_context(tasks)
-
-        assert "[x] First" in result
-        assert "[ ] Second" in result
-        assert "[>] Third" in result
-
-    def test_numbered_list_format(self):
-        tasks = [
-            {"subject": "First", "status": "pending"},
-            {"subject": "Second", "status": "pending"},
-        ]
-
-        result = format_task_context(tasks)
-
-        assert "1. [ ] First" in result
-        assert "2. [ ] Second" in result
-
-    def test_xml_wrapping(self):
-        tasks = [{"subject": "Task", "status": "pending"}]
-
-        result = format_task_context(tasks)
-
-        assert "<tasks>" in result
-        assert "</tasks>" in result
-
-    def test_missing_status_defaults_to_pending(self):
-        result = format_task_context([{"subject": "No status"}])
-
-        assert "[ ]" in result
+        assert result.startswith("Keep your focus on:")
+        assert "- Alpha" in result
+        assert "- Beta" in result
 
     def test_all_deleted_returns_empty(self):
         tasks = [{"subject": "Gone", "status": "deleted"}]
 
         assert format_task_context(tasks) == ""
-
-
-class TestTaskOwnerDisplay:
-    def test_owner_shown_in_task_prompt(self):
-        tasks = [{"subject": "Research APIs", "status": "in_progress", "owner": "researcher"}]
-
-        result = format_task_context(tasks)
-
-        assert "(researcher)" in result
-
-    def test_no_owner_no_suffix(self):
-        tasks = [{"subject": "Simple task", "status": "in_progress"}]
-
-        result = format_task_context(tasks)
-
-        # No parenthetical owner suffix for tasks without owner
-        lines = [line for line in result.splitlines() if "Simple task" in line]
-        assert len(lines) == 1
-        assert "(" not in lines[0]
-
-    def test_owner_with_active_form(self):
-        tasks = [
-            {
-                "subject": "Fixing bug",
-                "status": "in_progress",
-                "active_form": "Fixing...",
-                "owner": "researcher",
-            }
-        ]
-
-        result = format_task_context(tasks)
-
-        assert '"Fixing..."' in result
-        assert "(researcher)" in result
 
 
 class TestConditionalTeamTips:

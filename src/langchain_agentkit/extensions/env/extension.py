@@ -20,7 +20,6 @@ _WORKTREE_LINE = "This is a git worktree — do NOT cd to original repo"
 
 
 def _find_git_marker(start: Path) -> Path | None:
-    """Return the `.git` path (file or dir) for the nearest ancestor, or None."""
     try:
         current = start.resolve()
     except OSError:

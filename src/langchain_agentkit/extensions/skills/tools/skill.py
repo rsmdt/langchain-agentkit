@@ -30,18 +30,11 @@ _SKILL_TOOL_DESCRIPTION = """Execute a skill in the main conversation. Skills pr
 - Don't invoke an already-running skill; don't use this for built-in CLI commands (/help, /clear). If a <command-name> tag is already in this turn, the skill is loaded — follow its instructions instead of calling again."""
 
 
-def build_skill_tool(
-    configs: list[SkillConfig],
-    *,
-    budget_percent: float | None = None,  # noqa: ARG001 — emitted by SkillsExtension.prompt
-    max_description_chars: int | None = None,  # noqa: ARG001
-    context_window: int | None = None,  # noqa: ARG001
-) -> BaseTool:
+def build_skill_tool(configs: list[SkillConfig]) -> BaseTool:
     """Build the Skill tool from a list of SkillConfig objects.
 
-    The tool description is static; the available-skills roster is delivered
-    separately via :func:`render_skills_roster`, which
-    :class:`SkillsExtension` appends to its system-prompt contribution.
+    The tool description is static. :class:`SkillsExtension` lists the
+    available skills in the system prompt via ``_format_skills_list``.
     """
     index: dict[str, SkillConfig] = {c.name: c for c in configs}
 

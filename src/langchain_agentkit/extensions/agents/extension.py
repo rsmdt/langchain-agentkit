@@ -30,13 +30,10 @@ _PROMPT_FILE = Path(__file__).parent / "prompt.md"
 _agent_delegation_template = PromptTemplate.from_file(_PROMPT_FILE)
 
 
+# Sentinel default for ``_parent_tools_getter``: identity-checked in
+# ``setup()`` so kit-level wiring only overrides the default, not a
+# user-supplied getter. Returns ``[]`` so unwired call sites stay safe.
 def _default_tools_getter() -> list[Any]:
-    """Sentinel default for ``_parent_tools_getter``.
-
-    Identity-checked in ``setup()`` so kit-level wiring only overrides
-    the default — not a user-supplied getter that happens to equal
-    ``list``. Returns ``[]`` so unwired call sites stay safe.
-    """
     return []
 
 
@@ -55,17 +52,6 @@ _PARALLEL_NOTE = "\nMultiple Agent calls issued in the same turn run concurrentl
 
 
 def _get_tools_description(agent: Any) -> str:
-    """Return a human-readable summary of an agent's tool restrictions.
-
-    Reads ``_agent_config`` (if present) to determine allowed/disallowed
-    tools and formats them for the roster prompt.
-
-    Returns:
-        ``"*"`` (all tools) when no restrictions are configured,
-        ``"All tools except X, Y"`` for denylist-only,
-        ``"X, Y, Z"`` for allowlist-only, or the effective filtered
-        list when both are present.
-    """
     from langchain_agentkit.extensions.agents.types import AgentConfig
 
     config: AgentConfig | None = getattr(agent, "_agent_config", None)
@@ -203,11 +189,8 @@ class AgentsExtension(Extension):
 
     @property
     def model_resolver(self) -> Callable[[str], BaseChatModel] | None:
-        """Return the configured model resolver, if any.
-
-        Exposed as a public attribute so ``AgentKit.resolve_model()`` can
-        discover it without any cross-extension wiring.
-        """
+        # Public so ``AgentKit.resolve_model()`` can discover it without
+        # any cross-extension wiring.
         return self._model_resolver  # type: ignore[no-any-return]
 
     @override
@@ -220,7 +203,6 @@ class AgentsExtension(Extension):
         tools_getter: Any = None,
         **_: Any,
     ) -> None:
-        """Run deferred discovery, pick up kit-level model_resolver, discover siblings."""
         if self._strategy_tags_hidden:
             self._check_history_ordering(extensions)
 
@@ -242,13 +224,9 @@ class AgentsExtension(Extension):
         self._discover_skills_resolver(extensions)
 
     def _check_history_ordering(self, extensions: list[Extension]) -> None:
-        """Enforce AgentsExtension-after-HistoryExtension when strategy hides messages.
-
-        Our ``wrap_model`` filter must run inner to ``HistoryExtension``'s so
-        the ``ReplaceMessages(kept + response)`` commit sees the un-filtered
-        state and persists the subagent trace. Mirrors TeamExtension's own
-        ordering check.
-        """
+        # Our ``wrap_model`` filter must run inner to ``HistoryExtension``'s
+        # so the ``ReplaceMessages(kept + response)`` commit sees the
+        # un-filtered state and persists the subagent trace.
         from langchain_agentkit.extensions.history.extension import HistoryExtension
 
         my_index: int | None = None
@@ -270,7 +248,6 @@ class AgentsExtension(Extension):
             )
 
     async def _discover_deferred_agents(self) -> None:
-        """Resolve agents from the configured backend path and rebuild tools."""
         from langchain_agentkit.extensions.agents.discovery import (
             discover_agents_from_backend,
         )
@@ -288,7 +265,6 @@ class AgentsExtension(Extension):
             self._tools = tuple(self._create_tools())
 
     def _discover_skills_resolver(self, extensions: list[Extension]) -> None:
-        """Wire a skills resolver from a sibling SkillsExtension if present."""
         from langchain_agentkit.extensions.skills import SkillsExtension
 
         skills_ext = next(
@@ -321,18 +297,9 @@ class AgentsExtension(Extension):
         handler: Any,
         runtime: Any,
     ) -> Any:
-        """Strip hidden-tagged subagent messages from the LLM request.
-
-        Activated only when the configured output strategy tags messages
-        with ``{metadata_prefix}_hidden_from_llm=True``. Filters the
-        per-request message list before passing to the handler; graph
-        state is not mutated.
-
-        Must run inner to any ``wrap_model`` hook that commits state
-        via ``ReplaceMessages`` (today: :class:`HistoryExtension`).
-        ``setup()`` enforces this ordering and raises ``ValueError`` at
-        kit-construction time if the user's extension list violates it.
-        """
+        # Must run inner to any ``wrap_model`` hook that commits state via
+        # ``ReplaceMessages`` (today: HistoryExtension); ``setup()`` enforces
+        # this ordering. Filters the per-request list only; state is not mutated.
         if not self._strategy_tags_hidden:
             return await handler(state)
 
@@ -376,11 +343,8 @@ class AgentsExtension(Extension):
 
     @property
     def metadata_prefix(self) -> str:
-        """Prefix used on ``response_metadata`` keys for subagent tags.
-
-        Exposed so a sibling :class:`HideSubagentTraceExtension` can be
-        configured from the same source of truth.
-        """
+        # Exposed so a sibling ``HideSubagentTraceExtension`` can be
+        # configured from the same source of truth.
         return self._metadata_prefix
 
     @property

@@ -40,7 +40,6 @@ _web_search_system_prompt = PromptTemplate.from_file(_PROMPT_FILE)
 
 
 def _default_user_agent() -> str:
-    """Build a User-Agent string from the host machine's platform info."""
     system = platform.system()
     release = platform.release()
     machine = platform.machine()
@@ -72,7 +71,6 @@ class DuckDuckGoSearchProvider(BaseTool):
 
     @override
     def _run(self, query: str) -> str:
-        """Sync search via DuckDuckGo instant answer API."""
         params = urllib.parse.urlencode(
             {"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
         )
@@ -107,7 +105,7 @@ class DuckDuckGoSearchProvider(BaseTool):
 
     @override
     async def _arun(self, query: str) -> str:
-        """Async version — runs sync in executor (urllib has no async)."""
+        # Runs sync in executor — urllib has no async API.
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._run, query)
 
@@ -140,7 +138,6 @@ class QwantSearchProvider(BaseTool):
 
     @override
     def _run(self, query: str) -> str:
-        """Sync search via Qwant API."""
         params = urllib.parse.urlencode(
             {
                 "q": query,
@@ -166,7 +163,7 @@ class QwantSearchProvider(BaseTool):
 
     @override
     async def _arun(self, query: str) -> str:
-        """Async version — runs sync in executor."""
+        # Runs sync in executor — urllib has no async API.
         loop = asyncio.get_event_loop()
         return await loop.run_in_executor(None, self._run, query)
 
@@ -235,7 +232,6 @@ class WebSearchExtension(Extension):
     @property
     @override
     def tools(self) -> list[BaseTool]:
-        """Returns [WebSearch] — same list object on every access."""
         return self._tools
 
     @override
@@ -246,7 +242,6 @@ class WebSearchExtension(Extension):
         *,
         tools: frozenset[str] = frozenset(),
     ) -> str | None:
-        """No system-prompt contribution — all guidance lives on the
-        ``WebSearch`` tool description.
-        """
+        # No system-prompt contribution — all guidance lives on the
+        # ``WebSearch`` tool description.
         return None

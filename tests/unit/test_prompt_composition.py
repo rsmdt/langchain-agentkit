@@ -100,11 +100,8 @@ class TestDictReturn:
         # Durable content stays in the prompt channel; reminder is separate.
         assert composition.prompt == "Base\n\nP"
         assert "R" not in composition.prompt
-        # Reminder is wrapped in a <reminder> envelope with a class subheader.
-        assert composition.reminder.startswith("<reminder>")
-        assert composition.reminder.endswith("</reminder>")
-        assert "### _DictExt" in composition.reminder
-        assert "R" in composition.reminder
+        # Reminder is wrapped in a <reminder> envelope — no per-extension header.
+        assert composition.reminder == "<reminder>\nR\n</reminder>"
 
     def test_reminder_without_prompt_contribution(self):
         kit = AgentKit(

@@ -319,8 +319,9 @@ class AgentKit:
            system message.
         2. **Reminder** (``.reminder``). Each extension's
            ``dict["reminder"]`` contribution, collected in declaration
-           order with per-extension ``### <ClassName>`` subheaders and
-           wrapped in a ``<reminder>`` envelope. Empty when no extension
+           order, separated by blank lines, and wrapped in a single
+           ``<reminder>`` envelope. No per-extension headers — each
+           contribution is self-contained prose. Empty when no extension
            contributes one. The graph builder appends it to the *last*
            message of the conversation each step (separated by ``---``),
            ephemerally — it is never persisted and never enters an
@@ -357,8 +358,10 @@ class AgentKit:
                     prompt_parts.append(prompt_piece)
                 reminder_piece = result.get("reminder")
                 if isinstance(reminder_piece, str) and reminder_piece:
-                    key = type(ext).__name__
-                    reminder_sections.append(f"### {key}\n{reminder_piece}")
+                    # No per-extension headers — the model knows nothing about
+                    # the harness's class names. Each reminder is a self-contained
+                    # prose nudge; blank lines separate them.
+                    reminder_sections.append(reminder_piece)
 
         reminder = ""
         if reminder_sections:

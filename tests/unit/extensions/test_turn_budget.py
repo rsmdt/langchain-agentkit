@@ -52,28 +52,37 @@ class TestHookDiscovery:
 
 
 class TestReminder:
-    def test_first_turn_counts_from_one(self):
+    def test_system_prompt_states_total_budget(self):
+        ext = TurnBudgetExtension(max_turns=7)
+        # The total budget is static -> system prompt (same on every turn).
+        assert ext.prompt({})["prompt"] == (
+            "There are a total of 7 turns available. Provide a final answer "
+            "within that budget, ideally as early as possible."
+        )
+        assert ext.prompt({"_turn_budget_used": 6})["prompt"] == (
+            "There are a total of 7 turns available. Provide a final answer "
+            "within that budget, ideally as early as possible."
+        )
+
+    def test_first_turn_states_turns_remaining(self):
         ext = TurnBudgetExtension(max_turns=3)
         reminder = ext.prompt({})["reminder"]
-        assert "step 1 of 3" in reminder
-        assert "2 steps remain" in reminder
+        assert reminder == "There are 2 turns left before you must provide a final answer."
 
-    def test_mid_run_reflects_completed_turns(self):
+    def test_singular_turn_remaining(self):
         ext = TurnBudgetExtension(max_turns=3)
         reminder = ext.prompt({"_turn_budget_used": 1})["reminder"]
-        assert "step 2 of 3" in reminder
-        assert "1 step remain" in reminder  # singular, no trailing 's'
+        assert reminder == "There is 1 turn left before you must provide a final answer."
 
     def test_final_turn_switches_to_wrap_up(self):
         ext = TurnBudgetExtension(max_turns=3)
         reminder = ext.prompt({"_turn_budget_used": 2})["reminder"]
-        assert "final step (3 of 3)" in reminder
-        assert "will NOT be executed" in reminder
+        assert reminder == "This is your last turn — you must provide a final answer now."
 
     def test_max_turns_one_is_immediately_final(self):
         ext = TurnBudgetExtension(max_turns=1)
         reminder = ext.prompt({})["reminder"]
-        assert "final step (1 of 1)" in reminder
+        assert reminder == "This is your last turn — you must provide a final answer now."
 
 
 class TestAfterModelGate:

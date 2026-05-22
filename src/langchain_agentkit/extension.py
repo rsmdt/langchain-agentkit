@@ -78,7 +78,8 @@ class Extension:
         *,
         tools: frozenset[str] = frozenset(),
     ) -> str | dict[str, str] | None:
-        """System-prompt section contributed by this extension.
+        """Prompt contribution from this extension: durable system prompt
+        and/or per-turn reminder.
 
         Called on every LLM invocation — ``kit.compose()`` runs per
         step — so dynamic content reflects the current moment. May
@@ -92,11 +93,11 @@ class Extension:
           * ``"prompt"`` — appended to the durable region (same as
             returning a plain ``str``).
           * ``"reminder"`` — collected with other extensions' reminders
-            under a ``### <ClassName>`` subheader, wrapped in a
-            ``<reminder>`` envelope, and appended (separated by ``---``)
-            to the *last message of the conversation* every step. The
-            reminder is ephemeral: it is never persisted to state and is
-            never observed by an extension's truncation window.
+            (blank-line separated, no per-extension headers), wrapped in a
+            ``<reminder>`` envelope, and appended (separated by ``---``) to
+            the *last message of the conversation* every step. The reminder
+            is ephemeral: it is never persisted to state and is never
+            observed by an extension's truncation window.
 
           Unknown keys are silently ignored.
 

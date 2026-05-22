@@ -71,11 +71,11 @@ class TestProgrammaticMode:
 
         assert len(mw.tools) == 1
 
-    def test_empty_list_returns_skill_tool(self):
+    def test_empty_list_registers_no_tool(self):
         mw = SkillsExtension(skills=[])
 
-        assert len(mw.tools) == 1
-        assert mw.tools[0].name == "Skill"
+        # No skills → inert: no Skill tool, as if the extension were not added.
+        assert mw.tools == []
 
     def test_configs_property_returns_copy(self):
         configs = _make_configs()
@@ -303,12 +303,11 @@ class TestPrompt:
 
         assert "progressive disclosure" in result
 
-    def test_no_skills_available_returns_marker(self):
+    def test_no_skills_contributes_no_prompt(self):
         mw = SkillsExtension(skills=[])
 
-        result = mw.prompt({}, _TEST_RUNTIME)
-
-        assert "(No skills available)" in result
+        # No skills → no system-prompt section.
+        assert mw.prompt({}, _TEST_RUNTIME) is None
 
 
 class TestStateSchema:
@@ -318,8 +317,8 @@ class TestStateSchema:
         assert mw.state_schema is None
 
 
-class TestSkillBudget:
-    def test_default_no_budget_no_truncation(self):
+class TestSkillDescriptionCap:
+    def test_short_description_not_truncated(self):
         configs = [
             SkillConfig(
                 name="long-skill",
@@ -327,13 +326,13 @@ class TestSkillBudget:
                 prompt="body",
             ),
         ]
-        mw = SkillsExtension(skills=configs)
+        mw = SkillsExtension(skills=configs)  # default cap is 250
 
         result = mw.prompt({}, _TEST_RUNTIME)
 
         assert "A very long description that should not be truncated" in result
 
-    def test_max_description_chars_truncates(self):
+    def test_long_description_truncated_with_ellipsis(self):
         configs = [
             SkillConfig(
                 name="truncated",
@@ -345,27 +344,23 @@ class TestSkillBudget:
 
         result = mw.prompt({}, _TEST_RUNTIME)
 
-        assert "This is a very long " in result
+        assert "This is a very long" in result
+        assert "…" in result
         assert "exceeds the limit" not in result
 
-    def test_budget_percent_limits_listing(self):
-        configs = [
-            SkillConfig(name=f"skill-{i}", description=f"Description {i}" * 20, prompt="body")
-            for i in range(50)
-        ]
-        mw = SkillsExtension(skills=configs, budget_percent=0.0001, context_window=1000)
+    def test_zero_disables_the_cap(self):
+        long_desc = "x" * 500
+        configs = [SkillConfig(name="big", description=long_desc, prompt="body")]
+        mw = SkillsExtension(skills=configs, max_description_chars=0)
 
         result = mw.prompt({}, _TEST_RUNTIME)
 
-        assert "... and" in result
-        assert "more skills" in result
+        assert long_desc in result
 
-    def test_budget_params_default_to_none(self):
+    def test_cap_defaults_to_250(self):
         mw = SkillsExtension(skills=_make_configs())
 
-        assert mw._budget_percent is None
-        assert mw._max_description_chars is None
-        assert mw._context_window is None
+        assert mw._max_description_chars == 250
 
 
 class TestExtensionProtocol:

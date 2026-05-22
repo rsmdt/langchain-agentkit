@@ -28,8 +28,6 @@ PersistCallback = Callable[..., Awaitable[None]]
 
 
 class _PersistState(TypedDict, total=False):
-    """State mixin tracking which message IDs existed at turn start."""
-
     _persist_seen_ids: list[str]
 
 

@@ -5,8 +5,9 @@ exceeds it, LangGraph raises ``GraphRecursionError`` mid-run and whatever
 partial state existed is lost to the caller. This extension enforces a turn
 budget from *inside* the graph instead, and stops the loop **gracefully**:
 
-* Every step it contributes a reminder (appended to the tail of the
-  conversation) telling the model which turn it is on and how many remain.
+* It states the total budget once in the (cacheable) system prompt, and every
+  step contributes a reminder (appended to the tail of the conversation)
+  stating how many turns remain before a final answer is required.
 * On the final allowed turn it switches that reminder to a wrap-up
   instruction and, once the turn's model call returns, routes the loop to
   ``END`` — so the run finishes with a normal assistant message instead of an
@@ -41,19 +42,11 @@ from typing import Any, override
 from langchain_agentkit.extension import Extension
 from langchain_agentkit.extensions.turn_budget.state import TurnBudgetState
 
-_REMINDER_TEMPLATE = (
-    "You are on step {current} of {max_turns} — each model response or tool "
-    "call counts as one step. {remaining} step{plural} remain after this one "
-    "before the run ends automatically. Pace your work so you can deliver a "
-    "complete answer within the budget."
+_BUDGET_PROMPT = (
+    "There are a total of {max_turns} turns available. Provide a final answer "
+    "within that budget, ideally as early as possible."
 )
-
-_FINAL_TEMPLATE = (
-    "This is your final step ({max_turns} of {max_turns}) — each model "
-    "response or tool call counts as one step. The run ends immediately after "
-    "this response, so any tool calls you make now will NOT be executed. Give "
-    "your best, complete answer using what you already have."
-)
+_FINAL_REMINDER = "This is your last turn — you must provide a final answer now."
 
 
 class TurnBudgetExtension(Extension):
@@ -94,32 +87,21 @@ class TurnBudgetExtension(Extension):
         *,
         tools: frozenset[str] = frozenset(),
     ) -> dict[str, str]:
-        """Contribute the per-turn budget reminder.
-
-        ``_turn_budget_used`` holds the number of turns completed *before*
-        this call, so the turn about to run is ``used + 1``.
-        """
+        # ``_turn_budget_used`` holds the turns completed *before* this call,
+        # so the turn about to run is ``used + 1``.
+        budget = _BUDGET_PROMPT.format(max_turns=self._max_turns)
         used = state.get("_turn_budget_used", 0) or 0
-        current = used + 1
-        if current >= self._max_turns:
-            return {"reminder": _FINAL_TEMPLATE.format(max_turns=self._max_turns)}
-        remaining = self._max_turns - current
-        return {
-            "reminder": _REMINDER_TEMPLATE.format(
-                current=current,
-                max_turns=self._max_turns,
-                remaining=remaining,
-                plural="" if remaining == 1 else "s",
-            )
-        }
+        remaining = self._max_turns - (used + 1)
+        if remaining <= 0:
+            return {"prompt": budget, "reminder": _FINAL_REMINDER}
+        verb, noun = ("is", "turn") if remaining == 1 else ("are", "turns")
+        reminder = f"There {verb} {remaining} {noun} left before you must provide a final answer."
+        return {"prompt": budget, "reminder": reminder}
 
     async def after_model(self, *, state: dict[str, Any], runtime: Any) -> dict[str, Any]:
-        """Count the completed turn, or end the loop if the budget is spent.
-
-        Returns either a ``+1`` increment (normal turn) or a ``jump_to: end``
-        (final turn) — never both, because an ``after_model`` update carrying
-        ``jump_to`` discards its sibling keys in the graph builder.
-        """
+        # Returns either a ``+1`` increment or a ``jump_to: end`` — never both,
+        # because an ``after_model`` update carrying ``jump_to`` discards its
+        # sibling keys in the graph builder.
         used = state.get("_turn_budget_used", 0) or 0
         if used + 1 >= self._max_turns:
             return {"jump_to": "end"}
