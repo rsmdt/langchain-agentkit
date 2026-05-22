@@ -20,6 +20,7 @@ from langchain_agentkit.extensions.resilience import ResilienceExtension
 from langchain_agentkit.extensions.skills import SkillsExtension
 from langchain_agentkit.extensions.tasks import TasksExtension
 from langchain_agentkit.extensions.teams import TeamExtension
+from langchain_agentkit.extensions.turn_budget import TurnBudgetExtension
 from langchain_agentkit.extensions.web_search import (
     DuckDuckGoSearchProvider,
     QwantSearchProvider,
@@ -38,5 +39,6 @@ __all__ = [
     "SkillsExtension",
     "TasksExtension",
     "TeamExtension",
+    "TurnBudgetExtension",
     "WebSearchExtension",
 ]
