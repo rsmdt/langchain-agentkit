@@ -9,6 +9,14 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.31.0] — 2026-05-23
+
+### Added
+- Skills loaded from a directory or backend now include a base-directory header, so the agent can resolve a skill's relative reference paths (e.g. `references/foo.md`) against an absolute anchor and read them on demand. Skills supplied programmatically carry no source path and are returned unchanged.
+
+### Changed
+- The filesystem Read tool's "file not found" and "is a directory" errors are now self-contained and no longer steer the model toward the Glob tool, which may not be composed into a given agent.
+
 ## [0.30.0] — 2026-05-22
 
 ### Added

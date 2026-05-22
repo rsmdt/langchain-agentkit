@@ -10,9 +10,7 @@ from langchain_agentkit.extension import Extension
 if TYPE_CHECKING:
     from langgraph.prebuilt import ToolRuntime
 
-_CORE_BEHAVIOR_BODY = (
-    (Path(__file__).parent / "prompt.md").read_text(encoding="utf-8").rstrip()
-)
+_CORE_BEHAVIOR_BODY = (Path(__file__).parent / "prompt.md").read_text(encoding="utf-8").rstrip()
 
 
 class CoreBehaviorExtension(Extension):
