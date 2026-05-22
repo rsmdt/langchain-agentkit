@@ -28,8 +28,6 @@ from langchain_agentkit.extensions.history.state import ReplaceMessages
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from langgraph.prebuilt import ToolRuntime
-
     from langchain_agentkit.extensions.history.strategies import HistoryStrategy
 
 
@@ -62,21 +60,6 @@ class HistoryExtension(Extension):
         strategy_setup = getattr(self._strategy, "setup", None)
         if callable(strategy_setup):
             await strategy_setup(llm_getter=kwargs.get("llm_getter"))
-
-    @override
-    def prompt(
-        self,
-        state: dict[str, Any],
-        runtime: ToolRuntime | None = None,
-        *,
-        tools: frozenset[str] = frozenset(),
-    ) -> str | dict[str, str] | None:
-        """Forward the strategy's prompt contribution, if it has one."""
-        contribute = getattr(self._strategy, "contribute_prompt", None)
-        if callable(contribute):
-            result: str | dict[str, str] | None = contribute()
-            return result
-        return None
 
     async def wrap_model(
         self,

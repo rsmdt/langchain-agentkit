@@ -33,9 +33,6 @@ class HistoryStrategy(Protocol):
     * ``async setup(*, llm_getter)`` — receive a handle to the kit's
       main LLM at compile time. Strategies that need an LLM (e.g.
       :class:`CompactionStrategy`) implement this.
-    * ``contribute_prompt() -> dict[str, str] | str | None`` — inject
-      guidance into the agent's system prompt. Returned value follows
-      :meth:`Extension.prompt` conventions.
     """
 
     async def transform(self, messages: list[Any], *, runtime: Any) -> list[Any]: ...

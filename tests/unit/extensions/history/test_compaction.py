@@ -267,13 +267,6 @@ class TestCompactionStrategy:
         with pytest.raises(RuntimeError, match="summarizer_llm"):
             await strategy.transform(history, runtime=None)
 
-    def test_contributes_prompt_reminder(self) -> None:
-        strategy = CompactionStrategy()
-        out = strategy.contribute_prompt()
-        assert isinstance(out, dict)
-        assert "reminder" in out
-        assert "summarized" in out["reminder"].lower()
-
 
 # ---------------------------------------------------------------------------
 # CompactionStrategy through HistoryExtension

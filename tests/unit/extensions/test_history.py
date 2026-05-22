@@ -297,21 +297,6 @@ class TestHistoryExtension:
         ext = HistoryExtension(strategy=CountStrategy(max_messages=10))
         assert ext.tools == []
 
-    def test_no_prompt_when_strategy_has_none(self):
-        ext = HistoryExtension(strategy=CountStrategy(max_messages=10))
-        assert ext.prompt({}) is None
-
-    def test_forwards_strategy_prompt(self):
-        class TalkativeStrategy:
-            async def transform(self, messages: list[Any], *, runtime: Any) -> list[Any]:
-                return messages
-
-            def contribute_prompt(self) -> dict[str, str]:
-                return {"reminder": "hello"}
-
-        ext = HistoryExtension(strategy=TalkativeStrategy())
-        assert ext.prompt({}) == {"reminder": "hello"}
-
     def test_no_state_schema(self):
         ext = HistoryExtension(strategy=CountStrategy(max_messages=10))
         assert ext.state_schema is None

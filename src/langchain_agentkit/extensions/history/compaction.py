@@ -92,17 +92,6 @@ class CompactionStrategy:
         if llm_getter is not None:
             self._llm_getter = llm_getter
 
-    def contribute_prompt(self) -> dict[str, str]:
-        """System-prompt reminder describing compaction behavior to the LLM."""
-        return {
-            "reminder": (
-                "When the conversation grows large, all prior messages are "
-                "summarized into a single synthetic message. Write exact "
-                "file paths, function names, and error messages into your "
-                "reply text — they survive compaction; raw tool output may not."
-            )
-        }
-
     async def transform(self, messages: list[Any], *, runtime: Any) -> list[Any]:
         if len(messages) < 2:
             return messages
