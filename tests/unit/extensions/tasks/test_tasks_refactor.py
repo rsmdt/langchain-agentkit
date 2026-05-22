@@ -64,8 +64,11 @@ class TestTasksExtensionPromptContent:
         tasks = [{"subject": "Write tests", "status": "in_progress"}]
         result = ext.prompt({"tasks": tasks}, _RUNTIME)
 
-        assert "Write tests" in result
-        assert "Core Behavior" not in result
+        # Static guidance -> system prompt; live list -> reminder channel.
+        assert isinstance(result, dict)
+        assert "Write tests" in result["reminder"]
+        assert "Core Behavior" not in result["prompt"]
+        assert "Core Behavior" not in result["reminder"]
 
 
 class TestTaskManagementPromptIsDomainNeutral:

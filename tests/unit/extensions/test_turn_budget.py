@@ -55,25 +55,25 @@ class TestReminder:
     def test_first_turn_counts_from_one(self):
         ext = TurnBudgetExtension(max_turns=3)
         reminder = ext.prompt({})["reminder"]
-        assert "Turn 1 of 3" in reminder
-        assert "2 more turns" in reminder
+        assert "step 1 of 3" in reminder
+        assert "2 steps remain" in reminder
 
     def test_mid_run_reflects_completed_turns(self):
         ext = TurnBudgetExtension(max_turns=3)
         reminder = ext.prompt({"_turn_budget_used": 1})["reminder"]
-        assert "Turn 2 of 3" in reminder
-        assert "1 more turn after" in reminder  # singular, no trailing 's'
+        assert "step 2 of 3" in reminder
+        assert "1 step remain" in reminder  # singular, no trailing 's'
 
     def test_final_turn_switches_to_wrap_up(self):
         ext = TurnBudgetExtension(max_turns=3)
         reminder = ext.prompt({"_turn_budget_used": 2})["reminder"]
-        assert "final turn (3 of 3)" in reminder
+        assert "final step (3 of 3)" in reminder
         assert "will NOT be executed" in reminder
 
     def test_max_turns_one_is_immediately_final(self):
         ext = TurnBudgetExtension(max_turns=1)
         reminder = ext.prompt({})["reminder"]
-        assert "final turn (1 of 1)" in reminder
+        assert "final step (1 of 1)" in reminder
 
 
 class TestAfterModelGate:

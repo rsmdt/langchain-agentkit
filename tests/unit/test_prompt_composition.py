@@ -52,12 +52,13 @@ class TestPromptCompositionDataclass:
     def test_default_is_empty(self):
         comp = PromptComposition()
         assert comp.prompt == ""
+        assert comp.reminder == ""
 
-    def test_only_prompt_field_exists(self):
-        """The reminder channel has been removed; PromptComposition carries one field."""
-        comp = PromptComposition(prompt="hello")
+    def test_prompt_and_reminder_channels(self):
+        """PromptComposition carries two independent channels."""
+        comp = PromptComposition(prompt="hello", reminder="<reminder>R</reminder>")
         assert comp.prompt == "hello"
-        assert not hasattr(comp, "reminder")
+        assert comp.reminder == "<reminder>R</reminder>"
 
 
 class TestComposeReturnType:
@@ -93,27 +94,27 @@ class TestDictReturn:
         kit = AgentKit(extensions=[_DictExt(prompt="P")])
         assert kit.compose({}, None).prompt == "P"
 
-    def test_reminder_appended_at_tail_under_current_context_header(self):
+    def test_reminder_routed_to_reminder_channel_not_prompt(self):
         kit = AgentKit(extensions=[_DictExt(prompt="P", reminder="R")], prompt="Base")
-        result = kit.compose({}, None).prompt
-        # Durable region comes first, reminder region last.
-        base_idx = result.index("Base")
-        prompt_idx = result.index("P")
-        header_idx = result.index("## Current context")
-        reminder_idx = result.index("R")
-        assert base_idx < prompt_idx < header_idx < reminder_idx
-        # Per-extension subheader uses the class name.
-        assert "### _DictExt" in result
+        composition = kit.compose({}, None)
+        # Durable content stays in the prompt channel; reminder is separate.
+        assert composition.prompt == "Base\n\nP"
+        assert "R" not in composition.prompt
+        # Reminder is wrapped in a <reminder> envelope with a class subheader.
+        assert composition.reminder.startswith("<reminder>")
+        assert composition.reminder.endswith("</reminder>")
+        assert "### _DictExt" in composition.reminder
+        assert "R" in composition.reminder
 
-    def test_reminder_without_prompt_contribution_still_lands_at_tail(self):
+    def test_reminder_without_prompt_contribution(self):
         kit = AgentKit(
             extensions=[_DictExt(reminder="only-reminder")],
             prompt="Base",
         )
-        result = kit.compose({}, None).prompt
-        assert result.startswith("Base")
-        assert result.endswith("only-reminder")
-        assert "## Current context" in result
+        composition = kit.compose({}, None)
+        # Base prompt unaffected; reminder lives in its own channel.
+        assert composition.prompt == "Base"
+        assert "only-reminder" in composition.reminder
 
     def test_multiple_reminders_collected_in_declaration_order(self):
         kit = AgentKit(
@@ -122,17 +123,17 @@ class TestDictReturn:
                 _DictExt(reminder="second-reminder"),
             ],
         )
-        result = kit.compose({}, None).prompt
-        first_idx = result.index("first-reminder")
-        second_idx = result.index("second-reminder")
-        assert first_idx < second_idx
-        # Only one Current context header, not one per reminder.
-        assert result.count("## Current context") == 1
+        reminder = kit.compose({}, None).reminder
+        assert reminder.index("first-reminder") < reminder.index("second-reminder")
+        # One envelope wraps all sections, not one per reminder.
+        assert reminder.count("<reminder>") == 1
+        assert reminder.count("</reminder>") == 1
 
-    def test_no_current_context_header_when_no_reminders(self):
+    def test_reminder_empty_when_no_reminders(self):
         kit = AgentKit(extensions=[_DictExt(prompt="P")])
-        result = kit.compose({}, None).prompt
-        assert "## Current context" not in result
+        composition = kit.compose({}, None)
+        assert composition.reminder == ""
+        assert "<reminder>" not in composition.prompt
 
     def test_dict_unknown_keys_ignored(self):
         class _WeirdExt(Extension):

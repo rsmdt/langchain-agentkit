@@ -27,7 +27,6 @@ from langchain_agentkit.extensions.skills.discovery import (
 )
 from langchain_agentkit.extensions.skills.tools import (
     build_skill_tool,
-    render_skills_roster,
 )
 
 if TYPE_CHECKING:
@@ -134,20 +133,10 @@ class SkillsExtension(Extension):
         runtime: ToolRuntime | None = None,
         *,
         tools: frozenset[str] = frozenset(),
-    ) -> dict[str, str]:
-        static_prompt = _skills_system_prompt.format(
-            skills_list=self._format_skills_list(),
-        )
-        out: dict[str, str] = {"prompt": static_prompt}
-        roster = render_skills_roster(
-            self._configs,
-            budget_percent=self._budget_percent,
-            max_description_chars=self._max_description_chars,
-            context_window=self._context_window,
-        )
-        if roster:
-            out["reminder"] = roster.lstrip()
-        return out
+    ) -> str:
+        # The skill roster is fixed at construction, so it is static content:
+        # it belongs in the cacheable system prompt, not the per-turn reminder.
+        return _skills_system_prompt.format(skills_list=self._format_skills_list())
 
     def _format_skills_list(self) -> str:
         if not self._configs:

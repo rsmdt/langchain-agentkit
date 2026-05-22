@@ -61,14 +61,17 @@ class TestTasksExtensionPrompt:
 
         assert TASK_MANAGEMENT_PROMPT in result
 
-    def test_prompt_with_tasks_includes_formatted_context(self):
+    def test_prompt_with_tasks_splits_guidance_and_live_list(self):
         mw = TasksExtension()
         tasks = [{"subject": "Write tests", "status": "in_progress"}]
 
         result = mw.prompt({"tasks": tasks}, _TEST_RUNTIME)
 
-        assert "Write tests" in result
-        assert TASK_MANAGEMENT_PROMPT not in result
+        # Static guidance stays in the cacheable system prompt; the live
+        # list rides the per-turn reminder channel.
+        assert isinstance(result, dict)
+        assert TASK_MANAGEMENT_PROMPT in result["prompt"]
+        assert "Write tests" in result["reminder"]
 
     def test_prompt_without_tasks_key_includes_task_management(self):
         mw = TasksExtension()
@@ -77,19 +80,21 @@ class TestTasksExtensionPrompt:
 
         assert TASK_MANAGEMENT_PROMPT in result
 
-    def test_prompt_always_returns_string(self):
+    def test_prompt_channels_by_task_presence(self):
         mw = TasksExtension()
 
-        result_empty = mw.prompt({"tasks": []}, _TEST_RUNTIME)
+        # No tasks: static guidance only, as a plain string.
+        assert mw.prompt({"tasks": []}, _TEST_RUNTIME) == TASK_MANAGEMENT_PROMPT
+        assert mw.prompt({}, _TEST_RUNTIME) == TASK_MANAGEMENT_PROMPT
+
+        # With tasks: guidance in prompt, live list in reminder.
         result_with = mw.prompt(
             {"tasks": [{"subject": "Task", "status": "pending"}]},
             _TEST_RUNTIME,
         )
-        result_none = mw.prompt({}, _TEST_RUNTIME)
-
-        assert isinstance(result_empty, str)
-        assert isinstance(result_with, str)
-        assert isinstance(result_none, str)
+        assert isinstance(result_with, dict)
+        assert result_with["prompt"] == TASK_MANAGEMENT_PROMPT
+        assert "Task" in result_with["reminder"]
 
     def test_custom_formatter_is_used(self):
         def my_formatter(tasks):
@@ -98,14 +103,14 @@ class TestTasksExtensionPrompt:
         mw = TasksExtension(formatter=my_formatter)
         result = mw.prompt({"tasks": [{"subject": "A"}]}, _TEST_RUNTIME)
 
-        assert "Custom: 1 tasks" in result
+        assert result["reminder"] == "Custom: 1 tasks"
 
 
 class TestFormatTaskContext:
-    def test_empty_list_returns_task_management_prompt(self):
-        result = format_task_context([])
-
-        assert result == TASK_MANAGEMENT_PROMPT
+    def test_empty_list_returns_empty(self):
+        # Static guidance moved to the system prompt; the formatter now
+        # renders only the dynamic list, which is empty when there are no tasks.
+        assert format_task_context([]) == ""
 
     def test_single_task_formatted_with_checkbox(self):
         result = format_task_context([{"subject": "Deploy app", "status": "pending"}])
@@ -195,12 +200,10 @@ class TestFormatTaskContext:
 
         assert "[ ]" in result
 
-    def test_all_deleted_returns_task_management_prompt(self):
+    def test_all_deleted_returns_empty(self):
         tasks = [{"subject": "Gone", "status": "deleted"}]
 
-        result = format_task_context(tasks)
-
-        assert result == TASK_MANAGEMENT_PROMPT
+        assert format_task_context(tasks) == ""
 
 
 class TestTaskOwnerDisplay:
@@ -278,7 +281,11 @@ class TestConditionalTeamTips:
         tasks_ext = next(e for e in kit._extensions if isinstance(e, TasksExtension))
 
         tool_descriptions = [t.description for t in tasks_ext.tools if t.name == "TaskCreate"]
-        assert "assigned to teammates" in tool_descriptions[0]
+        desc = tool_descriptions[0]
+        # Team-active TaskCreate points at an existing teammate via the
+        # TaskUpdate(owner) path — the boundary that keeps it distinct from TeamCreate.
+        assert "teammate" in desc
+        assert "TaskUpdate" in desc
 
 
 class TestTasksExtensionProtocol:

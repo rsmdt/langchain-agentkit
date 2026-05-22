@@ -233,12 +233,14 @@ class TeamExtension(Extension):
         runtime: ToolRuntime | None = None,
         *,
         tools: frozenset[str] = frozenset(),
-    ) -> str:
+    ) -> str | dict[str, str]:
         roster_lines = []
         for name, graph in self._agents_by_name.items():
             desc = getattr(graph, "description", "")
             roster_lines.append(f"- **{name}**: {desc}" if desc else f"- **{name}**")
         agent_roster = "\n".join(roster_lines)
+        # Static: coordination guidance + the fixed agent roster -> cacheable
+        # system prompt. Live team status is dynamic per turn -> reminder.
         base_prompt = _team_coordination_template.format(agent_roster=agent_roster)
 
         if self._active_team is not None:
@@ -252,7 +254,7 @@ class TeamExtension(Extension):
             }
 
             team = self._active_team
-            status_lines = [f"\n### Active Team: {team.name}\n"]
+            status_lines = [f"### Active Team: {team.name}\n"]
             for name, task in team.members.items():
                 agent_type = team.member_types.get(name, "unknown")
                 icon = status_icons[task_status(task)]
@@ -265,15 +267,17 @@ class TeamExtension(Extension):
                     f"\n⚠️ You have **{lead_pending} unread message(s)**. "
                     "Use TeamStatus to collect them."
                 )
-            base_prompt += "\n".join(status_lines)
-            return base_prompt
+            return {"prompt": base_prompt, "reminder": "\n".join(status_lines)}
 
         # No runtime team but state might carry metadata from a previous
         # turn whose rehydration has not yet fired (rare — e.g. graph
         # resumed from a mid-tool checkpoint).
         team_meta = state.get("team") if isinstance(state, dict) else None
         if team_meta is not None:
-            base_prompt += "\n\n### Team configured (rehydrating on next action)"
+            return {
+                "prompt": base_prompt,
+                "reminder": "### Team configured (rehydrating on next action)",
+            }
 
         return base_prompt
 

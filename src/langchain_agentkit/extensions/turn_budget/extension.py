@@ -5,8 +5,8 @@ exceeds it, LangGraph raises ``GraphRecursionError`` mid-run and whatever
 partial state existed is lost to the caller. This extension enforces a turn
 budget from *inside* the graph instead, and stops the loop **gracefully**:
 
-* Every step it contributes a system-prompt reminder telling the model which
-  turn it is on and how many remain.
+* Every step it contributes a reminder (appended to the tail of the
+  conversation) telling the model which turn it is on and how many remain.
 * On the final allowed turn it switches that reminder to a wrap-up
   instruction and, once the turn's model call returns, routes the loop to
   ``END`` — so the run finishes with a normal assistant message instead of an
@@ -42,17 +42,17 @@ from langchain_agentkit.extension import Extension
 from langchain_agentkit.extensions.turn_budget.state import TurnBudgetState
 
 _REMINDER_TEMPLATE = (
-    "Turn {current} of {max_turns}. You have {remaining} more turn{plural} "
-    "after this one before the run ends automatically. Pace your work — "
-    "including any tool calls — so you can deliver a complete answer within "
-    "the budget."
+    "You are on step {current} of {max_turns} — each model response or tool "
+    "call counts as one step. {remaining} step{plural} remain after this one "
+    "before the run ends automatically. Pace your work so you can deliver a "
+    "complete answer within the budget."
 )
 
 _FINAL_TEMPLATE = (
-    "This is your final turn ({max_turns} of {max_turns}). The run ends "
-    "immediately after this response, so any tool calls you make now will "
-    "NOT be executed. Give your best, complete answer using what you "
-    "already have."
+    "This is your final step ({max_turns} of {max_turns}) — each model "
+    "response or tool call counts as one step. The run ends immediately after "
+    "this response, so any tool calls you make now will NOT be executed. Give "
+    "your best, complete answer using what you already have."
 )
 
 
@@ -94,7 +94,7 @@ class TurnBudgetExtension(Extension):
         *,
         tools: frozenset[str] = frozenset(),
     ) -> dict[str, str]:
-        """Contribute the per-turn budget reminder to the prompt tail.
+        """Contribute the per-turn budget reminder.
 
         ``_turn_budget_used`` holds the number of turns completed *before*
         this call, so the turn about to run is ``used + 1``.

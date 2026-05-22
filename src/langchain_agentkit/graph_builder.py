@@ -27,6 +27,36 @@ if TYPE_CHECKING:
     from langchain_agentkit.agent_kit import AgentKit
 
 
+def _inject_reminder(handler_state: dict[str, Any], reminder: str) -> dict[str, Any]:
+    """Append the ``<reminder>`` envelope to the last message, ephemerally.
+
+    Returns a new state dict whose final message carries the reminder as a
+    ``---``-separated suffix. The original state is NOT mutated and the
+    reminder is never persisted — it exists only for the current LLM
+    invocation. Injected inside the handler boundary (after wrap_model
+    hooks) so an extension's truncation window never observes it.
+
+    Attaches to whatever message is currently last so the reminder always
+    rides at the tail of the conversation (strongest recency attention).
+    Handles both string and multimodal (list-of-blocks) message content.
+    Returns the state unchanged when the reminder is empty or there is no
+    message to attach to.
+    """
+    if not reminder:
+        return handler_state
+    messages = list(handler_state.get("messages", []))
+    if not messages:
+        return handler_state
+    last = messages[-1]
+    content = last.content
+    if isinstance(content, list):
+        new_content: Any = [*content, {"type": "text", "text": f"\n\n---\n\n{reminder}"}]
+    else:
+        new_content = f"{content}\n\n---\n\n{reminder}"
+    messages[-1] = last.model_copy(update={"content": new_content})
+    return {**handler_state, "messages": messages}
+
+
 def _merge_before_updates_into_result(
     result: dict[str, Any],
     persisted_before: dict[str, Any],
@@ -154,6 +184,11 @@ def build_graph(  # noqa: C901
         # lists, compaction notices, etc.) lives in the system prompt
         # composed above, which is re-rendered every step.
         async def _call_handler(request: Any) -> dict[str, Any]:
+            # Append the composed reminder to the tail message inside the
+            # handler boundary so wrap_model hooks (e.g. HistoryExtension)
+            # never see it in their truncation window — the reminder is
+            # strictly ephemeral and must not leak into persisted state.
+            request = _inject_reminder(request, composition.reminder)
             result = handler(request, **inject)
             if inspect.isawaitable(result):
                 result = await result

@@ -29,10 +29,15 @@ _STATUS_ICONS = {
 
 
 def format_task_context(tasks: list[dict[str, Any]]) -> str:
-    """Format active tasks into a rich prompt section."""
+    """Render the live task list for the per-turn reminder section.
+
+    Returns an empty string when there are no visible tasks. The static
+    task-management *guidance* is contributed separately to the system
+    prompt by :class:`TasksExtension`; this renders only the dynamic list.
+    """
     visible = [t for t in tasks if t.get("status") != "deleted"]
     if not visible:
-        return TASK_MANAGEMENT_PROMPT
+        return ""
     lines = []
     for i, task in enumerate(visible, 1):
         status = task.get("status", "pending")
@@ -121,6 +126,10 @@ class TasksExtension(Extension):
         runtime: ToolRuntime | None = None,
         *,
         tools: frozenset[str] = frozenset(),
-    ) -> str:
-        tasks = state.get("tasks") or []
-        return self._formatter(tasks)
+    ) -> str | dict[str, str]:
+        # Static guidance always rides the cacheable system prompt; the live
+        # task list (per-turn dynamic) goes to the reminder when non-empty.
+        rendered = self._formatter(state.get("tasks") or [])
+        if not rendered:
+            return TASK_MANAGEMENT_PROMPT
+        return {"prompt": TASK_MANAGEMENT_PROMPT, "reminder": rendered}

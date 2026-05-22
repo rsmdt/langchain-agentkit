@@ -307,36 +307,38 @@ class AgentKit:
     def compose(
         self, state: dict[str, Any], runtime: ToolRuntime | None = None
     ) -> PromptComposition:
-        """Compose the per-step system prompt.
+        """Compose the per-step prompt into durable + reminder channels.
 
-        Iterates each extension's ``prompt()`` exactly once per LLM call.
-        The returned string has two regions, always in this order:
+        Iterates each extension's ``prompt()`` exactly once per LLM call
+        and routes contributions to the two channels of
+        :class:`PromptComposition`:
 
-        1. **Durable prompt.** The kit-level base prompt, then each
-           extension's ``str`` return or ``dict["prompt"]`` contribution,
-           joined in declaration order.
-        2. **Current context.** Each extension's ``dict["reminder"]``
-           contribution, collected in declaration order and appended to
-           the tail of the system prompt under a ``## Current context``
-           heading with per-extension ``### <ClassName>`` subheaders.
-           Omitted entirely when no extension contributes a reminder.
+        1. **Durable prompt** (``.prompt``). The kit-level base prompt,
+           then each extension's ``str`` return or ``dict["prompt"]``
+           contribution, joined in declaration order. Delivered as the
+           system message.
+        2. **Reminder** (``.reminder``). Each extension's
+           ``dict["reminder"]`` contribution, collected in declaration
+           order with per-extension ``### <ClassName>`` subheaders and
+           wrapped in a ``<reminder>`` envelope. Empty when no extension
+           contributes one. The graph builder appends it to the *last*
+           message of the conversation each step (separated by ``---``),
+           ephemerally — it is never persisted and never enters an
+           extension's truncation window.
 
-        Both regions live in the single system-prompt channel — nothing
-        is injected as a user or tool message. Since ``compose()`` runs
-        per step, the reminder region reflects current state every turn
-        without any extra hook.
+        Extensions choose the channel by whether content changes between
+        model calls — which decides prompt-cache behavior:
 
-        Extensions choose where content belongs:
+        - **Static** (tool-use conventions, persona, style, skill roster) →
+          ``str`` or ``dict["prompt"]``. Byte-identical across calls, so the
+          vendor caches the system-prompt prefix.
+        - **Per-turn dynamic** (task list, team status, turn budget) →
+          ``dict["reminder"]``. Rides the tail of the conversation (strongest
+          recency attention) and never enters the cached system prompt, so
+          updating it neither busts that cache nor pollutes persisted history.
 
-        - **Static guidance** (tool-use conventions, persona, style) →
-          return a ``str`` or ``dict["prompt"]``.
-        - **Dynamic state that changes turn-to-turn** (task list, team
-          status, compaction notices, skill roster) → return
-          ``dict["reminder"]``. The content lands at the tail of the
-          prompt where recent-attention effects are strongest.
-
-        Returns ``None`` / empty-string contributions are discarded
-        silently. Unknown dict keys are ignored.
+        ``None`` / empty-string contributions are discarded silently.
+        Unknown dict keys are ignored.
         """
         prompt_parts: list[str] = [self._prompt] if self._prompt else []
         reminder_sections: list[str] = []
@@ -358,10 +360,11 @@ class AgentKit:
                     key = type(ext).__name__
                     reminder_sections.append(f"### {key}\n{reminder_piece}")
 
+        reminder = ""
         if reminder_sections:
-            prompt_parts.append("## Current context\n\n" + "\n\n".join(reminder_sections))
+            reminder = "<reminder>\n" + "\n\n".join(reminder_sections) + "\n</reminder>"
 
-        return PromptComposition(prompt="\n\n".join(prompt_parts))
+        return PromptComposition(prompt="\n\n".join(prompt_parts), reminder=reminder)
 
     @staticmethod
     def _call_prompt(

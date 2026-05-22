@@ -92,20 +92,25 @@ class Extension:
           * ``"prompt"`` — appended to the durable region (same as
             returning a plain ``str``).
           * ``"reminder"`` — collected with other extensions' reminders
-            and appended to the *tail* of the system prompt under a
-            ``## Current context`` heading with a ``### <ClassName>``
-            subheader. No ephemeral message is injected — the reminder
-            is part of the system prompt itself and is re-rendered every
-            step.
+            under a ``### <ClassName>`` subheader, wrapped in a
+            ``<reminder>`` envelope, and appended (separated by ``---``)
+            to the *last message of the conversation* every step. The
+            reminder is ephemeral: it is never persisted to state and is
+            never observed by an extension's truncation window.
 
           Unknown keys are silently ignored.
 
-        Rule of thumb: put **static guidance** (tool-use conventions,
-        persona, style) under ``prompt``. Put **per-turn dynamic state**
-        (task list, team status, compaction notices, skill roster)
-        under ``reminder`` so it benefits from the tail-of-prompt
-        attention window and is visually grouped with other dynamic
-        sections.
+        Rule of thumb — sort by whether the content changes *between model
+        calls*, because that determines prompt-cache behavior:
+
+        - **Static** (tool-use conventions, persona, style, skill roster) →
+          ``prompt``. It stays byte-identical across calls, so the vendor
+          caches the system-prompt prefix.
+        - **Per-turn dynamic** (task list, team status, turn budget) →
+          ``reminder``. It rides the tail of the conversation (strongest
+          recency attention) and never enters the cached system prompt, so
+          updating it neither busts that cache nor pollutes persisted
+          history.
 
         Args:
             state: Current graph state.

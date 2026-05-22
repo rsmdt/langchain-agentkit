@@ -280,8 +280,11 @@ class TestTeamExtensionPrompt:
 
         result = mw.prompt({})
 
-        assert "Active Team: test-team" in result
-        assert "alice" in result
+        # Live team status is dynamic per turn -> reminder channel; the static
+        # coordination guidance + roster stays in the system prompt.
+        assert isinstance(result, dict)
+        assert "Active Team: test-team" in result["reminder"]
+        assert "alice" in result["reminder"]
 
     def test_prompt_returns_string(self):
         agent_a = _make_mock_agent("researcher")
