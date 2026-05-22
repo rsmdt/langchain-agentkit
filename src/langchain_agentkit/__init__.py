@@ -92,11 +92,6 @@ from langchain_agentkit.extensions.history import (
 )
 from langchain_agentkit.extensions.hitl import Option, Question
 from langchain_agentkit.extensions.hitl.tools import create_ask_user_tool
-from langchain_agentkit.extensions.prompt_templates import (
-    PromptTemplate,
-    PromptTemplateExtension,
-)
-from langchain_agentkit.extensions.prompt_templates.tools import build_run_command_tool
 from langchain_agentkit.extensions.skills import SkillConfig, build_skill_tool
 from langchain_agentkit.extensions.tasks import Task, TasksState, TaskStatus, create_task_tools
 from langchain_agentkit.extensions.teams import TeamState
@@ -152,8 +147,6 @@ __all__ = [
     "HistoryExtension",
     "HistoryStrategy",
     "MessagePersistenceExtension",
-    "PromptTemplate",
-    "PromptTemplateExtension",
     "QwantSearchProvider",
     "ResilienceExtension",
     "SkillsExtension",
@@ -189,7 +182,6 @@ __all__ = [
     # Tools
     "Task",
     "TaskStatus",
-    "build_run_command_tool",
     "build_skill_tool",
     "create_agent_tools",
     "create_ask_user_tool",
