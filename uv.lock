@@ -825,7 +825,7 @@ wheels = [
 
 [[package]]
 name = "langchain-agentkit"
-version = "0.29.1"
+version = "0.30.0"
 source = { editable = "." }
 dependencies = [
     { name = "langchain-core" },
