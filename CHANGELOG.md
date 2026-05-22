@@ -9,6 +9,23 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.30.0] — 2026-05-22
+
+### Added
+
+- `TurnBudgetExtension` — bounds the ReAct loop to `max_turns` model calls, ending the run gracefully when the budget is reached.
+
+### Changed
+
+- Tool descriptions are now self-contained: each states only its own purpose, selection trigger, and scope boundary — no cross-tool references, re-listed parameters, or implementation details. Composition-aware routing moved into the owning extension's system prompt (`FilesystemExtension` carries the dedicated-tool-over-`Bash` guidance; `WebSearchExtension` carries the mandatory "Sources" citation norm). This cuts tool-selection interference when many tools are composed together.
+- Per-turn dynamic state (task list, team status, env) now rides an ephemeral reminder channel re-rendered each step, instead of the durable system prompt. Reminders are headerless prose nudges.
+
+### Removed
+
+- **BREAKING**: removed the `prompt_templates` extension and its `RunCommand` tool.
+- **BREAKING**: removed the `TaskStop` tool — `TasksExtension` is now a passive todo tracker with no execution-layer tools.
+- Dropped the compaction system-prompt reminder from `HistoryExtension`.
+
 ## [0.29.1] — 2026-05-20
 
 ### Fixed
