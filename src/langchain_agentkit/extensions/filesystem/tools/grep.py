@@ -12,16 +12,11 @@ from langchain_agentkit.extensions.filesystem.tools.common import (
     _GrepInput,
 )
 
-_GREP_DESCRIPTION = """A powerful search tool built on ripgrep
-
-  Usage:
-  - ALWAYS use Grep for search tasks. NEVER invoke `grep` or `rg` as a Bash command. The Grep tool has been optimized for correct permissions and access.
-  - Supports full regex syntax (e.g., "log.*Error", "function\\s+\\w+")
-  - Filter files with glob parameter (e.g., "*.md", "**/*.json") or type parameter (e.g., "md", "json", "yaml")
-  - Output modes: "content" shows matching lines, "files_with_matches" shows only file paths (default), "count" shows match counts
-  - Use Agent tool for open-ended searches requiring multiple rounds
-  - Pattern syntax: Uses ripgrep (not grep) - literal braces, parens, and brackets need escaping (use `\\{value\\}` to match the literal text `{value}`)
-  - Multiline matching: By default patterns match within single lines only. For cross-line patterns like `struct \\{[\\s\\S]*?field`, use `multiline: true`"""
+_GREP_DESCRIPTION = """Searches file CONTENTS, built on ripgrep — use this to find text inside files, not Glob (which matches file names only). Always use this rather than `grep`/`rg` via Bash (correct permissions and access).
+- Full regex syntax. Filter by `glob` ("*.md") or `type` ("json").
+- Output modes: "content", "files_with_matches" (default), "count".
+- ripgrep syntax: escape literal braces/parens/brackets. Single-line match unless `multiline: true`.
+- For open-ended, multi-round searches, use the Agent tool."""
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool

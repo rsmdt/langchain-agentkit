@@ -1344,10 +1344,7 @@ _FULLSTACK_SCENARIOS = [
 # docs/refactor/tool-description-evals.md §8). Flips to a hard pass once the
 # losing tool's description reclaims its space.
 _FULLSTACK_KNOWN_INTERFERENCE = {
-    "read",  # → Glob ("what's in X" globs instead of reading)
-    "grep",  # → Glob (content search globs instead of grepping)
-    "team_create",  # → TaskList (Tasks tools out-compete TeamCreate)
-    "team_message",  # → TeamStatus
+    # read/grep (R1) and team_create/team_message (R2) fixed — now hard gates.
     "ask_user",  # answers in text when many tools are present
 }
 

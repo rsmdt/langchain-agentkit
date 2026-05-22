@@ -11,13 +11,9 @@ from langgraph.types import Command
 
 from langchain_agentkit.extensions.tasks.tools.shared import _TaskStopInput
 
-_TASK_STOP_DESCRIPTION = """Stop a running task by its ID.
+_TASK_STOP_DESCRIPTION = """Stop an `in_progress` task by ID, resetting it to `pending` so another owner (or you, later) can pick it up.
 
-Sets the task status back to `pending` so another owner (or this agent, later) can pick it up. Only works on tasks whose current status is `in_progress`.
-
-Use when:
-- You need to release a task you claimed but cannot finish right now
-- An owner has gone silent and the task should be returned to the shared queue"""
+Use to release a task you claimed but can't finish now, or to return a silent owner's task to the queue."""
 
 
 def _task_stop(

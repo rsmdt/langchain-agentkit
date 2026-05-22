@@ -12,16 +12,9 @@ from langchain_agentkit.extensions.tasks.tools.shared import (
     _TaskGetInput,
 )
 
-_TASK_GET_DESCRIPTION = """Get full details of a task by ID.
+_TASK_GET_DESCRIPTION = """Get full details of a task by ID — subject, description, status, owner, blocks, blocked_by, metadata.
 
-Use when:
-- You need the full description and context before starting work on a task
-- To understand task dependencies (what it blocks, what blocks it)
-- After being assigned a task, to get complete requirements
-
-Returns: subject, description, status, owner, blocks, blocked_by, metadata.
-
-Tip: after fetching a task, verify its blocked_by list is empty before beginning work."""
+Use before starting work to read full requirements and dependencies. Verify blocked_by is empty before beginning."""
 
 
 def _task_get(task_id: str, state: dict[str, Any]) -> str:

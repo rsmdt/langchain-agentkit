@@ -13,33 +13,12 @@ if TYPE_CHECKING:
     from langchain_agentkit.backends.protocol import SandboxProtocol
 
 
-_BASH_DESCRIPTION = """Executes a given bash command and returns its output.
-
-The working directory persists between commands, but shell state does not. The shell environment is initialized from the user's profile (bash or zsh).
-
-IMPORTANT: Avoid using this tool to run `find`, `grep`, `rg`, `cat`, `head`, `tail`, `sed`, `awk`, or `echo` commands, unless explicitly instructed or after you have verified that a dedicated tool cannot accomplish your task. Instead, use the appropriate dedicated tool as this will provide a much better experience for the user:
-
- - File search: Use Glob (NOT find or ls)
- - Content search: Use Grep (NOT grep or rg)
- - Read files: Use Read (NOT cat/head/tail)
- - Edit files: Use Edit (NOT sed/awk)
- - Write files: Use Write (NOT echo >/cat <<EOF)
- - Communication: Output text directly (NOT echo/printf)
-
-While the Bash tool can do similar things, it's better to use the built-in tools as they provide a better user experience and make it easier to review tool calls and give permission.
-
-# Instructions
- - If your command will create new directories or files, first verify the parent directory exists and is the correct location.
- - Always quote file paths that contain spaces with double quotes (e.g., "path with spaces/file.txt").
- - Try to maintain your current working directory throughout the session by using absolute paths and avoiding unnecessary `cd`.
- - You may specify an optional timeout (in seconds). If omitted, a reasonable default is used.
- - For long-running commands, consider running in the background when supported and polling for completion rather than blocking.
- - When issuing multiple commands:
-   - If the commands are independent and can run in parallel, issue them as separate tool calls in a single turn.
-   - If the commands depend on each other and must run sequentially, chain them with `&&` in one call.
-   - Use `;` only when later commands should run regardless of earlier failures.
-   - Do NOT use newlines to separate commands (newlines are ok inside quoted strings).
- - Avoid unnecessary `sleep` commands. Do not poll with short sleeps in a tight loop — prefer the longest interval that still meets the requirement, or wait on an explicit completion signal."""
+_BASH_DESCRIPTION = """Executes a bash command and returns its output.
+The working directory persists between commands; other shell state does not. The environment is initialized from the user's profile.
+Prefer dedicated tools over shell equivalents: Glob (not find/ls), Grep (not grep/rg), Read (not cat/head/tail), Edit (not sed/awk), Write (not echo/redirect) — better permissions and reviewability.
+- Quote paths containing spaces. Optional `timeout` in seconds; run long commands in the background.
+- Independent commands: parallel tool calls. Dependent: chain with `&&` (`;` to run regardless of failure). No newlines between commands.
+- Avoid `sleep` polling; wait on a completion signal."""
 
 
 class _BashInput(BaseModel):

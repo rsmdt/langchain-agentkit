@@ -86,11 +86,11 @@ class TestCreateTaskTools:
         tools = create_task_tools()
         by_name = {t.name: t for t in tools}
 
-        assert "proactively" in by_name["TaskCreate"].description
-        assert "ONLY mark a task completed" in by_name["TaskUpdate"].description
-        assert "Shared-queue workflow" in by_name["TaskList"].description
+        assert "structured task list" in by_name["TaskCreate"].description
+        assert "Mark `completed` only" in by_name["TaskUpdate"].description
+        assert "Shared queue" in by_name["TaskList"].description
         assert "dependencies" in by_name["TaskGet"].description
-        assert "running" in by_name["TaskStop"].description.lower()
+        assert "in_progress" in by_name["TaskStop"].description.lower()
 
 
 class TestTaskCreate:

@@ -26,16 +26,9 @@ if TYPE_CHECKING:
     from langchain_agentkit.extensions.teams.extension import TeamExtension
 
 
-_DISSOLVE_TEAM_DESCRIPTION = """Shut down the team and collect final results.
+_DISSOLVE_TEAM_DESCRIPTION = """Shut down the team and collect final results: signals all members, waits up to `timeout` seconds for graceful completion, then cancels the rest.
 
-Sends a shutdown signal to all members, waits up to `timeout` seconds for graceful completion, then cancels any remaining work.
-
-Use when:
-- All assigned work is complete
-- You need to synthesize results and respond to the user
-- A member has failed and recovery is not possible
-
-After dissolving, synthesize all results before responding to the user."""
+Use only when ALL work is done and you're ready to synthesize and respond — not for a mid-flight progress check (use TeamStatus for that)."""
 
 
 async def _dissolve_team(

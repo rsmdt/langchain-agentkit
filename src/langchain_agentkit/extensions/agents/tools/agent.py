@@ -472,55 +472,9 @@ async def _delegate_dynamic(
 
 
 _AGENT_DESCRIPTION = """Delegate a task to an agent and wait for the result.
-
-Use when:
-- The task needs specialized tools or knowledge you don't have directly
-- The task is independent and can be done in isolation from your current context
-- You need several things done in parallel (call Agent multiple times in one turn)
-- The task benefits from focused, context-isolated execution
-
-Do NOT use when:
-- The task requires your full conversation context
-- The task is trivial (faster to do yourself)
-- The task requires back-and-forth discussion
-
-## Writing the prompt
-
-Brief the agent like a smart colleague who just walked into the room — it hasn't seen this conversation, doesn't know what you've tried, doesn't know why this task matters.
-- Explain what you're trying to accomplish and why.
-- Describe what you've already learned or ruled out.
-- Give enough context that the agent can make judgment calls rather than following a narrow instruction.
-- If you need a short response, say so (e.g., "summarize in under 200 words").
-
-**Never delegate understanding.** Don't write "based on your findings, decide what to do" or "based on the research, produce the final summary." Those phrases push synthesis onto the agent. Write prompts that prove you understood: include the specific facts, sources, or identifiers the agent should use.
-
-The agent receives ONLY your message — it has no access to your conversation history.
-
-## Parallel launches
-
-When subtasks are independent, issue multiple Agent calls in the same turn. Each agent runs in isolation, so parallel launches are the fastest way to fan out work.
-
-## Examples
-
-<example>
-user: "Compare three candidate vendors for our new CRM"
-assistant: I'll delegate research to three agents in parallel — one per vendor.
-Agent(agent={id: "researcher"}, message="Research vendor A: pricing, integrations, support reputation, data residency. Summarize strengths and weaknesses in under 200 words.")
-Agent(agent={id: "researcher"}, message="Research vendor B: ...")
-Agent(agent={id: "researcher"}, message="Research vendor C: ...")
-<commentary>
-Three independent research tasks in parallel. Each agent gets a focused prompt. The lead synthesizes results after all three return.
-</commentary>
-</example>
-
-<example>
-user: "Summarize the key points of this 40-page contract"
-assistant: I've skimmed it; the material sections are payment (§4), termination (§9), IP assignment (§12).
-[reads those sections directly and summarizes]
-<commentary>
-The assistant does NOT delegate — it already has the document in context. Delegating would push understanding onto the agent.
-</commentary>
-</example>"""
+Use when a task needs tools/knowledge you lack, is independent of your current context, can run in parallel (multiple Agent calls in one turn), or benefits from isolated execution. Don't use it when the task needs your full context, is trivial, or needs back-and-forth.
+Writing the prompt: the agent sees ONLY your message — no conversation history. Brief it like a colleague who just walked in: the goal and why, what you've ruled out, enough context to make judgment calls. Never delegate understanding — include the specific facts, sources, or identifiers to use rather than "based on your findings, decide what to do." Say so if you want a short answer.
+(e.g. to compare three vendors, issue three parallel Agent calls, one per vendor.)"""
 
 
 # ---------------------------------------------------------------------------

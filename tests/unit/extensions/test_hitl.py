@@ -548,7 +548,7 @@ class TestAskUserTool:
         tool = ext.tools[0]
 
         assert tool.name == "AskUser"
-        assert "ask the user questions" in tool.description.lower()
+        assert "ask the user a question" in tool.description.lower()
 
     @patch("langchain_agentkit.extensions.hitl.tools.ask_user.interrupt")
     def test_sends_question_interrupt_and_returns_answer(self, mock_interrupt):

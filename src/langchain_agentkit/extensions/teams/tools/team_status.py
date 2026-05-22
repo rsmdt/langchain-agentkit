@@ -22,17 +22,9 @@ if TYPE_CHECKING:
     from langchain_agentkit.extensions.teams.extension import TeamExtension
 
 
-_CHECK_TEAMMATES_DESCRIPTION = """Check status of all team members and collect pending messages.
+_CHECK_TEAMMATES_DESCRIPTION = """Check all members' status (running, completed, failed, cancelled) and collect their pending messages. Read-only: it monitors and gathers results — it does NOT send instructions or assign work (use TeamMessage to direct a teammate).
 
-Returns:
-- Each member's current status (running, completed, failed, cancelled)
-- Any pending messages from members to you (the lead)
-- Current task progress
-
-Use frequently to:
-- Monitor team progress
-- Collect results from completed work
-- Identify members that need guidance or are stuck"""
+Use frequently to track progress, collect results, and spot members that are stuck or need guidance."""
 
 
 def _collect_member_statuses(team: Any, agent_tasks: dict[str, list[str]]) -> list[dict[str, Any]]:

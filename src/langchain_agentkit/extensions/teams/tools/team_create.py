@@ -23,18 +23,11 @@ if TYPE_CHECKING:
 
 _SPAWN_TEAM_DESCRIPTION = """Create a team of concurrent agents for complex, multi-step work.
 
-Use when:
-- Work requires back-and-forth coordination between specialists
-- Tasks have dependencies — one member's output informs another's work
-- You need to steer work in progress based on intermediate results
-- The project is too complex for a single delegation
+Use when work needs back-and-forth coordination between specialists, has cross-dependencies, needs steering on intermediate results, or is too complex for a single delegation. Each member runs independently; coordinate via messages and status checks, and members return results automatically.
 
-Each member runs as an independent agent. You coordinate by sending messages and checking status. Members return their results back automatically.
-
-Important:
-- Agent names must be unique within the team
-- Use {id: name} for a pre-defined agent from the roster, {prompt: text} for an ephemeral reasoning agent
-- Only one team can be active at a time"""
+- This spins up a NEW team. To hand a task to an existing teammate, use TaskCreate then TaskUpdate(owner) — don't create a team for that.
+- Member names must be unique. Only one team active at a time.
+- {id: name} for a roster agent, {prompt: text} for an ephemeral one."""
 
 
 def _parse_agent_ref(agent_spec: Any) -> tuple[str, str | None, str | None]:
