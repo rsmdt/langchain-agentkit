@@ -143,6 +143,27 @@ class TestReadTool:
 
         assert "binary" in result.lower()
 
+    # --- Error messages ---
+
+    async def test_missing_file_reports_only_does_not_exist(self):
+        backend, _ = await _make_backend_with_files({})
+        tool = create_filesystem_tools(backend)[0]
+
+        result = await tool.ainvoke({"file_path": "/nope.txt"})
+
+        assert "/nope.txt does not exist." in result
+        # Must not steer the model toward a tool that may not be composed in.
+        assert "Glob" not in result
+
+    async def test_directory_path_reports_only_is_a_directory(self):
+        backend, _ = await _make_backend_with_files({"/dir/inner.txt": "x"})
+        tool = create_filesystem_tools(backend)[0]
+
+        result = await tool.ainvoke({"file_path": "/dir"})
+
+        assert "/dir is a directory." in result
+        assert "Glob" not in result
+
     # --- Image carve-out ---
 
     async def test_reads_png_as_base64(self):

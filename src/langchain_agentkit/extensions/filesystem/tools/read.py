@@ -31,9 +31,9 @@ if TYPE_CHECKING:
 def _format_read_error(file_path: str, error: str | None, message: str | None) -> str:
     """Render a backend read error as an LLM-actionable message."""
     if error == "file_not_found":
-        return f"{file_path} does not exist. Use Glob to find the correct path."
+        return f"{file_path} does not exist."
     if error == "is_directory":
-        return f"{file_path} is a directory. Use Glob to list its contents."
+        return f"{file_path} is a directory."
     if error == "decode_error":
         return f"{file_path} is not valid UTF-8. Try a binary-aware tool."
     if error == "permission_denied":
