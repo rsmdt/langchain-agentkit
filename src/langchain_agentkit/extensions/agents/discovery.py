@@ -31,8 +31,14 @@ def _parse_comma_list(value: Any) -> list[str] | None:
 def _agent_config_from_metadata(
     metadata: dict[str, Any],
     content: str,
+    _source: str,
 ) -> AgentConfig | None:
-    """Parse an AgentConfig from frontmatter metadata and body content."""
+    """Parse an AgentConfig from frontmatter metadata and body content.
+
+    ``_source`` (the discovered file path) is part of the shared discovery
+    callback contract but unused here — agents don't carry a base-directory
+    header.
+    """
     from langchain_agentkit.extensions.skills.discovery import validate_name
 
     name = metadata.get("name", "")

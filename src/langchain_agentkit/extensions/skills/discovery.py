@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import logging
+import os
+from dataclasses import replace
 from typing import TYPE_CHECKING, Any
 
 from langchain_agentkit.extensions.discovery import (
@@ -45,13 +47,24 @@ def validate_skill_config(config: SkillConfig) -> list[str]:
     return errors
 
 
-def _parse_skill(metadata: dict[str, Any], content: str) -> SkillConfig | None:
-    """Parse and validate a SkillConfig from frontmatter."""
+def _parse_skill(metadata: dict[str, Any], content: str, source: str) -> SkillConfig | None:
+    """Parse and validate a SkillConfig from frontmatter.
+
+    ``source`` is the path of the discovered SKILL.md file. Its parent
+    directory is announced in a header prepended to the body, so the model can
+    resolve the skill's relative reference paths (e.g. ``references/foo.md``)
+    against an absolute anchor via the Read tool. Programmatic skills carry no
+    source path and so never receive this header.
+    """
     config = SkillConfig.from_frontmatter(metadata, content)
     errors = validate_skill_config(config)
     if errors:
         logger.warning("Invalid skill '%s': %s", config.name, "; ".join(errors))
         return None
+    base_dir = os.path.dirname(source)
+    if base_dir:
+        header = f'Base directory for this "{config.name}" skill: {base_dir}'
+        config = replace(config, prompt=f"{header}\n\n---\n\n{config.prompt}")
     return config
 
 

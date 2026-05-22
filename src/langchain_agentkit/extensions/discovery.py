@@ -23,7 +23,7 @@ def discover_from_directory[T](
     path: Path,
     *,
     file_pattern: str,
-    parser: Callable[[dict[str, Any], str], T | None],
+    parser: Callable[[dict[str, Any], str, str], T | None],
     namer: Callable[[T], str],
     label: str,
 ) -> list[T]:
@@ -32,7 +32,7 @@ def discover_from_directory[T](
     Args:
         path: Root directory to scan.
         file_pattern: Glob pattern relative to *path* (e.g. ``"SKILL.md"``, ``"*.md"``).
-        parser: Converts ``(metadata, body)`` to a config or ``None``.
+        parser: Converts ``(metadata, body, source_path)`` to a config or ``None``.
         namer: Extracts the dedup name from a parsed config.
         label: Human label for log messages (e.g. ``"skill"``, ``"agent"``).
     """
@@ -51,7 +51,7 @@ def discover_from_directory[T](
         if not result.metadata:
             logger.warning("Skipping %s without frontmatter: %s", label, md_file)
             continue
-        config = parser(result.metadata, result.content)
+        config = parser(result.metadata, result.content, str(md_file))
         if config is None:
             logger.warning("Skipping invalid %s: %s", label, md_file)
             continue
@@ -69,7 +69,7 @@ async def discover_from_backend[T](
     path: str,
     *,
     file_pattern: str,
-    parser: Callable[[dict[str, Any], str], T | None],
+    parser: Callable[[dict[str, Any], str, str], T | None],
     namer: Callable[[T], str],
     label: str,
 ) -> list[T]:
@@ -79,7 +79,7 @@ async def discover_from_backend[T](
         backend: Backend to read files from.
         path: Root path to scan on the backend.
         file_pattern: Glob pattern (e.g. ``"**/SKILL.md"``).
-        parser: Converts ``(metadata, body)`` to a config or ``None``.
+        parser: Converts ``(metadata, body, source_path)`` to a config or ``None``.
         namer: Extracts the dedup name from a parsed config.
         label: Human label for log messages.
     """
@@ -102,7 +102,7 @@ async def discover_from_backend[T](
         if not result.metadata:
             logger.warning("Skipping %s without frontmatter: %s", label, match)
             continue
-        config = parser(result.metadata, result.content)
+        config = parser(result.metadata, result.content, match)
         if config is None:
             logger.warning("Skipping invalid %s: %s", label, match)
             continue
