@@ -471,7 +471,7 @@ async def _delegate_dynamic(
 # ---------------------------------------------------------------------------
 
 
-_AGENT_DESCRIPTION = """Delegate a self-contained task to an agent and wait for its result. Use for focused, isolated work, or when several can run in parallel — for example, researching three vendors at once. The agent sees only the message you send it, none of your conversation."""
+_AGENT_DESCRIPTION = """Delegate a self-contained task to an agent and wait for its result. Use for focused, isolated work, or to fan out several independent tasks at once — issue multiple calls in one turn and they run concurrently, each agent working alone with no hand-offs between them. The agent sees only the message you send it, none of your conversation."""
 
 
 # ---------------------------------------------------------------------------

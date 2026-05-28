@@ -4,7 +4,7 @@ Provides two capabilities:
 
 1. **Tool approval**: Intercepts whitelisted tool calls via a
    ``wrap_tool`` hook and presents structured questions
-   (Approve/Edit/Reject) before execution.
+   (Approve/Reject) before execution.
 2. **AskUser tool**: Gives the LLM an explicit tool to ask the user
    structured questions during execution.
 
@@ -52,11 +52,10 @@ Interrupt payload (unified for both tool approval and AskUser)::
         ]
     }
 
-Resume payload::
+Resume payload (answers are index-keyed by question position)::
 
     Command(resume={
-        "answers": {"Send email?": "Approve"},
-        "edited_args": {...}  # optional, only for Edit decisions
+        "answers": {"0": "Approve"},
     })
 """
 
@@ -65,7 +64,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any, Literal, override
 
 from langchain_core.messages import ToolMessage
-from langchain_core.messages.tool import ToolCall
 from langgraph.types import interrupt
 
 from langchain_agentkit.extension import Extension
@@ -77,11 +75,10 @@ if TYPE_CHECKING:
 
     from langchain_core.tools import BaseTool
 
-DecisionType = Literal["approve", "edit", "reject"]
+DecisionType = Literal["approve", "reject"]
 
 _DECISION_OPTIONS: dict[DecisionType, Option] = {
     "approve": Option(label="Approve", description="Execute the tool call as-is"),
-    "edit": Option(label="Edit", description="Modify the arguments before executing"),
     "reject": Option(label="Reject", description="Deny this tool call"),
 }
 
@@ -93,7 +90,7 @@ class InterruptConfig:
     human reviewer. Vocabulary aligns with the Question model.
 
     Args:
-        options: Which approval options to present (approve, edit, reject).
+        options: Which approval options to present (approve, reject).
         question: Static string or callable that generates the question
             text. Callable receives ``(tool_call,)``. Defaults to a
             summary of the tool name and arguments.
@@ -127,7 +124,7 @@ class HITLExtension(Extension):
             Only tools listed here will be interrupted — unlisted tools
             execute normally.
 
-            - ``True``: all options (approve, edit, reject)
+            - ``True``: default options (approve, reject)
             - ``dict``: config with ``options`` and optional ``question``
             - ``InterruptConfig``: full config object
 
@@ -166,7 +163,7 @@ class HITLExtension(Extension):
         for tool_name, config in (interrupt_on or {}).items():
             if config is True:
                 resolved[tool_name] = InterruptConfig(
-                    options=["approve", "edit", "reject"],
+                    options=["approve", "reject"],
                 )
             elif isinstance(config, InterruptConfig):
                 resolved[tool_name] = config
@@ -232,7 +229,7 @@ class HITLExtension(Extension):
             }
         )
 
-        return await self._handle_response(response, question, config, request, handler)
+        return await self._handle_response(response, request, handler)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -255,52 +252,36 @@ class HITLExtension(Extension):
             status="error",
         )
 
-    async def _handle_response(  # noqa: PLR0911
+    async def _handle_response(
         self,
         response: Any,
-        question: Question,
-        config: InterruptConfig,
         request: Any,
         handler: Callable[..., Any],
     ) -> Any:
-        answers: dict[str, str] = {}
+        # Answers are index-keyed; the approval interrupt always emits a single
+        # question, so the decision lives at index "0".
+        answers: dict[str, str | None] = {}
         if isinstance(response, dict):
-            answers = response.get("answers", {})
-        answer = answers.get(question.question, "")
+            answers = response.get("answers") or {}
+        answer = answers.get("0", "")
         tool_name = request.tool_call["name"]
 
-        if answer == "Approve" and "approve" in config.options:
+        if answer == "Approve":
             return await handler(request)
 
-        if answer == "Edit" and "edit" in config.options:
-            edited_args = (
-                response.get("edited_args", request.tool_call["args"])
-                if isinstance(response, dict)
-                else request.tool_call["args"]
-            )
-            modified_call = ToolCall(
-                name=tool_name,
-                args=edited_args,
-                id=request.tool_call["id"],
-                type="tool_call",
-            )
-            return await handler(request.override(tool_call=modified_call))
-
-        if answer == "Reject" and "reject" in config.options:
-            message = (
-                response.get("message", f"User rejected {tool_name}")
-                if isinstance(response, dict)
-                else f"User rejected {tool_name}"
-            )
+        if answer == "Reject":
             return ToolMessage(
-                content=message,
+                content=f"User rejected the {tool_name} tool call.",
                 name=tool_name,
                 tool_call_id=request.tool_call["id"],
                 status="error",
             )
 
+        # Free-form text (FE "Write my own answer…") or missing — punt to the
+        # LLM with the user's verbatim text so the model re-decides.
+        text = answer if isinstance(answer, str) and answer else "(no response)"
         return ToolMessage(
-            content=f"Invalid answer '{answer}' for {tool_name}. Allowed: {config.options}",
+            content=f"User responded instead of approving: {text}",
             name=tool_name,
             tool_call_id=request.tool_call["id"],
             status="error",

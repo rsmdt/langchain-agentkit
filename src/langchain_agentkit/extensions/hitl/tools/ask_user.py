@@ -68,14 +68,15 @@ def create_ask_user_tool() -> BaseTool:
             }
         )
 
-        answers: dict[str, str] = {}
+        answers: dict[str, str | None] = {}
         if isinstance(response, dict):
-            answers = response.get("answers", {})
+            answers = response.get("answers") or {}
 
         parts = []
-        for q in parsed:
-            answer = answers.get(q.question, "No answer provided")
-            parts.append(f"{q.question} → {answer}")
+        for i, q in enumerate(parsed):
+            value = answers.get(str(i))  # absent ⇒ skipped
+            text = value if isinstance(value, str) and value else "(skipped)"
+            parts.append(f"{q.question} → {text}")
         return "\n".join(parts)
 
     return StructuredTool.from_function(

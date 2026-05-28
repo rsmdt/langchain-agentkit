@@ -455,7 +455,7 @@ Human-in-the-loop via a unified Question protocol. Two capabilities:
 
 ```python
 hitl = HITLExtension(interrupt_on={
-    "send_email": True,           # approve / edit / reject
+    "send_email": True,           # approve / reject
     "delete_file": {"options": ["approve", "reject"]},
 })
 # Tools not listed in interrupt_on execute normally without interruption.
@@ -477,7 +477,10 @@ hitl = HITLExtension(tools=[my_custom_tool])
 ```
 
 Both use the same interrupt payload (`Question` objects) and resume format.
-Requires a checkpointer. Resume with `Command(resume={"answers": {"<question>": "<answer>"}})`.
+Requires a checkpointer. Answers are keyed by each question's position in the
+interrupt `questions` array (as a string), so resume with
+`Command(resume={"answers": {"0": "Approve"}})`. For tool approval, `"Approve"`
+runs the tool and `"Reject"` denies it; any other value is forwarded to the LLM.
 
 ### TeamExtension
 

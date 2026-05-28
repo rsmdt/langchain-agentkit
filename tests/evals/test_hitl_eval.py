@@ -67,11 +67,11 @@ def _get_llm():
 
 
 def _mock_interrupt_handler(payload: dict[str, Any]) -> dict[str, Any]:
-    """Auto-select the first option for each question in an interrupt payload."""
+    """Auto-select the first option for each question (index-keyed answers)."""
     answers: dict[str, str] = {}
-    for q in payload.get("questions", []):
+    for i, q in enumerate(payload.get("questions", [])):
         if q.get("options"):
-            answers[q["question"]] = q["options"][0]["label"]
+            answers[str(i)] = q["options"][0]["label"]
     return {"answers": answers}
 
 
@@ -281,7 +281,7 @@ class TestToolApprovalApproveFlow:
 
         # Step 2: Resume with approve
         result = await graph.ainvoke(
-            Command(resume={"answers": {"Allow writing to the file?": "Approve"}}),
+            Command(resume={"answers": {"0": "Approve"}}),
             config,
         )
 
@@ -316,12 +316,7 @@ class TestToolApprovalRejectFlow:
 
         # Step 2: Resume with reject
         result = await graph.ainvoke(
-            Command(
-                resume={
-                    "answers": {"Allow writing to the file?": "Reject"},
-                    "message": "Not allowed",
-                },
-            ),
+            Command(resume={"answers": {"0": "Reject"}}),
             config,
         )
 

@@ -29,6 +29,11 @@ class Question(BaseModel):
 
     Used for both LLM-initiated questions (AskUser tool) and
     system-initiated prompts (tool call approval).
+
+    Consumers resume with ``Command(resume={"answers": {...}})`` where each
+    answer is keyed by the question's position in the emitted ``questions``
+    array, as a string: the answer to ``questions[0]`` is ``answers["0"]``.
+    A missing index is treated as skipped.
     """
 
     question: str = Field(description="The question to ask the user")

@@ -1257,8 +1257,9 @@ _FULLSTACK_SCENARIOS = [
     ),
     (
         "team_create",
-        "I've got a big cross-functional effort needing specialists who coordinate "
-        "and hand off to each other. Set up the people for it.",
+        "I've got a big cross-functional effort: research, analysis, and a "
+        "written recommendation, with specialists coordinating and handing "
+        "off to each other. Set up the people to tackle it.",
         {"TeamCreate"},
         None,
     ),
