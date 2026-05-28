@@ -9,6 +9,18 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.32.0] — 2026-05-29
+
+### Changed
+
+- **BREAKING**: The HITL approval gate now resumes from index-keyed answers (`{"answers": {"0": "Approve"}}`) instead of question-text keys. Any answer other than `Approve`/`Reject` is forwarded to the LLM. The index-keyed resume contract is documented on the `Question` model and in the README.
+- Rejecting an approval now returns a fixed, tool-named message, and approval answers use honest `dict[str, str | None]` typing.
+- Tightened the `Agent` tool description so it reliably owns independent parallel fan-out rather than being mis-selected for team creation.
+
+### Removed
+
+- **BREAKING**: Dropped the `Edit` decision from the approval gate; the default options are now `[approve, reject]`.
+
 ## [0.31.0] — 2026-05-23
 
 ### Added
