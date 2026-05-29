@@ -10,12 +10,12 @@ from typing import Any
 
 from langchain_core.tools import BaseTool, StructuredTool
 from langgraph.types import interrupt
-from pydantic import BaseModel, Field
+from pydantic import Field
 
-from langchain_agentkit.extensions.hitl.types import Option, Question
+from langchain_agentkit.extensions.hitl.types import Option, Question, StrictSchemaModel
 
 
-class _QuestionInput(BaseModel):
+class _QuestionInput(StrictSchemaModel):
     """A question the LLM wants to ask the user (tool-facing schema)."""
 
     question: str = Field(description="The question to ask the user")
@@ -34,7 +34,7 @@ class _QuestionInput(BaseModel):
     )
 
 
-class _AskUserInput(BaseModel):
+class _AskUserInput(StrictSchemaModel):
     """Input schema for the AskUser tool."""
 
     questions: list[_QuestionInput] = Field(

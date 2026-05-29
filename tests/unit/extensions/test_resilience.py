@@ -138,6 +138,33 @@ class TestReraisePolicy:
         with pytest.raises(KeyboardInterrupt):
             await ext.wrap_tool(state=request, handler=handler, runtime=None)
 
+    async def test_graph_interrupt_propagates_not_synthesized(self):
+        """HITL's wrap_tool raises GraphInterrupt (a GraphBubbleUp) to pause
+        the graph for human input. Resilience sits outermost; if it converted
+        the interrupt into a synthetic error ToolMessage the graph would never
+        pause and the interrupt would never reach the consumer/FE. It MUST
+        propagate untouched."""
+        from langgraph.errors import GraphInterrupt
+
+        ext = ResilienceExtension()
+        request = _make_request()
+        handler = AsyncMock(side_effect=GraphInterrupt(("pending question",)))
+
+        with pytest.raises(GraphInterrupt):
+            await ext.wrap_tool(state=request, handler=handler, runtime=None)
+
+    async def test_graph_bubble_up_propagates(self):
+        """The whole GraphBubbleUp control-flow family (e.g. Command routing),
+        not only GraphInterrupt, must propagate rather than be swallowed."""
+        from langgraph.errors import GraphBubbleUp
+
+        ext = ResilienceExtension()
+        request = _make_request()
+        handler = AsyncMock(side_effect=GraphBubbleUp())
+
+        with pytest.raises(GraphBubbleUp):
+            await ext.wrap_tool(state=request, handler=handler, runtime=None)
+
 
 class TestTelemetry:
     async def test_callback_fires_with_event(self):

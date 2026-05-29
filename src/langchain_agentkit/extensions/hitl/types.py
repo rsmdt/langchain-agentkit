@@ -6,12 +6,45 @@ to create a consistent interrupt payload for consumers.
 
 from __future__ import annotations
 
-from typing import Any
+from typing import TYPE_CHECKING, Any, override
 
 from pydantic import BaseModel, Field
 
+if TYPE_CHECKING:
+    from pydantic import GetJsonSchemaHandler
+    from pydantic.json_schema import JsonSchemaValue
+    from pydantic_core import CoreSchema
 
-class Option(BaseModel):
+
+class StrictSchemaModel(BaseModel):
+    """Base model whose JSON schema lists every property as ``required``.
+
+    OpenAI strict function-calling (``bind_tools(..., strict=True)``)
+    requires that the schema's ``required`` array names *every* key in
+    ``properties`` — nullable types are allowed, but the key itself must be
+    present. Pydantic omits fields that carry a default from ``required``,
+    which makes any tool exposing such a model fail strict validation
+    ("Missing '<field>' in 'required'").
+
+    This base re-adds all properties to ``required`` at schema-generation
+    time only. Instance construction still honours field defaults, and
+    ``model_dump`` output (the interrupt payload) is unchanged.
+    """
+
+    @classmethod
+    @override
+    def __get_pydantic_json_schema__(
+        cls, core_schema: CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        schema = handler(core_schema)
+        schema = handler.resolve_ref_schema(schema)
+        properties = schema.get("properties")
+        if properties:
+            schema["required"] = list(properties.keys())
+        return schema
+
+
+class Option(StrictSchemaModel):
     """A selectable choice within a question."""
 
     label: str = Field(description="Display text for this choice (1-5 words)")

@@ -745,3 +745,69 @@ class TestInterruptConfig:
 
         assert callable(config.question)
         assert config.question({"name": "test"}) == "Allow test?"
+
+
+# ------------------------------------------------------------------
+# AskUser tool — OpenAI strict-mode schema compatibility
+# ------------------------------------------------------------------
+
+
+def _assert_all_object_props_required(node, path="root"):
+    """Every JSON-schema object must list all of its properties as required
+    (OpenAI strict function-calling rule)."""
+    if isinstance(node, dict):
+        if node.get("type") == "object" and "properties" in node:
+            props = set(node["properties"])
+            required = set(node.get("required", []))
+            missing = props - required
+            assert not missing, f"{path}: properties missing from 'required': {missing}"
+        for key, value in node.items():
+            _assert_all_object_props_required(value, f"{path}.{key}")
+    elif isinstance(node, list):
+        for i, value in enumerate(node):
+            _assert_all_object_props_required(value, f"{path}[{i}]")
+
+
+class TestAskUserStrictSchema:
+    """Regression: the AskUser tool must bind under OpenAI strict mode.
+
+    Pydantic omits defaulted fields (Option.preview, _QuestionInput
+    .multi_select) from ``required``; OpenAI strict mode 400s unless every
+    property is required. StrictSchemaModel re-adds them at schema time
+    without changing construction or the interrupt payload.
+    """
+
+    def test_option_preview_is_required_in_schema(self):
+        from langchain_agentkit.extensions.hitl.tools import create_ask_user_tool
+
+        tool = create_ask_user_tool()
+        schema = tool.tool_call_schema.model_json_schema()
+
+        option_schema = schema["$defs"]["Option"]
+        assert "preview" in option_schema["required"]
+
+    def test_question_multi_select_is_required_in_schema(self):
+        from langchain_agentkit.extensions.hitl.tools import create_ask_user_tool
+
+        tool = create_ask_user_tool()
+        schema = tool.tool_call_schema.model_json_schema()
+
+        question_schema = schema["$defs"]["_QuestionInput"]
+        assert "multi_select" in question_schema["required"]
+
+    def test_strict_openai_tool_schema_is_all_required(self):
+        from langchain_core.utils.function_calling import convert_to_openai_tool
+
+        from langchain_agentkit.extensions.hitl.tools import create_ask_user_tool
+
+        tool = create_ask_user_tool()
+        oai = convert_to_openai_tool(tool, strict=True)
+
+        _assert_all_object_props_required(oai["function"]["parameters"])
+
+    def test_option_construction_still_defaults_preview_to_none(self):
+        """The schema change must not force callers to pass preview."""
+        opt = Option(label="A", description="a")
+
+        assert opt.preview is None
+        assert opt.model_dump() == {"label": "A", "description": "a", "preview": None}

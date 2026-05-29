@@ -37,6 +37,12 @@ Scope and safety
   preserved for downstream consumers (tests, custom error handling).
 - ``asyncio.CancelledError`` is re-raised: cancellation semantics
   (graceful shutdown, task-group teardown) are never swallowed.
+- ``GraphBubbleUp`` is re-raised: LangGraph's control-flow family
+  (``GraphInterrupt`` from ``interrupt()``, ``Command`` bubble-up) is a
+  pause/route signal, not a tool failure. HITL's ``wrap_tool`` raises
+  ``GraphInterrupt`` to pause for human input; swallowing it would turn
+  the pause into a synthetic error and the interrupt would never reach
+  the consumer.
 - Only ``Exception`` subclasses are caught — ``BaseException`` escapes
   (``KeyboardInterrupt``, ``SystemExit``, ``GeneratorExit``).
 
@@ -57,6 +63,7 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.tools import ToolException
+from langgraph.errors import GraphBubbleUp
 
 from langchain_agentkit.extension import Extension
 from langchain_agentkit.extensions.resilience.types import (
@@ -127,8 +134,14 @@ class ResilienceExtension(Extension):
         except ToolException:
             # Tool's typed error contract — let ToolNode handle it.
             raise
-        except asyncio.CancelledError:
-            # Cancellation is a control signal, not a failure.
+        except (asyncio.CancelledError, GraphBubbleUp):
+            # Control-flow signals, not failures: asyncio cancellation
+            # (graceful shutdown) and LangGraph's bubble-up family
+            # (GraphInterrupt from interrupt(), Command routing). HITL's
+            # wrap_tool raises GraphInterrupt to pause the graph for human
+            # input; swallowing it here would convert the pause into a
+            # synthetic error and the interrupt would never reach the
+            # consumer/FE. These must propagate untouched.
             raise
         except Exception as exc:
             return self._build_synthetic_message(exc, state)
