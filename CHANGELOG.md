@@ -9,6 +9,13 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.32.1] — 2026-05-29
+
+### Fixed
+
+- `ResilienceExtension` now re-raises LangGraph's `GraphBubbleUp` family (including the `GraphInterrupt` raised by HITL's `interrupt()`) instead of catching it under its broad `except Exception` and synthesizing an error `ToolMessage`. Because resilience wraps every other extension's tool hook outermost, it was swallowing HITL approval interrupts — the graph never paused and the interrupt never reached the consumer/FE. Ordinary tool exceptions still become synthetic `ToolMessage`s as before.
+- The `AskUser` tool's argument schema is now valid under OpenAI strict function-calling (`bind_tools(..., strict=True)`). Pydantic omitted defaulted fields (`Option.preview`, the question's `multi_select`) from the schema's `required` array, which OpenAI strict mode rejects ("Missing '<field>' in 'required'"). A `StrictSchemaModel` base re-adds every property to `required` at schema-generation time; instance construction still honours defaults and the interrupt payload (`model_dump`) is unchanged.
+
 ## [0.32.0] — 2026-05-29
 
 ### Changed
