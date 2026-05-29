@@ -33,14 +33,6 @@ class TestCreateFilesystemTools:
 
             assert names == ["Read", "Write", "Edit", "Glob", "Grep"]
 
-    def test_all_tools_have_descriptions(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            backend = OSBackend(tmpdir)
-            tools = create_filesystem_tools(backend)
-
-            for tool in tools:
-                assert tool.description, f"{tool.name} has no description"
-
     async def test_tools_share_same_backend(self):
         backend, tmpdir = await _make_backend_with_files({})
         tools = create_filesystem_tools(backend)

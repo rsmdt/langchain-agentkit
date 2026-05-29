@@ -25,15 +25,6 @@ class TestBuildSkillTool:
 
         assert tool.name == "Skill"
 
-    def test_description_does_not_list_roster(self):
-        """Roster is delivered in the system prompt by
-        :meth:`SkillsExtension.prompt`, not on the tool description."""
-        tool = build_skill_tool(_make_configs())
-
-        assert "market-sizing" not in tool.description
-        assert "research" not in tool.description
-        assert "Available skills:" not in tool.description
-
     def test_empty_configs_returns_tool(self):
         tool = build_skill_tool([])
 

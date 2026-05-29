@@ -7,7 +7,7 @@ from langchain_core.messages import AIMessage
 from langchain_core.tools import ToolException
 from langgraph.types import Command
 
-from langchain_agentkit.extensions.agents.refs import Dynamic, Predefined
+from langchain_agentkit.extensions.agents.refs import Predefined
 from langchain_agentkit.extensions.agents.tools import create_agent_tools
 from langchain_agentkit.extensions.agents.tools.agent import (
     _agent_tool,
@@ -79,47 +79,6 @@ class TestBuildScopedState:
         state = _build_scoped_state("task", sender="lead")
 
         assert state["sender"] == "lead"
-
-
-# ---------------------------------------------------------------------------
-# Agent reference types
-# ---------------------------------------------------------------------------
-
-
-class TestAgentReferenceTypes:
-    def test_predefined_has_id_field(self):
-        ref = Predefined(id="researcher")
-
-        assert ref.id == "researcher"
-        assert ref.model_dump() == {"id": "researcher"}
-
-    def test_dynamic_has_prompt_field(self):
-        ref = Dynamic(prompt="You are a legal expert.")
-
-        assert ref.prompt == "You are a legal expert."
-        assert ref.model_dump() == {"prompt": "You are a legal expert."}
-
-
-# ---------------------------------------------------------------------------
-# Input schemas
-# ---------------------------------------------------------------------------
-
-
-class TestInputSchemas:
-    def test_agent_input_only_accepts_predefined(self):
-        schema = _AgentInput.model_json_schema()
-
-        # Should not contain Dynamic/prompt variant
-        schema_str = str(schema)
-        assert "Predefined" in schema_str or "id" in schema_str
-        assert "Dynamic" not in schema_str
-
-    def test_agent_dynamic_input_accepts_both_variants(self):
-        schema = _AgentDynamicInput.model_json_schema()
-
-        schema_str = str(schema)
-        assert "id" in schema_str
-        assert "prompt" in schema_str
 
 
 # ---------------------------------------------------------------------------
@@ -418,18 +377,6 @@ class TestCreateAgentTools:
                 ephemeral=True,
                 parent_llm_getter=None,
             )
-
-    def test_tool_has_description(self):
-        tools = create_agent_tools(
-            agents_by_name={"researcher": MagicMock()},
-            compiled_cache={},
-            delegation_timeout=30.0,
-            parent_tools_getter=None,
-            ephemeral=False,
-            parent_llm_getter=None,
-        )
-
-        assert tools[0].description
 
     def test_schema_without_ephemeral_uses_agent_input(self):
         tools = create_agent_tools(

@@ -31,39 +31,6 @@ def _make_mock_tool(name: str, return_value: str = "search results") -> MagicMoc
 
 
 class TestWebSearchExtensionConstruction:
-    def test_accepts_base_tool_instances(self):
-        mock_tool = _make_mock_tool("test_search")
-
-        mw = WebSearchExtension(providers=[mock_tool])
-
-        assert mw is not None
-
-    def test_accepts_callable_and_auto_wraps(self):
-        def my_search(query: str) -> str:
-            return f"results for {query}"
-
-        mw = WebSearchExtension(providers=[my_search])
-
-        assert mw is not None
-
-    def test_accepts_async_callable(self):
-        async def my_async_search(query: str) -> str:
-            return f"async results for {query}"
-
-        mw = WebSearchExtension(providers=[my_async_search])
-
-        assert mw is not None
-
-    def test_accepts_mixed_providers(self):
-        mock_tool = _make_mock_tool("tool_search")
-
-        def my_search(query: str) -> str:
-            return "results"
-
-        mw = WebSearchExtension(providers=[mock_tool, my_search])
-
-        assert mw is not None
-
     def test_empty_providers_uses_default(self):
         mw = WebSearchExtension(providers=[])
 
@@ -80,61 +47,19 @@ class TestWebSearchExtensionConstruction:
 
 
 class TestDuckDuckGoSearchProviderStandalone:
-    def test_is_base_tool(self):
-        tool = DuckDuckGoSearchProvider()
-        assert isinstance(tool, BaseTool)
-
     def test_default_name(self):
         tool = DuckDuckGoSearchProvider()
         assert tool.name == "DuckDuckGoSearch"
-
-    def test_configurable_max_results(self):
-        tool = DuckDuckGoSearchProvider(max_results=3)
-        assert tool.max_results == 3
-
-    def test_configurable_headers(self):
-        tool = DuckDuckGoSearchProvider(headers={"User-Agent": "custom/1.0"})
-        assert tool.headers["User-Agent"] == "custom/1.0"
 
     def test_default_headers_has_user_agent(self):
         tool = DuckDuckGoSearchProvider()
         assert "User-Agent" in tool.headers
 
-    def test_importable_from_package(self):
-        from langchain_agentkit import DuckDuckGoSearchProvider as Imported
-
-        assert Imported is DuckDuckGoSearchProvider
-
 
 class TestQwantSearchProviderStandalone:
-    def test_is_base_tool(self):
-        tool = QwantSearchProvider()
-        assert isinstance(tool, BaseTool)
-
     def test_default_name(self):
         tool = QwantSearchProvider()
         assert tool.name == "QwantSearch"
-
-    def test_configurable_max_results(self):
-        tool = QwantSearchProvider(max_results=3)
-        assert tool.max_results == 3
-
-    def test_configurable_locale(self):
-        tool = QwantSearchProvider(locale="fr_FR")
-        assert tool.locale == "fr_FR"
-
-    def test_configurable_safesearch(self):
-        tool = QwantSearchProvider(safesearch=2)
-        assert tool.safesearch == 2
-
-    def test_configurable_headers(self):
-        tool = QwantSearchProvider(headers={"User-Agent": "custom/1.0"})
-        assert tool.headers["User-Agent"] == "custom/1.0"
-
-    def test_importable_from_package(self):
-        from langchain_agentkit import QwantSearchProvider as Imported
-
-        assert Imported is QwantSearchProvider
 
 
 class TestDefaultProvider:

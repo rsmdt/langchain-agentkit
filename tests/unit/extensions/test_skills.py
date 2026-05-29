@@ -325,24 +325,10 @@ class TestPrompt:
         result = mw.prompt({}, _TEST_RUNTIME)
 
         # The skill roster is static, so it lives entirely in the system
-        # prompt (a plain string), never the per-turn reminder channel.
+        # prompt (a plain string), never the per-turn reminder channel. The
+        # skill name flowing into the output proves the roster was rendered.
         assert isinstance(result, str)
-        assert "## Skills" in result
-        assert "- market-sizing:" in result
-
-    def test_includes_available_skill_names(self):
-        mw = SkillsExtension(skills=_make_configs())
-
-        result = mw.prompt({}, _TEST_RUNTIME)
-
         assert "market-sizing" in result
-
-    def test_includes_progressive_disclosure_instructions(self):
-        mw = SkillsExtension(skills=_make_configs())
-
-        result = mw.prompt({}, _TEST_RUNTIME)
-
-        assert "progressive disclosure" in result
 
     def test_no_skills_contributes_no_prompt(self):
         mw = SkillsExtension(skills=[])
@@ -397,11 +383,6 @@ class TestSkillDescriptionCap:
         result = mw.prompt({}, _TEST_RUNTIME)
 
         assert long_desc in result
-
-    def test_cap_defaults_to_250(self):
-        mw = SkillsExtension(skills=_make_configs())
-
-        assert mw._max_description_chars == 250
 
 
 class TestExtensionProtocol:

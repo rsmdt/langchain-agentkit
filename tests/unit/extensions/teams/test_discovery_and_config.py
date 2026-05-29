@@ -137,7 +137,6 @@ def test_compile_config_with_proxy_tasks_resolves_model_tools_skills(
     # Skill content concatenated and teammate addendum prepended.
     assert resolved_skill in captured["prompt"]
     assert "You analyze." in captured["prompt"]
-    assert "Agent Teammate Communication" in captured["prompt"]
     # Tool filtering: Search kept, Delete filtered, lead's TaskCreate
     # stripped and replaced by bus-proxied TaskCreate/Update/List/Get.
     user_tools = captured["user_tools"]

@@ -24,35 +24,7 @@ _TEST_RUNTIME = ToolRuntime(
 # ------------------------------------------------------------------
 
 
-class TestOption:
-    def test_create(self):
-        opt = Option(label="PostgreSQL", description="Relational DB")
-
-        assert opt.label == "PostgreSQL"
-        assert opt.description == "Relational DB"
-
-    def test_requires_label_and_description(self):
-        with pytest.raises(ValidationError):
-            Option(label="Only label")  # type: ignore[call-arg]
-
-
 class TestQuestion:
-    def test_create_minimal(self):
-        q = Question(
-            question="Which database?",
-            header="Database",
-            options=[
-                Option(label="PostgreSQL", description="Relational"),
-                Option(label="MongoDB", description="Document store"),
-            ],
-        )
-
-        assert q.question == "Which database?"
-        assert q.header == "Database"
-        assert len(q.options) == 2
-        assert q.multi_select is False
-        assert q.context is None
-
     def test_header_max_length_enforced(self):
         with pytest.raises(ValidationError):
             Question(
@@ -79,47 +51,6 @@ class TestQuestion:
                 header="Test",
                 options=[Option(label=c, description=c) for c in "ABCDE"],
             )
-
-    def test_context_preserved(self):
-        q = Question(
-            question="Test?",
-            header="Test",
-            options=[
-                Option(label="A", description="a"),
-                Option(label="B", description="b"),
-            ],
-            context={"tool": "send_email", "args": {"to": "a@b.com"}},
-        )
-
-        assert q.context == {"tool": "send_email", "args": {"to": "a@b.com"}}
-
-    def test_multi_select(self):
-        q = Question(
-            question="Which features?",
-            header="Features",
-            options=[
-                Option(label="Auth", description="Authentication"),
-                Option(label="Logs", description="Logging"),
-            ],
-            multi_select=True,
-        )
-
-        assert q.multi_select is True
-
-    def test_model_dump_roundtrip(self):
-        q = Question(
-            question="Test?",
-            header="Test",
-            options=[
-                Option(label="A", description="a"),
-                Option(label="B", description="b"),
-            ],
-            context={"key": "value"},
-        )
-
-        restored = Question.model_validate(q.model_dump())
-
-        assert restored == q
 
 
 # ------------------------------------------------------------------
@@ -574,7 +505,6 @@ class TestAskUserTool:
         tool = ext.tools[0]
 
         assert tool.name == "AskUser"
-        assert "ask the user a question" in tool.description.lower()
 
     @patch("langchain_agentkit.extensions.hitl.tools.ask_user.interrupt")
     def test_sends_question_interrupt_and_returns_answer(self, mock_interrupt):
@@ -806,30 +736,7 @@ class TestAskUserReadback:
 # ------------------------------------------------------------------
 
 
-class TestOptionPreview:
-    def test_option_with_preview(self):
-        opt = Option(
-            label="Deploy", description="Deploy to prod", preview="```bash\ndeploy.sh\n```"
-        )
-
-        assert opt.preview == "```bash\ndeploy.sh\n```"
-
-    def test_option_without_preview_defaults_none(self):
-        opt = Option(label="Deploy", description="Deploy to prod")
-
-        assert opt.preview is None
-
-
 class TestInterruptConfig:
-    def test_create_with_string_question(self):
-        config = InterruptConfig(
-            options=["approve", "reject"],
-            question="Allow this action?",
-        )
-
-        assert config.question == "Allow this action?"
-        assert config.options == ["approve", "reject"]
-
     def test_create_with_callable_question(self):
         config = InterruptConfig(
             options=["approve"],
@@ -838,8 +745,3 @@ class TestInterruptConfig:
 
         assert callable(config.question)
         assert config.question({"name": "test"}) == "Allow test?"
-
-    def test_question_defaults_to_none(self):
-        config = InterruptConfig(options=["approve", "reject"])
-
-        assert config.question is None

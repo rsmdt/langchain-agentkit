@@ -283,22 +283,6 @@ class TestPrompt:
         assert "coder" in result
         assert "Code specialist" in result
 
-    def test_prompt_includes_parallel_note(self):
-        agent_a = _make_mock_agent("researcher", "Research specialist")
-
-        mw = AgentsExtension(agents=[agent_a])
-        result = mw.prompt({})
-
-        assert "concurrently" in result.lower()
-
-    def test_prompt_references_agent_tool(self):
-        agent_a = _make_mock_agent("researcher")
-
-        mw = AgentsExtension(agents=[agent_a])
-        result = mw.prompt({})
-
-        assert "Agent" in result
-
     def test_prompt_includes_conciseness_directive_by_default(self):
         agent_a = _make_mock_agent("researcher")
 

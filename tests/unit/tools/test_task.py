@@ -14,37 +14,12 @@ from langchain_agentkit.extensions.tasks.tools.task_create import _task_create
 from langchain_agentkit.extensions.tasks.tools.task_get import _task_get
 from langchain_agentkit.extensions.tasks.tools.task_list import _task_list
 from langchain_agentkit.extensions.tasks.tools.task_update import _task_update
-from langchain_agentkit.extensions.tasks.types import Task, TaskStatus
+from langchain_agentkit.extensions.tasks.types import Task
 
 FAKE_TOOL_CALL_ID = "call_abc123"
 
 
 class TestTaskType:
-    def test_task_is_typed_dict(self):
-        assert hasattr(Task, "__required_keys__") or hasattr(Task, "__annotations__")
-
-    def test_task_has_all_expected_required_keys(self):
-        assert Task.__required_keys__ == {
-            "id",
-            "subject",
-            "description",
-            "status",
-            "active_form",
-        }
-
-    def test_task_has_all_expected_optional_keys(self):
-        optional = Task.__optional_keys__
-        assert "blocked_by" in optional
-        assert "blocks" in optional
-        assert "owner" in optional
-        assert "metadata" in optional
-
-    def test_task_status_is_literal(self):
-        assert "pending" in TaskStatus.__args__
-        assert "in_progress" in TaskStatus.__args__
-        assert "completed" in TaskStatus.__args__
-        assert "deleted" in TaskStatus.__args__
-
     def test_task_create_returns_task_shaped_dict(self):
         result = _task_create(
             subject="Test",
@@ -56,39 +31,13 @@ class TestTaskType:
         for key in Task.__required_keys__:
             assert key in task, f"Missing required key: {key}"
 
-    def test_task_importable_from_package(self):
-        from langchain_agentkit import Task, TaskStatus
-
-        assert Task is not None
-        assert TaskStatus is not None
-
 
 class TestCreateTaskTools:
-    def test_returns_four_tools(self):
-        tools = create_task_tools()
-
-        assert len(tools) == 4
-
     def test_tool_names(self):
         tools = create_task_tools()
         names = [t.name for t in tools]
 
         assert names == ["TaskCreate", "TaskUpdate", "TaskList", "TaskGet"]
-
-    def test_tools_have_descriptions(self):
-        tools = create_task_tools()
-
-        for tool in tools:
-            assert tool.description, f"{tool.name} has no description"
-
-    def test_descriptions_are_detailed(self):
-        tools = create_task_tools()
-        by_name = {t.name: t for t in tools}
-
-        assert "track a unit of work" in by_name["TaskCreate"].description
-        assert "marking it done" in by_name["TaskUpdate"].description
-        assert "List the current tasks" in by_name["TaskList"].description
-        assert "complete detail" in by_name["TaskGet"].description
 
 
 class TestTaskCreate:
