@@ -49,7 +49,8 @@ class Option(StrictSchemaModel):
 
     label: str = Field(description="Display text for this choice (1-5 words)")
     description: str = Field(
-        description="What this option means or what happens if chosen",
+        description="Why a user picks this — deciding rationale, not a restatement of the label",
+        max_length=120,
     )
     preview: str | None = Field(
         default=None,
