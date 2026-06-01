@@ -9,6 +9,22 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.32.2] — 2026-06-01
+
+### Fixed
+
+- Tool approval now resumes correctly when the model emits multiple gated tool calls in one turn. Approval previously called `interrupt()` per-tool from inside the `ToolNode`'s `wrap_tool` hook, producing one interrupt per gated call within a single node. LangGraph derives interrupt ids from the (shared) checkpoint namespace, so parallel gated calls collided and resume values were misrouted (langchain-ai/langgraph#6624, #6626, #6533). Approval now runs in a dedicated node between the agent node and the `ToolNode`, emitting a single batched interrupt covering every gated call in the step — this eliminates the collision and keeps resume replay-safe, since the model call lives in an earlier super-step and is not re-run.
+
+### Added
+
+- HITL approval gained `edit` and `respond` decisions alongside `approve`/`reject`, matching LangGraph's prebuilt `HumanInTheLoopMiddleware`. `edit` rewrites a gated tool call's arguments before execution; `respond` answers on behalf of the tool without executing it. Resume answers remain index-keyed by the gated call's position — a bare option label for `approve`/`reject`, or a decision dict (`{"type": "edit", "args": {...}}` / `{"type": "respond", "message": "..."}`) for the data-carrying decisions.
+- `HistoryExtension` logs a one-time warning when it detects it is running inside a subgraph. It rewrites the shared `messages` channel via `ReplaceMessages` (a clear-all `RemoveMessage`), which escapes the subgraph boundary and wipes the parent's messages, breaking `interrupt()` resume in the supervisor. The recommended composition — keep `HistoryExtension` out of an embedded kit and truncate in the outer graph via the strategy's `transform()` — is documented in `docs/subgraph-composition.md`. The warning is advisory only; no behaviour is changed or disabled.
+
+### Changed
+
+- `interrupt_on=True` now offers all four decisions (`approve`, `edit`, `reject`, `respond`) instead of only `approve`/`reject`. Existing `approve`/`reject` resume payloads are unchanged and continue to work; the additional decisions are opt-in via the resume answer format.
+- `HITLExtension` now contributes a `hitl_decisions` state channel and a pre-tools gate node when approval gating is configured. Graphs built with `compile()` get this automatically; the interrupt payload shape (`{"type": "question", "questions": [...]}`) and the index-keyed resume contract are unchanged.
+
 ## [0.32.1] — 2026-05-29
 
 ### Fixed
