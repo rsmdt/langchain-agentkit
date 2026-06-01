@@ -309,13 +309,25 @@ def build_graph(  # noqa: C901
         tool_node = ToolNode(all_tools, awrap_tool_call=_hooked_wrap_tool_call)
         workflow.add_node("tools", tool_node)
 
+        # Optional pre-tools gate node (e.g. HITL approval). An extension's
+        # ``graph_modifier`` may insert a node and register its name on the
+        # workflow via ``_agentkit_pretools_gate``. The agent→tools transition
+        # is then routed agent→gate→tools so the gate can ``interrupt()`` in
+        # its own node — which is replay-safe (the model call lives in a
+        # different super-step and is not re-run on resume) — before any tool
+        # executes. Mirrors the ``has_router`` post-tools seam below.
+        pretools_gate = getattr(workflow, "_agentkit_pretools_gate", None)
+        if pretools_gate is not None and pretools_gate not in workflow.nodes:
+            pretools_gate = None
+        tools_target = pretools_gate or "tools"
+
         def _should_continue(state: dict[str, Any]) -> str:
             # Read jump_to from per-invocation state (safe for concurrent invocations)
             jump = state.get("_agentkit_jump_to")
             if jump == "end":
                 return "_run_exit" if has_run_hooks else END
             if jump == "tools":
-                return "tools"
+                return tools_target
             if jump == "model":
                 return node_name
 
@@ -324,16 +336,20 @@ def build_graph(  # noqa: C901
                 return "_run_exit" if has_run_hooks else END
             last = msgs[-1]
             if hasattr(last, "tool_calls") and last.tool_calls:
-                return "tools"
+                return tools_target
             return "_run_exit" if has_run_hooks else END
 
         terminal = "_run_exit" if has_run_hooks else END
         destinations = {"tools": "tools", terminal: terminal, node_name: node_name}
+        if pretools_gate:
+            destinations[pretools_gate] = pretools_gate
         workflow.add_conditional_edges(
             node_name,
             _should_continue,
             destinations,  # type: ignore[arg-type]
         )
+        if pretools_gate:
+            workflow.add_edge(pretools_gate, "tools")
 
         if has_router:
             workflow.add_edge("tools", "router")

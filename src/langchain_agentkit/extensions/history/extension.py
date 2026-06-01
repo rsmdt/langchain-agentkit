@@ -20,6 +20,7 @@ the checkpointer stays in sync with what the LLM sees. There is no
 
 from __future__ import annotations
 
+import logging
 from typing import TYPE_CHECKING, Any, override
 
 from langchain_agentkit.extension import Extension
@@ -29,6 +30,8 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
     from langchain_agentkit.extensions.history.strategies import HistoryStrategy
+
+_logger = logging.getLogger(__name__)
 
 
 class HistoryExtension(Extension):
@@ -53,12 +56,43 @@ class HistoryExtension(Extension):
 
     def __init__(self, *, strategy: HistoryStrategy) -> None:
         self._strategy = strategy
+        self._warned_subgraph = False
 
     @override
     async def setup(self, **kwargs: Any) -> None:  # type: ignore[override]
         strategy_setup = getattr(self._strategy, "setup", None)
         if callable(strategy_setup):
             await strategy_setup(llm_getter=kwargs.get("llm_getter"))
+
+    def _warn_if_subgraph(self, runtime: Any) -> None:
+        """Warn once if this kit appears to run as a subgraph of another graph.
+
+        History rewrites the shared ``messages`` channel; that rewrite escapes a
+        subgraph boundary and breaks ``interrupt()`` resume in the parent. The
+        recommended composition is to drop History from the embedded kit and let
+        the outer graph own truncation (see ``docs/subgraph-composition.md``).
+
+        Detection is a best-effort heuristic on LangGraph's checkpoint namespace:
+        a nested run carries a parent segment (``"<parent>|<node>"``). It only
+        ever suppresses the rewrite of a warning — never the rewrite itself — so
+        a namespace-format change degrades to "no warning", not a failure.
+        """
+        if self._warned_subgraph:
+            return
+        try:
+            config = getattr(runtime, "config", None) or {}
+            namespace = (config.get("configurable") or {}).get("checkpoint_ns", "") or ""
+        except Exception:  # noqa: BLE001 — advisory only, never break the run
+            return
+        if "|" in namespace:
+            self._warned_subgraph = True
+            _logger.warning(
+                "HistoryExtension is running inside a subgraph. It rewrites the "
+                "shared 'messages' channel, which breaks interrupt() resume across "
+                "the subgraph boundary. Recommended: drop HistoryExtension from the "
+                "embedded kit and apply truncation in the outer graph via the "
+                "strategy's transform(). See docs/subgraph-composition.md."
+            )
 
     async def wrap_model(
         self,
@@ -67,6 +101,7 @@ class HistoryExtension(Extension):
         handler: Callable[[dict[str, Any]], Awaitable[Any]],
         runtime: Any,
     ) -> Any:
+        self._warn_if_subgraph(runtime)
         original = list(state.get("messages", []))
         transformed = await self._strategy.transform(original, runtime=runtime)
 

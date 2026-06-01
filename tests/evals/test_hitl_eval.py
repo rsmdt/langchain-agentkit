@@ -20,17 +20,26 @@ from __future__ import annotations
 import os
 import tempfile
 from pathlib import Path
-from typing import Any
+from typing import Annotated, Any, TypedDict
 from unittest.mock import patch
 
 import pytest
-from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage, ToolMessage
 from langgraph.checkpoint.memory import InMemorySaver
 from langgraph.graph import END, START, StateGraph
+from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode
 from langgraph.types import Command
 
-from langchain_agentkit import Agent, AgentKit, FilesystemExtension, HITLExtension
+from langchain_agentkit import (
+    Agent,
+    AgentKit,
+    CountStrategy,
+    FilesystemExtension,
+    HistoryExtension,
+    HITLExtension,
+    ResilienceExtension,
+)
 from langchain_agentkit.backends.os import OSBackend
 from langchain_agentkit.extensions.hitl import InterruptConfig
 from tests.evals.conftest import EVAL_MODEL
@@ -54,6 +63,10 @@ except ImportError:
     ChatOpenAI = None  # type: ignore[assignment,misc]
 
 _MODEL = EVAL_MODEL
+
+
+class _SupervisorState(TypedDict):
+    messages: Annotated[list[BaseMessage], add_messages]
 
 
 def _get_llm():
@@ -182,6 +195,55 @@ async def _build_tool_approval_agent():
             return {"messages": [response]}
 
     return await ApprovalAgent().compile(checkpointer=InMemorySaver())
+
+
+async def _build_supervisor_with_agentkit_subgraph():
+    """Embed a real-LLM AgentKit approval agent as a subgraph of a supervisor.
+
+    The AgentKit graph is compiled WITHOUT a checkpointer so it inherits the
+    supervisor's. Proves the interrupt bubbles up to the supervisor and that
+    ``Command(resume=...)`` on the supervisor routes back down into the
+    subgraph's paused ``interrupt()``.
+    """
+    from langchain_core.tools import tool
+
+    @tool
+    def write_file(path: str, content: str) -> str:
+        """Write content to a file at the given path."""
+        return f"Successfully wrote to {path}"
+
+    _llm = _get_llm()
+
+    class ApprovalAgent(Agent):
+        model = _llm
+        tools = [write_file]
+        extensions = [
+            HITLExtension(
+                interrupt_on={
+                    "write_file": InterruptConfig(
+                        options=["approve", "reject"],
+                        question="Allow writing to the file?",
+                    ),
+                },
+            ),
+        ]
+        prompt = (
+            "You are a helpful assistant. When asked to write content "
+            "to a file, use the write_file tool."
+        )
+
+        async def handler(state, *, llm, tools, prompt, runtime):
+            bound = llm.bind_tools(tools)
+            messages = [SystemMessage(content=prompt)] + state["messages"]
+            return {"messages": [await bound.ainvoke(messages)]}
+
+    subgraph = await ApprovalAgent().compile()  # no checkpointer — inherits parent's
+
+    supervisor = StateGraph(_SupervisorState)
+    supervisor.add_node("worker", subgraph)
+    supervisor.add_edge(START, "worker")
+    supervisor.add_edge("worker", END)
+    return supervisor.compile(checkpointer=InMemorySaver())
 
 
 # ------------------------------------------------------------------
@@ -332,4 +394,131 @@ class TestToolApprovalRejectFlow:
         # Tool should NOT have "Successfully wrote" in any message
         assert not any("Successfully wrote" in m.content for m in tool_messages), (
             "Tool should not have executed after rejection"
+        )
+
+
+class TestSubgraphApprovalFlow:
+    """AgentKit-as-subgraph: interrupt bubbles to the supervisor, resume routes down."""
+
+    @pytest.mark.asyncio
+    async def test_subgraph_interrupt_bubbles_and_resume_executes(self):
+        graph = await _build_supervisor_with_agentkit_subgraph()
+        config = {"configurable": {"thread_id": "subgraph-approve"}}
+
+        # Step 1: invoke the supervisor — the subgraph's HITL interrupt must
+        # surface on the supervisor's state.
+        await graph.ainvoke(
+            {"messages": [HumanMessage(content="Write 'hello world' to /tmp/test.txt")]},
+            config,
+        )
+        state = await graph.aget_state(config)
+        assert state.interrupts, "Subgraph interrupt should bubble up to the supervisor"
+        payload = state.interrupts[0].value
+        assert payload["questions"][0]["context"]["tool"] == "write_file"
+
+        # Step 2: resume on the supervisor — routes back down into the subgraph.
+        result = await graph.ainvoke(
+            Command(resume={"answers": {"0": "Approve"}}),
+            config,
+        )
+        tool_messages = [m for m in result["messages"] if isinstance(m, ToolMessage)]
+        assert any("Successfully wrote" in m.content for m in tool_messages), (
+            f"Tool should execute after approval, got: {[m.content for m in tool_messages]}"
+        )
+
+
+async def _build_full_stack_agent(*, with_history: bool, checkpointer: bool):
+    """A real-LLM AgentKit assembled with Resilience + (History) + Filesystem + HITL.
+
+    Gates the filesystem ``Write`` tool for approval. ``with_history`` is left off
+    for the subgraph case — ``HistoryExtension`` does not yet compose with
+    ``interrupt()`` resume across a subgraph boundary (see the xfail in
+    ``tests/integration/test_hitl_full_stack.py``).
+    """
+    tmpdir = tempfile.mkdtemp(prefix="eval_fullstack_")
+    _llm = _get_llm()
+
+    extensions: list[Any] = [ResilienceExtension()]
+    if with_history:
+        extensions.append(HistoryExtension(strategy=CountStrategy(max_messages=100)))
+    extensions.append(FilesystemExtension(backend=OSBackend(root=tmpdir)))
+    extensions.append(
+        HITLExtension(
+            interrupt_on={
+                "Write": InterruptConfig(
+                    options=["approve", "reject"],
+                    question="Allow writing to the file?",
+                )
+            },
+        )
+    )
+
+    class FullStackAgent(Agent):
+        model = _llm
+        prompt = (
+            "You are a helpful assistant with filesystem tools. When asked to "
+            "write a file, use the Write tool."
+        )
+
+        async def handler(state, *, llm, tools, prompt, runtime):
+            bound = llm.bind_tools(tools)
+            return {
+                "messages": [
+                    await bound.ainvoke([SystemMessage(content=prompt)] + state["messages"])
+                ]
+            }
+
+    FullStackAgent.extensions = extensions
+
+    agent = FullStackAgent()
+    if checkpointer:
+        return await agent.compile(checkpointer=InMemorySaver())
+    return await agent.compile()
+
+
+class TestFullStackApprovalFlow:
+    """Approval through a fully-assembled stack (Resilience + History + Filesystem + HITL)."""
+
+    @pytest.mark.asyncio
+    async def test_standalone_full_stack(self):
+        graph = await _build_full_stack_agent(with_history=True, checkpointer=True)
+        config = {"configurable": {"thread_id": "fullstack-approve"}}
+
+        await graph.ainvoke(
+            {"messages": [HumanMessage(content="Write the text 'hello world' to notes.txt")]},
+            config,
+        )
+        state = await graph.aget_state(config)
+        assert state.interrupts, "Write should be gated for approval"
+        assert state.interrupts[0].value["questions"][0]["context"]["tool"] == "Write"
+
+        result = await graph.ainvoke(Command(resume={"answers": {"0": "Approve"}}), config)
+        tool_messages = [m for m in result["messages"] if isinstance(m, ToolMessage)]
+        assert any(m.status != "error" for m in tool_messages), (
+            f"Write should execute after approval, got: "
+            f"{[(m.content, m.status) for m in tool_messages]}"
+        )
+
+    @pytest.mark.asyncio
+    async def test_full_stack_as_subgraph(self):
+        # History excluded for the subgraph case (known limitation).
+        subgraph = await _build_full_stack_agent(with_history=False, checkpointer=False)
+        supervisor = StateGraph(_SupervisorState)
+        supervisor.add_node("worker", subgraph)
+        supervisor.add_edge(START, "worker")
+        supervisor.add_edge("worker", END)
+        graph = supervisor.compile(checkpointer=InMemorySaver())
+        config = {"configurable": {"thread_id": "fullstack-subgraph"}}
+
+        await graph.ainvoke(
+            {"messages": [HumanMessage(content="Write the text 'hello world' to notes.txt")]},
+            config,
+        )
+        state = await graph.aget_state(config)
+        assert state.interrupts, "Subgraph Write interrupt should bubble to the supervisor"
+
+        result = await graph.ainvoke(Command(resume={"answers": {"0": "Approve"}}), config)
+        tool_messages = [m for m in result["messages"] if isinstance(m, ToolMessage)]
+        assert any(m.status != "error" for m in tool_messages), (
+            "Write should execute after approval through the subgraph"
         )

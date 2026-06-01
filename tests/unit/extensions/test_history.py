@@ -401,3 +401,53 @@ class TestReplaceMessages:
         result = add_messages(old, new)
         assert len(result) == 1
         assert result[0].content == "new"
+
+
+# ---------------------------------------------------------------------------
+# Subgraph composition warning
+# ---------------------------------------------------------------------------
+
+
+def _runtime_with_ns(namespace: str) -> Any:
+    from types import SimpleNamespace
+
+    return SimpleNamespace(config={"configurable": {"checkpoint_ns": namespace}})
+
+
+class TestSubgraphWarning:
+    """History warns (once) when it detects it is running inside a subgraph."""
+
+    def test_warns_when_namespace_is_nested(self, caplog):
+        import logging
+
+        ext = HistoryExtension(strategy=CountStrategy(max_messages=10))
+        with caplog.at_level(logging.WARNING):
+            ext._warn_if_subgraph(_runtime_with_ns("w:abc|Agent:def"))
+
+        assert any("subgraph" in r.getMessage() for r in caplog.records)
+        assert ext._warned_subgraph is True
+
+    def test_no_warning_for_top_level_namespace(self, caplog):
+        import logging
+
+        ext = HistoryExtension(strategy=CountStrategy(max_messages=10))
+        with caplog.at_level(logging.WARNING):
+            ext._warn_if_subgraph(_runtime_with_ns("Agent:def"))
+
+        assert not caplog.records
+        assert ext._warned_subgraph is False
+
+    def test_warns_only_once(self, caplog):
+        import logging
+
+        ext = HistoryExtension(strategy=CountStrategy(max_messages=10))
+        with caplog.at_level(logging.WARNING):
+            ext._warn_if_subgraph(_runtime_with_ns("w:abc|Agent:def"))
+            ext._warn_if_subgraph(_runtime_with_ns("w:abc|Agent:def"))
+
+        assert len([r for r in caplog.records if "subgraph" in r.getMessage()]) == 1
+
+    def test_runtime_none_is_safe(self):
+        ext = HistoryExtension(strategy=CountStrategy(max_messages=10))
+        ext._warn_if_subgraph(None)  # must not raise
+        assert ext._warned_subgraph is False
