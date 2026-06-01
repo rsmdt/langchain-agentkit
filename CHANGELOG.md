@@ -9,6 +9,12 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.32.3] — 2026-06-01
+
+### Changed
+
+- Refined the human-in-the-loop `AskUser` flow: option descriptions now focus on the rationale behind each choice rather than repeating the option label, and are capped at 120 characters to keep prompts scannable.
+
 ## [0.32.2] — 2026-06-01
 
 ### Fixed
