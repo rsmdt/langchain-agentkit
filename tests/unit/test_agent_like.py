@@ -6,7 +6,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from langchain_agentkit.composability import AgentLike, CompiledAgent
+from langchain_agentkit.composition.composability import AgentLike, CompiledAgent
 
 # --- AgentLike protocol tests ---
 
@@ -127,7 +127,7 @@ class TestAutoWrapping:
     """Test that raw StateGraphs can be auto-wrapped."""
 
     def test_wrap_if_needed_wraps_raw_graph(self):
-        from langchain_agentkit.composability import wrap_if_needed
+        from langchain_agentkit.composition.composability import wrap_if_needed
 
         class FakeGraph:
             name = "researcher"
@@ -143,7 +143,7 @@ class TestAutoWrapping:
         assert result.name == "researcher"
 
     def test_wrap_if_needed_passes_through_agent_like(self):
-        from langchain_agentkit.composability import wrap_if_needed
+        from langchain_agentkit.composition.composability import wrap_if_needed
 
         class MyAgent:
             @property
@@ -166,7 +166,7 @@ class TestAutoWrapping:
         assert result is agent  # Not re-wrapped
 
     def test_wrap_if_needed_wraps_graph_without_metadata(self):
-        from langchain_agentkit.composability import wrap_if_needed
+        from langchain_agentkit.composition.composability import wrap_if_needed
 
         graph = MagicMock(spec=[])  # No agentkit_* attrs
 

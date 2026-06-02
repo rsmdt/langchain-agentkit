@@ -9,7 +9,7 @@ enabling fractal nesting — a team member can be a team.
 
 Usage::
 
-    from langchain_agentkit.composability import AgentLike, CompiledAgent
+    from langchain_agentkit.composition.composability import AgentLike, CompiledAgent
 
     # Raw graph → AgentLike
     agent = CompiledAgent(my_graph.compile())

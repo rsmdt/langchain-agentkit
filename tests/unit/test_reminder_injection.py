@@ -14,8 +14,8 @@ from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import tool
 
 from langchain_agentkit import Agent
-from langchain_agentkit.extension import Extension
-from langchain_agentkit.graph_builder import _inject_reminder
+from langchain_agentkit._internal.graph_builder import _inject_reminder
+from langchain_agentkit.composition.extension import Extension
 
 _REMINDER = "<reminder>\n### Ext\nbody\n</reminder>"
 

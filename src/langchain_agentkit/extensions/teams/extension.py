@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Any, override
 
 from langchain_core.prompts import PromptTemplate
 
-from langchain_agentkit.extension import Extension
+from langchain_agentkit.composition.extension import Extension
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -364,7 +364,7 @@ class TeamExtension(Extension):
     def graph_modifier(self, workflow: Any, node_name: str) -> Any:  # noqa: C901
         from langgraph.graph import END
 
-        from langchain_agentkit.extensions.teams.filter import is_team_tagged
+        from langchain_agentkit.extensions.teams.llm_filter import is_team_tagged
 
         mw = self
 
@@ -448,7 +448,8 @@ class TeamExtension(Extension):
     def build_teammate_graph(self, spec: TeammateSpec, bus: TeamMessageBus) -> Any:
         from langchain_core.tools import ToolException
 
-        from langchain_agentkit.composability import AgentLike
+        from langchain_agentkit._internal.graph_builder import build_ephemeral_graph
+        from langchain_agentkit.composition.composability import AgentLike
         from langchain_agentkit.extensions.agents.types import AgentConfig
         from langchain_agentkit.extensions.teams.task_proxy import create_task_proxy_tools
         from langchain_agentkit.extensions.teams.tools.shared import (
@@ -456,7 +457,6 @@ class TeamExtension(Extension):
             _compile_config_with_proxy_tasks,
             _compile_with_proxy_tasks,
         )
-        from langchain_agentkit.graph_builder import build_ephemeral_graph
 
         member_name = spec["member_name"]
         kind = spec["kind"]
@@ -531,9 +531,9 @@ class TeamExtension(Extension):
         from langchain_agentkit.extensions.teams.bus import (
             ActiveTeam,
             TeamMessageBus,
-            _teammate_loop,
+            teammate_loop,
         )
-        from langchain_agentkit.extensions.teams.filter import filter_team_messages
+        from langchain_agentkit.extensions.teams.llm_filter import filter_team_messages
 
         team_name: str = team_meta.get("name", "")
         members: list[TeammateSpec] = [
@@ -598,7 +598,7 @@ class TeamExtension(Extension):
                 continue
 
             task = asyncio.create_task(
-                _teammate_loop(
+                teammate_loop(
                     member_name,
                     compiled,
                     bus,
@@ -643,7 +643,7 @@ class TeamExtension(Extension):
     ) -> Any:
         # Non-destructive: checkpointed state keeps everything; only the
         # inner handler sees the team-tagged messages filtered out.
-        from langchain_agentkit.extensions.teams.filter import filter_out_team_messages
+        from langchain_agentkit.extensions.teams.llm_filter import filter_out_team_messages
 
         original = list(state.get("messages") or [])
         filtered = filter_out_team_messages(original)

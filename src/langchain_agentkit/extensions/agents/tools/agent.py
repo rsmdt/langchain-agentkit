@@ -17,12 +17,12 @@ from langgraph.prebuilt import InjectedState, ToolNode
 from langgraph.types import Command
 from pydantic import BaseModel, Field
 
+from langchain_agentkit._internal.graph_builder import build_ephemeral_graph
 from langchain_agentkit.extensions.agents.refs import (
     Dynamic,
     Predefined,
     resolve_agent_by_name,
 )
-from langchain_agentkit.graph_builder import build_ephemeral_graph
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -89,14 +89,14 @@ def _default_strategy_context() -> Any:
     or embedders) still behave correctly without threading a context
     through.
     """
-    from langchain_agentkit.extensions.agents.output import StrategyContext
+    from langchain_agentkit.extensions.agents.output_strategies import StrategyContext
 
     return StrategyContext(metadata_prefix="agentkit")
 
 
 def _default_strategy() -> Any:
     """Fallback strategy when none is configured — the documented default."""
-    from langchain_agentkit.extensions.agents.output import trace_hidden_strategy
+    from langchain_agentkit.extensions.agents.output_strategies import trace_hidden_strategy
 
     return trace_hidden_strategy
 
@@ -107,7 +107,7 @@ def _compile_or_resolve(
     parent_tools_getter: Callable[[], list[BaseTool]] | None,
 ) -> Any:
     """Resolve a delegation target to an invocable object."""
-    from langchain_agentkit.composability import AgentLike
+    from langchain_agentkit.composition.composability import AgentLike
 
     if isinstance(target, AgentLike):
         return target
@@ -233,7 +233,7 @@ async def _run_delegation(
             }
         )
 
-    from langchain_agentkit.extensions.agents.output import SubagentOutput
+    from langchain_agentkit.extensions.agents.output_strategies import SubagentOutput
 
     strategy = output_strategy or _default_strategy()
     ctx = strategy_context or _default_strategy_context()
@@ -498,9 +498,9 @@ def create_agent_tools(
 
     # Default to the trace_hidden strategy if the caller doesn't configure one.
     # Keeps ``create_agent_tools`` directly invocable without forcing every
-    # caller to reach into the output module.
+    # caller to reach into the output strategies module.
     if output_strategy is None or strategy_context is None:
-        from langchain_agentkit.extensions.agents.output import (
+        from langchain_agentkit.extensions.agents.output_strategies import (
             StrategyContext,
             trace_hidden_strategy,
         )

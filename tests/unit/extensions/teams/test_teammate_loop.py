@@ -1,4 +1,4 @@
-"""Tests for ``_teammate_loop`` — capture buffer, tagging, error handling."""
+"""Tests for ``teammate_loop`` — capture buffer, tagging, error handling."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 
-from langchain_agentkit.extensions.teams.bus import TeamMessageBus, _teammate_loop
-from langchain_agentkit.extensions.teams.filter import TEAM_KEY, is_team_tagged
+from langchain_agentkit.extensions.teams.bus import TeamMessageBus, teammate_loop
+from langchain_agentkit.extensions.teams.llm_filter import TEAM_KEY, is_team_tagged
 
 
 def _make_graph_returning(new_messages_per_call: list[list[Any]]) -> Any:
@@ -51,7 +51,7 @@ class TestTeammateLoopBasics:
 
         # Start the loop
         loop_task = asyncio.create_task(
-            _teammate_loop(
+            teammate_loop(
                 "r1",
                 graph,
                 bus,
@@ -118,7 +118,7 @@ class TestTeammateLoopBasics:
 
         capture: list[Any] = []
         loop_task = asyncio.create_task(
-            _teammate_loop(
+            teammate_loop(
                 "r1",
                 graph,
                 bus,
@@ -159,7 +159,7 @@ class TestTeammateLoopBasics:
 
         capture: list[Any] = []
         loop_task = asyncio.create_task(
-            _teammate_loop(
+            teammate_loop(
                 "r1",
                 graph,
                 bus,
@@ -199,7 +199,7 @@ class TestTeammateLoopBasics:
 
         capture: list[Any] = []
         loop_task = asyncio.create_task(
-            _teammate_loop(
+            teammate_loop(
                 "r1",
                 graph,
                 bus,
@@ -230,7 +230,7 @@ class TestTeammateLoopBasics:
 
         capture: list[Any] = []
         loop_task = asyncio.create_task(
-            _teammate_loop(
+            teammate_loop(
                 "r1",
                 graph,
                 bus,

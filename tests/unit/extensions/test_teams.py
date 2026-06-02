@@ -333,7 +333,7 @@ class TestTeamExtensionDependencies:
         assert isinstance(deps[0], TasksExtension)
 
     def test_agentkit_resolves_tasks_extension_dependency(self):
-        from langchain_agentkit.agent_kit import AgentKit
+        from langchain_agentkit.composition.agent_kit import AgentKit
         from langchain_agentkit.extensions.tasks import TasksExtension
 
         agent_a = _make_mock_agent("researcher")
@@ -347,7 +347,7 @@ class TestTeamExtensionDependencies:
         assert TasksExtension in mw_types
 
     def test_agentkit_deduplicates_tasks_extension(self):
-        from langchain_agentkit.agent_kit import AgentKit
+        from langchain_agentkit.composition.agent_kit import AgentKit
         from langchain_agentkit.extensions.tasks import TasksExtension
 
         agent_a = _make_mock_agent("researcher")
@@ -362,7 +362,7 @@ class TestTeamExtensionDependencies:
         assert tasks_count == 1
 
     def test_agentkit_composed_schema_includes_tasks_via_dependency(self):
-        from langchain_agentkit.agent_kit import AgentKit
+        from langchain_agentkit.composition.agent_kit import AgentKit
 
         agent_a = _make_mock_agent("researcher")
         team_mw = TeamExtension(agents=[agent_a])
@@ -771,7 +771,7 @@ class TestRouterRunExitWiring:
         from langchain_core.messages import AIMessage, HumanMessage
 
         from langchain_agentkit import Agent
-        from langchain_agentkit.extension import Extension
+        from langchain_agentkit.composition.extension import Extension
 
         after_run_calls: list[str] = []
 
@@ -887,7 +887,7 @@ You are a research assistant.
         from pathlib import Path
         from unittest.mock import MagicMock
 
-        from langchain_agentkit.agent_kit import AgentKit, run_extension_setup
+        from langchain_agentkit.composition.agent_kit import AgentKit, run_extension_setup
 
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "researcher.md").write_text(self._AGENT_MD)

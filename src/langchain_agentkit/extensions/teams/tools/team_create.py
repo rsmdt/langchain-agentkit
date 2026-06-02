@@ -120,13 +120,13 @@ def _spawn_member(
     ext: TeamExtension,
 ) -> tuple[asyncio.Task[str], str]:
     """Spawn a single teammate task. Returns (task, member_type)."""
-    from langchain_agentkit.extensions.teams.bus import _teammate_loop
+    from langchain_agentkit.extensions.teams.bus import teammate_loop
 
     member_name = spec["member_name"]
     bus.register(member_name)
     compiled = ext.build_teammate_graph(spec, bus)  # type: ignore[arg-type]
     task = asyncio.create_task(
-        _teammate_loop(
+        teammate_loop(
             member_name,
             compiled,
             bus,

@@ -109,7 +109,7 @@ def _build_ask_user_agent():
             FilesystemExtension(backend=OSBackend(root=tmpdir)),
         ]
     )
-    from langchain_agentkit.agent_kit import run_extension_setup
+    from langchain_agentkit.composition.agent_kit import run_extension_setup
 
     asyncio.run(run_extension_setup(kit))
 

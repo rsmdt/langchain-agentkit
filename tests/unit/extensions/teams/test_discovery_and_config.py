@@ -119,7 +119,9 @@ def test_compile_config_with_proxy_tasks_resolves_model_tools_skills(
         captured["max_turns"] = max_turns
         return MagicMock(name="compiled-graph")
 
-    monkeypatch.setattr("langchain_agentkit.graph_builder.build_ephemeral_graph", _fake_build)
+    monkeypatch.setattr(
+        "langchain_agentkit._internal.graph_builder.build_ephemeral_graph", _fake_build
+    )
 
     compiled = shared_mod._compile_config_with_proxy_tasks(
         config,

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import pytest
 
-from langchain_agentkit.agent_kit import AgentKit
-from langchain_agentkit.extension import Extension
-from langchain_agentkit.prompt_composition import PromptComposition
+from langchain_agentkit.composition.agent_kit import AgentKit
+from langchain_agentkit.composition.extension import Extension
+from langchain_agentkit.composition.prompts import PromptComposition
 
 
 class _StrExt(Extension):

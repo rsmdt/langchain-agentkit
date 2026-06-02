@@ -5,7 +5,7 @@ from unittest.mock import MagicMock
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from langchain_agentkit.agent import Agent
+from langchain_agentkit.composition.agent import Agent
 
 
 class TestAgentClass:

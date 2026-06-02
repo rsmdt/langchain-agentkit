@@ -429,7 +429,7 @@ class TestTeamMessageHistoryPersistence:
         """After Turn 1, state['messages'] contains team-tagged entries."""
         from langgraph.checkpoint.memory import InMemorySaver
 
-        from langchain_agentkit.extensions.teams.filter import is_team_tagged, team_member_of
+        from langchain_agentkit.extensions.teams.llm_filter import is_team_tagged, team_member_of
 
         worker = await _build_worker()
         mw_team = TeamExtension(agents=[worker])
@@ -558,7 +558,7 @@ class TestTeamInternalDialogueStructure:
         """Create team, assign task, inspect the raw and filtered views."""
         from langgraph.checkpoint.memory import InMemorySaver
 
-        from langchain_agentkit.extensions.teams.filter import (
+        from langchain_agentkit.extensions.teams.llm_filter import (
             filter_out_team_messages,
             filter_team_messages,
             is_team_tagged,
@@ -597,7 +597,7 @@ class TestTeamInternalDialogueStructure:
         )
 
         # First alice message should be a HumanMessage (the instruction
-        # she received from the bus, constructed by _teammate_loop).
+        # she received from the bus, constructed by teammate_loop).
         from langchain_core.messages import AIMessage as _AIMessage
         from langchain_core.messages import HumanMessage as _HumanMessage
 
@@ -663,7 +663,7 @@ class TestTeamInternalDialogueStructure:
         """After rehydration, teammate's tagged history from Turn 1 is present in Turn 2."""
         from langgraph.checkpoint.memory import InMemorySaver
 
-        from langchain_agentkit.extensions.teams.filter import filter_team_messages
+        from langchain_agentkit.extensions.teams.llm_filter import filter_team_messages
 
         worker = await _build_worker()
         mw_team = TeamExtension(agents=[worker])

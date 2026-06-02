@@ -41,14 +41,14 @@ from __future__ import annotations
 import inspect
 from typing import TYPE_CHECKING, Any
 
-from langchain_agentkit.agent_kit import AgentKit, run_extension_setup
+from langchain_agentkit.composition.agent_kit import AgentKit, run_extension_setup
 
 if TYPE_CHECKING:
     from pathlib import Path
 
     from langchain_core.tools import BaseTool
 
-    from langchain_agentkit.extension import Extension
+    from langchain_agentkit.composition.extension import Extension
 
 
 # Properties that are callables but must NOT be called by _resolve()
@@ -271,16 +271,16 @@ class Agent:
         When ``stream_tool_results=False`` (or any extension suppresses a
         tool via :meth:`Extension.stream_tool_results`), the returned
         runnable is transparently wrapped in
-        :class:`~langchain_agentkit.streaming.FilteredGraph` so ``astream``
+        :class:`~langchain_agentkit._internal.streaming.FilteredGraph` so ``astream``
         and ``astream_events`` redact tool-result payloads on the outbound
         stream. When no tool is suppressed, the raw compiled graph is
         returned unchanged.
 
         Returns:
             A compiled, invocable graph — possibly a
-            :class:`~langchain_agentkit.streaming.FilteredGraph` proxy.
+            :class:`~langchain_agentkit._internal.streaming.FilteredGraph` proxy.
         """
-        from langchain_agentkit.streaming import wrap_if_filtering
+        from langchain_agentkit._internal.streaming import wrap_if_filtering
 
         state_graph = await self.graph()
         # ``recursion_limit`` is a *runtime* config, not a compile-time arg —

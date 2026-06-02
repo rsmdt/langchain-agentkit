@@ -54,7 +54,7 @@ def _llm() -> Any:
 def _make_kit(extensions: list[Any], **kw: Any) -> Any:
     """Build + setup an AgentKit with the given extensions."""
     from langchain_agentkit import AgentKit
-    from langchain_agentkit.agent_kit import run_extension_setup
+    from langchain_agentkit.composition.agent_kit import run_extension_setup
 
     kit = AgentKit(extensions=extensions, **kw)
     asyncio.run(run_extension_setup(kit))

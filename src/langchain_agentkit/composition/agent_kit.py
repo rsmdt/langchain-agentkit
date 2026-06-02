@@ -32,7 +32,7 @@ import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
-from langchain_agentkit.prompt_composition import PromptComposition
+from langchain_agentkit.composition.prompts import PromptComposition
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -41,7 +41,7 @@ if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
     from langgraph.prebuilt import ToolRuntime
 
-    from langchain_agentkit.extension import Extension
+    from langchain_agentkit.composition.extension import Extension
 
 _logger = logging.getLogger(__name__)
 
@@ -221,7 +221,7 @@ class AgentKit:
         single composed type. Extensions without ``state_schema`` (or returning
         ``None``) are skipped.
         """
-        from langchain_agentkit.state import AgentKitState
+        from langchain_agentkit.composition.state import AgentKitState
 
         bases: list[type] = [AgentKitState]
         seen: set[int] = {id(AgentKitState)}
@@ -242,7 +242,7 @@ class AgentKit:
         manual graph construction when ``compile(handler)`` is too
         opinionated.
         """
-        from langchain_agentkit.hook_runner import HookRunner
+        from langchain_agentkit._internal.hook_runner import HookRunner
 
         return HookRunner(self._extensions)
 
@@ -291,7 +291,7 @@ class AgentKit:
 
     def compile(self, handler: Any) -> Any:
         """Build the full ReAct graph with hooks wired."""
-        from langchain_agentkit.graph_builder import build_graph
+        from langchain_agentkit._internal.graph_builder import build_graph
 
         llm = self._resolve_model_internal(self._model_raw) if self._model_raw is not None else None
 

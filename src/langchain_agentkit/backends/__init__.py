@@ -16,7 +16,7 @@ Usage::
     from langchain_agentkit.backends.daytona import DaytonaBackend
 """
 
-from langchain_agentkit.backends.helpers import read_tree
+from langchain_agentkit.backends.file_prep import read_tree
 from langchain_agentkit.backends.protocol import (
     ExecuteResponse,
     FileInfo,

@@ -5,7 +5,7 @@ Extensions add state keys via mixins (e.g., ``TasksState``, ``TeamState``).
 
 Usage::
 
-    from langchain_agentkit.state import AgentKitState
+    from langchain_agentkit.composition.state import AgentKitState
     from langchain_agentkit.extensions.tasks.state import TasksState
 
     # Compose manually

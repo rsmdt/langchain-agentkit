@@ -39,24 +39,47 @@ is sync; use ``run_extension_setup`` to await async extension setup::
 """
 
 # Core
-from langchain_agentkit.agent import Agent
-from langchain_agentkit.agent_kit import AgentKit, run_extension_setup
-
 # Backends — concrete backends are NOT re-exported here. Import each
 # explicitly from its own submodule (langchain_agentkit.backends.os,
 # langchain_agentkit.backends.daytona, langchain_agentkit.backends.agentfs,
 # …) so optional-dependency gates surface at the import line.
-from langchain_agentkit.backends import FilesystemProtocol, SandboxProtocol
-from langchain_agentkit.composability import AgentLike, CompiledAgent, TeamAgent, wrap_if_needed
-from langchain_agentkit.extension import Extension
+from langchain_agentkit.backends import (
+    EditError,
+    EditResult,
+    ExecuteResponse,
+    FileDownloadResult,
+    FileError,
+    FilesystemProtocol,
+    FileUploadResult,
+    ReadBytesResult,
+    ReadResult,
+    SandboxEnvironment,
+    SandboxProtocol,
+    WriteResult,
+)
+from langchain_agentkit.composition.agent import Agent
+from langchain_agentkit.composition.agent_kit import AgentKit, run_extension_setup
+from langchain_agentkit.composition.composability import (
+    AgentLike,
+    CompiledAgent,
+    TeamAgent,
+    wrap_if_needed,
+)
+from langchain_agentkit.composition.extension import Extension
+from langchain_agentkit.composition.hooks import after, before, wrap
+from langchain_agentkit.composition.prompts import PromptComposition
+from langchain_agentkit.composition.state import AgentKitState
 
 # Extensions
 from langchain_agentkit.extensions import (
     AgentsExtension,
+    CoreBehaviorExtension,
     DuckDuckGoSearchProvider,
+    EnvExtension,
     FilesystemExtension,
     HistoryExtension,
     HITLExtension,
+    MemoryExtension,
     MessagePersistenceExtension,
     QwantSearchProvider,
     ResilienceExtension,
@@ -69,11 +92,7 @@ from langchain_agentkit.extensions import (
 
 # Types
 from langchain_agentkit.extensions.agents import AgentConfig
-from langchain_agentkit.extensions.agents.filter import (
-    DEFAULT_METADATA_PREFIX,
-    strip_hidden_from_llm,
-)
-from langchain_agentkit.extensions.agents.output import (
+from langchain_agentkit.extensions.agents.output_strategies import (
     StrategyContext,
     SubagentOutput,
     SubagentOutputStrategy,
@@ -96,8 +115,7 @@ from langchain_agentkit.extensions.skills import SkillConfig, build_skill_tool
 from langchain_agentkit.extensions.tasks import Task, TasksState, TaskStatus, create_task_tools
 from langchain_agentkit.extensions.teams import TeamState
 from langchain_agentkit.extensions.teams.tools import create_team_tools
-from langchain_agentkit.hook_runner import HookRunner
-from langchain_agentkit.hooks import after, before, wrap
+from langchain_agentkit.extensions.turn_budget import TurnBudgetState
 
 # Permissions
 from langchain_agentkit.permissions import (
@@ -107,11 +125,6 @@ from langchain_agentkit.permissions import (
     STRICT_RULESET,
     PermissionRuleset,
 )
-from langchain_agentkit.prompt_composition import PromptComposition
-from langchain_agentkit.state import AgentKitState
-
-# Streaming
-from langchain_agentkit.streaming import FilteredGraph, StreamingFilter
 
 __all__ = [
     # Core
@@ -119,18 +132,28 @@ __all__ = [
     "AgentKit",
     "AgentKitState",
     "Extension",
-    "HookRunner",
     "PromptComposition",
     "TasksState",
     "TeamState",
+    "TurnBudgetState",
     "run_extension_setup",
     # Hook decorators
     "after",
     "before",
     "wrap",
-    # Backends (capability protocols only; concrete backends and helpers live in submodules)
+    # Backends (capability protocols and result types; concrete backends live in submodules)
+    "EditError",
+    "EditResult",
+    "ExecuteResponse",
+    "FileDownloadResult",
+    "FileError",
+    "FileUploadResult",
     "FilesystemProtocol",
+    "ReadBytesResult",
+    "ReadResult",
+    "SandboxEnvironment",
     "SandboxProtocol",
+    "WriteResult",
     # Permissions
     "DEFAULT_RULESET",
     "PERMISSIVE_RULESET",
@@ -140,12 +163,15 @@ __all__ = [
     # Extensions
     "AgentsExtension",
     "CompactionStrategy",
+    "CoreBehaviorExtension",
     "CountStrategy",
     "DuckDuckGoSearchProvider",
+    "EnvExtension",
     "FilesystemExtension",
     "HITLExtension",
     "HistoryExtension",
     "HistoryStrategy",
+    "MemoryExtension",
     "MessagePersistenceExtension",
     "QwantSearchProvider",
     "ResilienceExtension",
@@ -160,21 +186,16 @@ __all__ = [
     "CompiledAgent",
     "TeamAgent",
     "wrap_if_needed",
-    # Streaming
-    "FilteredGraph",
-    "StreamingFilter",
     # Types
     "AgentConfig",
     "SkillConfig",
     # Agents strategy API
-    "DEFAULT_METADATA_PREFIX",
     "StrategyContext",
     "SubagentOutput",
     "SubagentOutputStrategy",
     "full_history_strategy",
     "last_message_strategy",
     "resolve_output_strategy",
-    "strip_hidden_from_llm",
     "trace_hidden_strategy",
     # HITL types
     "Option",

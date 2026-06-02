@@ -39,7 +39,7 @@ from __future__ import annotations
 
 from typing import Any, override
 
-from langchain_agentkit.extension import Extension
+from langchain_agentkit.composition.extension import Extension
 from langchain_agentkit.extensions.turn_budget.state import TurnBudgetState
 
 _BUDGET_PROMPT = (

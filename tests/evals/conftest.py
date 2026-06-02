@@ -31,7 +31,7 @@ EVAL_MODEL = os.environ.get("AGENTKIT_EVAL_MODEL", "gpt-5.4-mini")
 
 def _load_skills_from_fixtures() -> list[SkillConfig]:
     """Load SkillConfig objects from test fixture directories."""
-    from langchain_agentkit.frontmatter import parse_frontmatter
+    from langchain_agentkit._internal.frontmatter import parse_frontmatter
 
     configs: list[SkillConfig] = []
     skills_dir = FIXTURES / "skills"

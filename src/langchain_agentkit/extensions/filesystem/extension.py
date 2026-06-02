@@ -31,7 +31,7 @@ from langchain_core.tools import StructuredTool, ToolException
 
 from langchain_agentkit.backends.os import OSBackend
 from langchain_agentkit.backends.protocol import SandboxProtocol
-from langchain_agentkit.extension import Extension
+from langchain_agentkit.composition.extension import Extension
 from langchain_agentkit.extensions.filesystem.tools import create_filesystem_tools
 from langchain_agentkit.extensions.filesystem.tools.bash import _build_bash_tool
 from langchain_agentkit.permissions.types import (

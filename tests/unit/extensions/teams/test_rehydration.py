@@ -23,7 +23,7 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 
 from langchain_agentkit.extensions.teams import TeamExtension
-from langchain_agentkit.extensions.teams.filter import TEAM_KEY, team_member_of
+from langchain_agentkit.extensions.teams.llm_filter import TEAM_KEY, team_member_of
 
 
 def _make_mock_agent(name: str) -> MagicMock:
@@ -39,7 +39,7 @@ def _patch_build_teammate_graph(ext: TeamExtension, record_name: list[tuple] | N
 
     Each rebuilt teammate gets a fresh mock whose ``ainvoke`` echoes
     ``{"messages": state["messages"] + [AIMessage("ok")]}`` — satisfies
-    the append-reducer precondition in ``_teammate_loop``.
+    the append-reducer precondition in ``teammate_loop``.
     """
 
     def _mock_build(spec: Any, bus: Any) -> Any:

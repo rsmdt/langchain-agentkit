@@ -27,7 +27,7 @@ from typing import TYPE_CHECKING, Any, override
 from langchain_core.prompts import PromptTemplate
 from langchain_core.tools import BaseTool
 
-from langchain_agentkit.extension import Extension
+from langchain_agentkit.composition.extension import Extension
 from langchain_agentkit.extensions.web_search.tools.web_search import _WebSearchTool
 
 if TYPE_CHECKING:

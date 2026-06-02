@@ -7,7 +7,7 @@ persisted; it is reconstructed from this metadata at turn start.
 
 Teammate conversation history is NOT stored here either — it lives in
 the shared ``state["messages"]`` channel, tagged per teammate via
-``additional_kwargs["team"]["member"]``.  See ``teams/filter.py``.
+``additional_kwargs["team"]["member"]``.  See ``teams/llm_filter.py``.
 """
 
 from __future__ import annotations

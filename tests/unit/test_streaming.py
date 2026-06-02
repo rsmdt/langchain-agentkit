@@ -8,13 +8,13 @@ import pytest
 from langchain_core.messages import AIMessage, HumanMessage, ToolMessage
 from langchain_core.tools import StructuredTool
 
-from langchain_agentkit.agent_kit import AgentKit
-from langchain_agentkit.extension import Extension
-from langchain_agentkit.streaming import (
+from langchain_agentkit._internal.streaming import (
     FilteredGraph,
     StreamingFilter,
     wrap_if_filtering,
 )
+from langchain_agentkit.composition.agent_kit import AgentKit
+from langchain_agentkit.composition.extension import Extension
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator

@@ -12,9 +12,12 @@ Each extension is a self-contained package under extensions/:
 """
 
 from langchain_agentkit.extensions.agents import AgentsExtension
+from langchain_agentkit.extensions.core_behavior import CoreBehaviorExtension
+from langchain_agentkit.extensions.env import EnvExtension
 from langchain_agentkit.extensions.filesystem import FilesystemExtension
 from langchain_agentkit.extensions.history import HistoryExtension
 from langchain_agentkit.extensions.hitl import HITLExtension
+from langchain_agentkit.extensions.memory import MemoryExtension
 from langchain_agentkit.extensions.persistence import MessagePersistenceExtension
 from langchain_agentkit.extensions.resilience import ResilienceExtension
 from langchain_agentkit.extensions.skills import SkillsExtension
@@ -29,10 +32,13 @@ from langchain_agentkit.extensions.web_search import (
 
 __all__ = [
     "AgentsExtension",
+    "CoreBehaviorExtension",
     "DuckDuckGoSearchProvider",
+    "EnvExtension",
     "FilesystemExtension",
     "HITLExtension",
     "HistoryExtension",
+    "MemoryExtension",
     "MessagePersistenceExtension",
     "QwantSearchProvider",
     "ResilienceExtension",

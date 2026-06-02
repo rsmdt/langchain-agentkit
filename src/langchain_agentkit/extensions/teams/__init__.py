@@ -5,7 +5,7 @@ from langchain_agentkit.extensions.teams.bus import (
     ActiveTeam,
     TeamMessage,
     TeamMessageBus,
-    _teammate_loop,
+    teammate_loop,
 )
 from langchain_agentkit.extensions.teams.extension import TeamExtension
 from langchain_agentkit.extensions.teams.state import TeamState
@@ -19,7 +19,7 @@ __all__ = [
     "TeamMessage",
     "TeamMessageBus",
     "TeamState",
-    "_teammate_loop",
     "create_task_proxy_tools",
     "create_team_tools",
+    "teammate_loop",
 ]

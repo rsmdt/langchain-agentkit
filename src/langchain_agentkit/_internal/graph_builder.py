@@ -16,15 +16,15 @@ __all__ = ["build_ephemeral_graph", "build_graph"]
 from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode, ToolRuntime
 
-from langchain_agentkit.hook_runner import HookRunner
-from langchain_agentkit.state import AgentKitState
+from langchain_agentkit._internal.hook_runner import HookRunner
+from langchain_agentkit.composition.state import AgentKitState
 
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
     from langchain_core.runnables import RunnableConfig
     from langchain_core.tools import BaseTool
 
-    from langchain_agentkit.agent_kit import AgentKit
+    from langchain_agentkit.composition.agent_kit import AgentKit
 
 
 def _inject_reminder(handler_state: dict[str, Any], reminder: str) -> dict[str, Any]:
@@ -394,7 +394,7 @@ def build_ephemeral_graph(
         max_turns: When set, caps ``recursion_limit`` to ``max_turns * 2``.
         checkpointer: Optional checkpointer forwarded to ``compile``.
     """
-    from langchain_agentkit.agent_kit import AgentKit
+    from langchain_agentkit.composition.agent_kit import AgentKit
 
     agent_tools = list(user_tools or [])
 

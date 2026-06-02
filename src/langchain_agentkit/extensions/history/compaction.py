@@ -8,7 +8,7 @@ runs against a fresh context window. A leading ``SystemMessage`` is
 preserved verbatim (it's the agent's persona, not part of history).
 
 Summaries chain across compaction rounds via ``previous_summary``
-plumbing inside :func:`_summarizer.generate_summary` so the structured
+plumbing inside :func:`summarizer.generate_summary` so the structured
 checkpoint accumulates rather than degrading round after round.
 """
 
@@ -20,17 +20,17 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_core.messages import HumanMessage
 
-from langchain_agentkit.extensions.history._file_ops import (
+from langchain_agentkit.extensions.history.file_ops import (
     compute_file_lists,
     extract_file_ops,
     format_file_operations,
 )
-from langchain_agentkit.extensions.history._summarizer import generate_summary
-from langchain_agentkit.extensions.history._token_accounting import (
+from langchain_agentkit.extensions.history.strategies import _is_system_message
+from langchain_agentkit.extensions.history.summarizer import generate_summary
+from langchain_agentkit.extensions.history.token_accounting import (
     estimate_context_tokens,
     should_compact,
 )
-from langchain_agentkit.extensions.history.strategies import _is_system_message
 
 if TYPE_CHECKING:
     from collections.abc import Callable

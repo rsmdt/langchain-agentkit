@@ -1,11 +1,11 @@
 """Agents extension — blocking subagent delegation."""
 
 from langchain_agentkit.extensions.agents.extension import AgentsExtension
-from langchain_agentkit.extensions.agents.filter import (
+from langchain_agentkit.extensions.agents.llm_filter import (
     DEFAULT_METADATA_PREFIX,
     strip_hidden_from_llm,
 )
-from langchain_agentkit.extensions.agents.output import (
+from langchain_agentkit.extensions.agents.output_strategies import (
     StrategyContext,
     SubagentOutput,
     SubagentOutputStrategy,

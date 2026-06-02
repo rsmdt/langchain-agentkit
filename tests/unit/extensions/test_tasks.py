@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 from langchain_core.tools import BaseTool
 from langgraph.prebuilt import ToolRuntime
 
-from langchain_agentkit.agent_kit import run_extension_setup
+from langchain_agentkit.composition.agent_kit import run_extension_setup
 from langchain_agentkit.extensions.tasks import (
     TASK_MANAGEMENT_PROMPT,
     TasksExtension,

@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from langchain_agentkit.extension import Extension
-from langchain_agentkit.hooks import after, before, wrap
+from langchain_agentkit.composition.extension import Extension
+from langchain_agentkit.composition.hooks import after, before, wrap
 
 # --- Decorator metadata tests ---
 

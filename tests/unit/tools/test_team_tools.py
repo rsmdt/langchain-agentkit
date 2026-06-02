@@ -579,7 +579,7 @@ class TestCompileWithProxyTasks:
 
     def test_replaces_task_tools_with_proxies(self):
         """Predefined agent built with TasksExtension gets proxy tools instead."""
-        from langchain_agentkit.agent_kit import AgentKit
+        from langchain_agentkit.composition.agent_kit import AgentKit
         from langchain_agentkit.extensions.tasks import TasksExtension
         from langchain_agentkit.extensions.teams.bus import TeamMessageBus
         from langchain_agentkit.extensions.teams.tools.shared import _compile_with_proxy_tasks
@@ -641,7 +641,7 @@ class TestCompileWithProxyTasks:
         """User tools that aren't task tools are preserved in the rebuild."""
         from langchain_core.tools import StructuredTool
 
-        from langchain_agentkit.agent_kit import AgentKit
+        from langchain_agentkit.composition.agent_kit import AgentKit
         from langchain_agentkit.extensions.tasks import TasksExtension
         from langchain_agentkit.extensions.teams.bus import TeamMessageBus
         from langchain_agentkit.extensions.teams.tools.shared import _compile_with_proxy_tasks

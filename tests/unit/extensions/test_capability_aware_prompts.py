@@ -18,8 +18,8 @@ from typing import Any
 from langchain_core.tools import BaseTool
 from pydantic import Field
 
-from langchain_agentkit.agent_kit import AgentKit
-from langchain_agentkit.extension import Extension
+from langchain_agentkit.composition.agent_kit import AgentKit
+from langchain_agentkit.composition.extension import Extension
 from langchain_agentkit.extensions.filesystem import FilesystemExtension
 
 

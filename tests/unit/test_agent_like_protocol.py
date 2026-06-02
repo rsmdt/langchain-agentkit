@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import pytest
 
 if TYPE_CHECKING:
-    from langchain_agentkit.composability import AgentLike
+    from langchain_agentkit.composition.composability import AgentLike
 
 # --- Helpers ---
 

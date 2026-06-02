@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Any, override
 
 from langchain_core.prompts import PromptTemplate
 
-from langchain_agentkit.extension import Extension
+from langchain_agentkit.composition.extension import Extension
 from langchain_agentkit.extensions.agents.discovery import (
     discover_agents_from_directory,
 )
@@ -101,7 +101,7 @@ class AgentsExtension(Extension):
             Defaults to ``"trace_hidden"``, which persists every
             subagent AIMessage (tagged hidden-from-LLM) plus a plain
             final ``ToolMessage``. See
-            :mod:`langchain_agentkit.extensions.agents.output` for the
+            :mod:`langchain_agentkit.extensions.agents.output_strategies` for the
             strategy API and built-in shapes, and
             :class:`HideSubagentTraceExtension` for the paired filter.
         metadata_prefix: Namespace for the ``response_metadata`` tag
@@ -126,7 +126,7 @@ class AgentsExtension(Extension):
         metadata_prefix: str = "agentkit",
         tools: Sequence[BaseTool] | None = None,
     ) -> None:
-        from langchain_agentkit.extensions.agents.output import (
+        from langchain_agentkit.extensions.agents.output_strategies import (
             StrategyContext,
             resolve_output_strategy,
             trace_hidden_strategy,
@@ -307,7 +307,7 @@ class AgentsExtension(Extension):
         if not messages:
             return await handler(state)
 
-        from langchain_agentkit.extensions.agents.filter import strip_hidden_from_llm
+        from langchain_agentkit.extensions.agents.llm_filter import strip_hidden_from_llm
 
         filtered = strip_hidden_from_llm(messages, metadata_prefix=self._metadata_prefix)
         if len(filtered) == len(messages):

@@ -11,7 +11,7 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
-from langchain_agentkit.graph_builder import build_ephemeral_graph
+from langchain_agentkit._internal.graph_builder import build_ephemeral_graph
 
 
 class _EchoInput(BaseModel):

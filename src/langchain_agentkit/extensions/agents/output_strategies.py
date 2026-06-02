@@ -28,7 +28,7 @@ Three built-in strategies are provided:
 * ``trace_hidden_strategy`` *(default)* — emits every AIMessage from the
   subagent tagged with ``{prefix}_hidden_from_llm=True``, plus the
   terminal ``ToolMessage``. Consumers install a filter (see
-  :mod:`langchain_agentkit.extensions.agents.filter`) so the parent LLM
+  :mod:`langchain_agentkit.extensions.agents.llm_filter`) so the parent LLM
   sees only the ``ToolMessage`` while persistence and UI retain the
   full trace. Satisfies "persist everything, inject only the last
   message".
@@ -248,7 +248,7 @@ def trace_hidden_strategy(
 
     - **LLM-visible**: only the final ``ToolMessage`` with the
       subagent's verbatim last-message text. The companion helper
-      :func:`langchain_agentkit.extensions.agents.filter.strip_hidden_from_llm`
+      :func:`langchain_agentkit.extensions.agents.llm_filter.strip_hidden_from_llm`
       removes anything tagged ``{prefix}_hidden_from_llm=True`` from the
       per-request message list; ``AgentsExtension`` wires this via its
       ``wrap_model`` hook automatically.

@@ -65,7 +65,7 @@ def _build_agent(extensions_list):
     from langgraph.prebuilt import ToolNode
 
     from langchain_agentkit import AgentKit
-    from langchain_agentkit.agent_kit import run_extension_setup
+    from langchain_agentkit.composition.agent_kit import run_extension_setup
 
     kit = AgentKit(extensions=extensions_list)
     asyncio.run(run_extension_setup(kit))
@@ -101,8 +101,8 @@ def _build_agent(extensions_list):
 
 def _build_skills_agent():
     from langchain_agentkit import SkillsExtension
+    from langchain_agentkit._internal.frontmatter import parse_frontmatter
     from langchain_agentkit.extensions.skills.types import SkillConfig
-    from langchain_agentkit.frontmatter import parse_frontmatter
 
     configs = []
     skills_dir = FIXTURES / "skills"

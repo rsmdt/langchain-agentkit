@@ -23,7 +23,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, override
 
-from langchain_agentkit.extension import Extension
+from langchain_agentkit.composition.extension import Extension
 from langchain_agentkit.extensions.history.state import ReplaceMessages
 
 if TYPE_CHECKING:

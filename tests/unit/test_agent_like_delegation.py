@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from langchain_agentkit.composability import AgentLike, TeamAgent
+from langchain_agentkit.composition.composability import AgentLike, TeamAgent
 
 # --- Helpers ---
 

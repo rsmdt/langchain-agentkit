@@ -11,13 +11,13 @@ from langchain_agentkit.extensions.history import (
     CompactionStrategy,
     HistoryExtension,
 )
-from langchain_agentkit.extensions.history._file_ops import (
+from langchain_agentkit.extensions.history.file_ops import (
     FileOps,
     compute_file_lists,
     extract_file_ops,
     format_file_operations,
 )
-from langchain_agentkit.extensions.history._token_accounting import (
+from langchain_agentkit.extensions.history.token_accounting import (
     estimate_context_tokens,
     estimate_tokens,
     should_compact,

@@ -27,7 +27,7 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, override
 
-from langchain_agentkit.extension import Extension
+from langchain_agentkit.composition.extension import Extension
 
 if TYPE_CHECKING:
     from collections.abc import Callable

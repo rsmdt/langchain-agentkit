@@ -5,9 +5,9 @@ from __future__ import annotations
 
 import pytest
 
-from langchain_agentkit.extension import Extension
-from langchain_agentkit.hook_runner import HookRunner
-from langchain_agentkit.hooks import after, before, wrap
+from langchain_agentkit._internal.hook_runner import HookRunner
+from langchain_agentkit.composition.extension import Extension
+from langchain_agentkit.composition.hooks import after, before, wrap
 
 # --- Test extensions ---
 

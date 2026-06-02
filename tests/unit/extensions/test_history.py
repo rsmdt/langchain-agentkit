@@ -6,13 +6,13 @@ from typing import Any
 
 import pytest
 
+from langchain_agentkit._internal.hook_runner import HookRunner
 from langchain_agentkit.extensions.history import (
     CountStrategy,
     HistoryExtension,
     HistoryStrategy,
     TokenStrategy,
 )
-from langchain_agentkit.hook_runner import HookRunner
 
 # ---------------------------------------------------------------------------
 # Helpers

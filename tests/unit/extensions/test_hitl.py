@@ -507,7 +507,7 @@ class TestGraphModifier:
     def test_registers_gate_node_when_gating(self):
         from langgraph.graph import StateGraph
 
-        from langchain_agentkit.state import AgentKitState
+        from langchain_agentkit.composition.state import AgentKitState
 
         ext = HITLExtension(interrupt_on={"send_email": True})
         wf = StateGraph(AgentKitState)
@@ -521,7 +521,7 @@ class TestGraphModifier:
     def test_no_gate_node_when_not_gating(self):
         from langgraph.graph import StateGraph
 
-        from langchain_agentkit.state import AgentKitState
+        from langchain_agentkit.composition.state import AgentKitState
 
         ext = HITLExtension()  # AskUser only, no interrupt_on
         wf = StateGraph(AgentKitState)

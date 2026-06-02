@@ -32,7 +32,7 @@ from typing import TYPE_CHECKING, Any, Literal, cast, override
 from langchain_core.messages import AIMessage, ToolCall, ToolMessage
 from langgraph.types import interrupt
 
-from langchain_agentkit.extension import Extension
+from langchain_agentkit.composition.extension import Extension
 from langchain_agentkit.extensions.hitl.state import HITLState
 from langchain_agentkit.extensions.hitl.tools import create_ask_user_tool
 from langchain_agentkit.extensions.hitl.types import Option, Question

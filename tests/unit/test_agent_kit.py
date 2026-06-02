@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from langchain_core.tools import StructuredTool
 
-from langchain_agentkit.agent_kit import AgentKit, run_extension_setup
+from langchain_agentkit.composition.agent_kit import AgentKit, run_extension_setup
 
 if TYPE_CHECKING:
     from langchain_agentkit.extensions import Extension
@@ -285,7 +285,7 @@ class TestSetupLifecycle:
     """Test the setup() lifecycle hook and introspection-based dispatch."""
 
     async def test_setup_called_with_extensions(self):
-        from langchain_agentkit.extension import Extension
+        from langchain_agentkit.composition.extension import Extension
 
         received: list[object] = []
 
@@ -301,7 +301,7 @@ class TestSetupLifecycle:
         assert len(received) == len(kit._extensions)
 
     async def test_setup_receives_prompt(self):
-        from langchain_agentkit.extension import Extension
+        from langchain_agentkit.composition.extension import Extension
 
         captured: dict[str, object] = {}
 
@@ -316,7 +316,7 @@ class TestSetupLifecycle:
 
     async def test_setup_only_receives_declared_kwargs(self):
         """Introspection should pass only what the extension's signature declares."""
-        from langchain_agentkit.extension import Extension
+        from langchain_agentkit.composition.extension import Extension
 
         seen: dict[str, object] = {}
 
@@ -333,7 +333,7 @@ class TestSetupLifecycle:
         # are passed to it (introspection filters them out)
 
     async def test_setup_with_var_keyword_receives_all(self):
-        from langchain_agentkit.extension import Extension
+        from langchain_agentkit.composition.extension import Extension
 
         captured: dict[str, object] = {}
 
@@ -350,7 +350,7 @@ class TestSetupLifecycle:
 
     async def test_setup_default_noop(self):
         """Extension with no setup() override should not error."""
-        from langchain_agentkit.extension import Extension
+        from langchain_agentkit.composition.extension import Extension
 
         class Plain(Extension):
             pass
@@ -361,7 +361,7 @@ class TestSetupLifecycle:
 
     def test_resolve_model_via_extension(self):
         """kit.resolve_model() should find a model_resolver on any extension."""
-        from langchain_agentkit.extension import Extension
+        from langchain_agentkit.composition.extension import Extension
 
         class ResolverExt(Extension):
             model_resolver = staticmethod(lambda name: f"resolved:{name}")
@@ -388,7 +388,7 @@ class TestSetupLifecycle:
 
     def test_model_resolver_fallback_chain_resolver_first(self):
         """Kit-level model_resolver takes priority over extension resolver."""
-        from langchain_agentkit.extension import Extension
+        from langchain_agentkit.composition.extension import Extension
 
         class ResolverExt(Extension):
             model_resolver = staticmethod(lambda name: f"ext:{name}")
@@ -403,7 +403,7 @@ class TestSetupLifecycle:
 
     def test_model_resolver_fallback_to_extension(self):
         """Falls back to extension resolver when no kit-level resolver."""
-        from langchain_agentkit.extension import Extension
+        from langchain_agentkit.composition.extension import Extension
 
         class ResolverExt(Extension):
             model_resolver = staticmethod(lambda name: f"ext:{name}")
@@ -477,7 +477,7 @@ class TestAgentKitCompile:
         assert "ext_tool" in tool_names
 
     def test_hooks_property_returns_hook_runner(self):
-        from langchain_agentkit.hook_runner import HookRunner
+        from langchain_agentkit._internal.hook_runner import HookRunner
 
         kit = AgentKit(extensions=[])
 

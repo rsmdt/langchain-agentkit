@@ -12,7 +12,7 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_core.messages import AIMessage, HumanMessage
 
-from langchain_agentkit.extensions.teams.filter import tag_message
+from langchain_agentkit.extensions.teams.llm_filter import tag_message
 
 if TYPE_CHECKING:
     from langchain_core.messages import BaseMessage
@@ -170,7 +170,7 @@ def _is_shutdown_request(content: str) -> bool:
         return False
 
 
-async def _teammate_loop(  # noqa: C901
+async def teammate_loop(  # noqa: C901
     member_name: str,
     compiled_graph: Any,
     message_bus: TeamMessageBus,
@@ -245,7 +245,7 @@ async def _teammate_loop(  # noqa: C901
                 f"Teammate {member_name!r} graph returned fewer messages "
                 f"({len(result_messages)}) than input ({len(history)}). "
                 "This indicates a non-append reducer on the messages "
-                "channel — see _teammate_loop precondition."
+                "channel — see teammate_loop precondition."
             )
 
         new_messages = result_messages[len(history) :]

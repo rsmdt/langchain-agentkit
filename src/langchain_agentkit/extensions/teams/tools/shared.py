@@ -149,8 +149,8 @@ def _compile_config_with_proxy_tasks(
     * Concatenates resolved skill prompts into the system prompt.
     * Prepends the teammate-communication addendum.
     """
+    from langchain_agentkit._internal.graph_builder import build_ephemeral_graph
     from langchain_agentkit.extensions.teams.task_proxy import create_task_proxy_tools
-    from langchain_agentkit.graph_builder import build_ephemeral_graph
 
     if config.model and model_resolver:
         llm = model_resolver(config.model)
@@ -208,7 +208,7 @@ def _compile_with_proxy_tasks(
     filtered_user_tools = [t for t in (original_tools or []) if t.name not in _TASK_TOOL_NAMES]
     new_user_tools = filtered_user_tools + proxy_tools
 
-    from langchain_agentkit.agent_kit import AgentKit
+    from langchain_agentkit.composition.agent_kit import AgentKit
     from langchain_agentkit.extensions.tasks import TasksExtension
 
     filtered_extensions = [ext for ext in kit.extensions if not isinstance(ext, TasksExtension)]

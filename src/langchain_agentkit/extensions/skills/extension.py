@@ -21,7 +21,7 @@ from typing import TYPE_CHECKING, Any, override
 
 from langchain_core.prompts import PromptTemplate
 
-from langchain_agentkit.extension import Extension
+from langchain_agentkit.composition.extension import Extension
 from langchain_agentkit.extensions.skills.discovery import (
     discover_skills_from_directory,
 )

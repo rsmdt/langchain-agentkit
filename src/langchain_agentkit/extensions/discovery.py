@@ -36,7 +36,7 @@ def discover_from_directory[T](
         namer: Extracts the dedup name from a parsed config.
         label: Human label for log messages (e.g. ``"skill"``, ``"agent"``).
     """
-    from langchain_agentkit.frontmatter import parse_frontmatter
+    from langchain_agentkit._internal.frontmatter import parse_frontmatter
 
     if not path.is_dir():
         return []
@@ -83,7 +83,7 @@ async def discover_from_backend[T](
         namer: Extracts the dedup name from a parsed config.
         label: Human label for log messages.
     """
-    from langchain_agentkit.frontmatter import parse_frontmatter_string
+    from langchain_agentkit._internal.frontmatter import parse_frontmatter_string
 
     matches = await backend.glob(file_pattern, path=path)
     configs: list[T] = []

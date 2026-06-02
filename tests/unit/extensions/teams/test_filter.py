@@ -1,10 +1,10 @@
-"""Tests for ``teams/filter.py`` — the authoritative team-message filter."""
+"""Tests for ``teams/llm_filter.py`` — the authoritative team-message filter."""
 
 from __future__ import annotations
 
 from langchain_core.messages import AIMessage, HumanMessage, SystemMessage, ToolMessage
 
-from langchain_agentkit.extensions.teams.filter import (
+from langchain_agentkit.extensions.teams.llm_filter import (
     TEAM_KEY,
     filter_out_team_messages,
     filter_team_messages,

@@ -18,8 +18,8 @@ import logging
 from collections.abc import Awaitable, Callable
 from typing import Any, TypedDict, override
 
-from langchain_agentkit.extension import Extension
-from langchain_agentkit.hooks import after, before
+from langchain_agentkit.composition.extension import Extension
+from langchain_agentkit.composition.hooks import after, before
 
 logger = logging.getLogger(__name__)
 

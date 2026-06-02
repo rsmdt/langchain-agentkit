@@ -65,7 +65,7 @@ from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.tools import ToolException
 from langgraph.errors import GraphBubbleUp
 
-from langchain_agentkit.extension import Extension
+from langchain_agentkit.composition.extension import Extension
 from langchain_agentkit.extensions.resilience.types import (
     OrphanRepairEvent,
     ToolErrorEvent,

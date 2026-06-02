@@ -514,7 +514,7 @@ class TestKitSetupWiring:
         then assert the delegation tool's parent getters resolve to
         the kit's model and merged tools without raising.
         """
-        from langchain_agentkit.agent_kit import AgentKit, run_extension_setup
+        from langchain_agentkit.composition.agent_kit import AgentKit, run_extension_setup
 
         with tempfile.TemporaryDirectory() as tmpdir:
             (Path(tmpdir) / "researcher.md").write_text(_AGENT_MD)
