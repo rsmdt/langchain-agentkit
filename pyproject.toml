@@ -109,8 +109,16 @@ enable_error_code = ["explicit-override"]
 packages = ["langchain_agentkit"]
 mypy_path = "src"
 
-# daytona-sdk is an optional extra, absent from the default dev install. Let mypy
-# run cleanly when it's missing; when the extra is installed it is checked normally.
+# Optional backend SDKs are absent from the default dev install (each lives in its
+# own extra). Let mypy run cleanly when they're missing; when an extra is installed
+# the module is resolved normally.
 [[tool.mypy.overrides]]
-module = ["daytona_sdk", "daytona_sdk.*"]
+module = [
+    "daytona_sdk",
+    "daytona_sdk.*",
+    "mirage",
+    "mirage.*",
+    "agentfs_sdk",
+    "agentfs_sdk.*",
+]
 ignore_missing_imports = true

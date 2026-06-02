@@ -57,7 +57,7 @@ from typing import TYPE_CHECKING
 # installed. Matches the convention in :mod:`agentfs` and :mod:`daytona`,
 # where SDK absence is signaled at module import time rather than at
 # first use.
-from mirage import Workspace  # type: ignore[import-untyped] # noqa: TC002
+from mirage import Workspace  # noqa: TC002
 
 from langchain_agentkit.backends.execution import (
     DEFAULT_MAX_OUTPUT_BYTES,

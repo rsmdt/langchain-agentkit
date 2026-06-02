@@ -43,7 +43,7 @@ import posixpath
 import re
 from typing import TYPE_CHECKING
 
-from agentfs_sdk.errors import ErrnoException  # type: ignore[import-untyped]
+from agentfs_sdk.errors import ErrnoException
 
 from langchain_agentkit.backends.protocol import GrepMatch
 from langchain_agentkit.backends.results import (
@@ -56,7 +56,7 @@ from langchain_agentkit.backends.results import (
 )
 
 if TYPE_CHECKING:
-    from agentfs_sdk import AgentFS  # type: ignore[import-untyped]
+    from agentfs_sdk import AgentFS
 
     from langchain_agentkit.backends.results import FileError
 
