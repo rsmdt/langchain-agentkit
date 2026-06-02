@@ -1,6 +1,6 @@
 [project]
 name = "langchain-agentkit"
-version = "0.32.3"
+version = "0.33.0"
 description = "Composable extension framework for LangGraph agents"
 readme = "README.md"
 requires-python = ">=3.12"
@@ -31,10 +31,6 @@ dev = [
     "mypy>=1.10",
     "ruff>=0.8",
     "types-PyYAML>=6.0",
-    "daytona-sdk>=0.158",
-    "agentfs-sdk>=0.6,<0.7",
-    "pyseccomp>=0.1.2; sys_platform == 'linux'",
-    "mirage-ai>=0.0.2a0,<0.1",
 ]
 eval = [
     "agentevals>=0.0.9",
@@ -70,6 +66,13 @@ packages = ["src/langchain_agentkit"]
 test = "pytest tests/unit/ -q"
 "test:unit" = "pytest tests/unit/ -q"
 "test:integration" = "pytest tests/integration/ -v"
+# Opt-in backend conformance. Requires the matching extra to be synced, e.g.
+#   uv run --extra dev --extra mirage poe test:mirage
+# daytona also needs DAYTONA_API_URL / DAYTONA_API_KEY; bubblewrap needs Linux + bwrap.
+"test:mirage" = "pytest tests/integration/test_backend_protocol.py -k mirage -v"
+"test:agentfs" = "pytest tests/integration/test_backend_protocol.py -k agentfs -v"
+"test:daytona" = "pytest tests/integration/test_backend_protocol.py -k daytona -v"
+"test:bubblewrap" = "pytest tests/integration/test_backend_protocol.py -k bubblewrap -v"
 "test:evals" = "pytest tests/evals/ -m eval -v"
 "test:all" = ["test:unit", "test:integration", "test:evals"]
 lint = "ruff check src/ tests/ --fix"
@@ -97,7 +100,7 @@ select = ["E", "F", "I", "B", "C90", "N", "UP", "PIE", "SIM", "TCH"]
 [tool.ruff.lint.per-file-ignores]
 "src/langchain_agentkit/extensions/*/tools/*.py" = ["E501"]
 # model sees, so E501 is permitted here.
-"src/langchain_agentkit/extensions/history/_summarizer.py" = ["E501", "C901"]
+"src/langchain_agentkit/extensions/history/summarizer.py" = ["E501", "C901"]
 
 [tool.mypy]
 python_version = "3.12"
@@ -105,3 +108,9 @@ strict = true
 enable_error_code = ["explicit-override"]
 packages = ["langchain_agentkit"]
 mypy_path = "src"
+
+# daytona-sdk is an optional extra, absent from the default dev install. Let mypy
+# run cleanly when it's missing; when the extra is installed it is checked normally.
+[[tool.mypy.overrides]]
+module = ["daytona_sdk", "daytona_sdk.*"]
+ignore_missing_imports = true

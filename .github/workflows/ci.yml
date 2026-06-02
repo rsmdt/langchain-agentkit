@@ -62,6 +62,51 @@ jobs:
       - name: Run unit tests
         run: uv run pytest tests/unit/ --tb=short -q
 
+  backends:
+    runs-on: ubuntu-latest
+    name: ${{ matrix.name }}
+    # Daytona secrets are exposed job-wide so the credential gate below can read
+    # them in step `if:` expressions; empty/harmless for the other backends.
+    env:
+      DAYTONA_API_URL: ${{ secrets.DAYTONA_API_URL }}
+      DAYTONA_API_KEY: ${{ secrets.DAYTONA_API_KEY }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - backend: mirage
+            name: Mirage Backend Conformance
+          - backend: agentfs
+            name: AgentFS Backend Conformance
+          - backend: bubblewrap
+            name: Bubblewrap Backend Conformance
+            apt: bubblewrap
+          - backend: daytona
+            name: Daytona Backend Conformance
+            gated: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: astral-sh/setup-uv@v5
+
+      - name: Install system packages
+        if: ${{ matrix.apt }}
+        run: sudo apt-get update && sudo apt-get install -y ${{ matrix.apt }}
+
+      - name: Install Python
+        run: uv python install 3.13
+
+      - name: Install dependencies
+        run: uv sync --extra dev --extra ${{ matrix.backend }}
+
+      - name: Run ${{ matrix.backend }} conformance
+        if: ${{ !matrix.gated || env.DAYTONA_API_KEY != '' }}
+        run: uv run pytest tests/integration/test_backend_protocol.py -k ${{ matrix.backend }} --tb=short -v
+
+      - name: Skip ${{ matrix.backend }} (no credentials)
+        if: ${{ matrix.gated && env.DAYTONA_API_KEY == '' }}
+        run: echo "::notice::Skipping ${{ matrix.backend }} conformance — DAYTONA_API_KEY secret not configured"
+
   evals:
     runs-on: ubuntu-latest
     name: LLM Evals

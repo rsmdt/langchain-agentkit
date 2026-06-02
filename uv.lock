@@ -825,7 +825,7 @@ wheels = [
 
 [[package]]
 name = "langchain-agentkit"
-version = "0.32.3"
+version = "0.33.0"
 source = { editable = "." }
 dependencies = [
     { name = "langchain-core" },
@@ -844,13 +844,9 @@ daytona = [
     { name = "daytona-sdk" },
 ]
 dev = [
-    { name = "agentfs-sdk" },
-    { name = "daytona-sdk" },
     { name = "langchain-openai" },
-    { name = "mirage-ai" },
     { name = "mypy" },
     { name = "poethepoet" },
-    { name = "pyseccomp", marker = "sys_platform == 'linux'" },
     { name = "pytest" },
     { name = "pytest-asyncio" },
     { name = "pytest-xdist" },
@@ -870,20 +866,16 @@ mirage = [
 requires-dist = [
     { name = "agentevals", marker = "extra == 'eval'", specifier = ">=0.0.9" },
     { name = "agentfs-sdk", marker = "extra == 'agentfs'", specifier = ">=0.6,<0.7" },
-    { name = "agentfs-sdk", marker = "extra == 'dev'", specifier = ">=0.6,<0.7" },
     { name = "daytona-sdk", marker = "extra == 'daytona'", specifier = ">=0.158" },
-    { name = "daytona-sdk", marker = "extra == 'dev'", specifier = ">=0.158" },
     { name = "langchain-core", specifier = ">=0.3" },
     { name = "langchain-openai", marker = "extra == 'dev'", specifier = ">=0.3" },
     { name = "langchain-openai", marker = "extra == 'eval'", specifier = ">=0.3" },
     { name = "langgraph", specifier = ">=0.4" },
-    { name = "mirage-ai", marker = "extra == 'dev'", specifier = ">=0.0.2a0,<0.1" },
     { name = "mirage-ai", marker = "extra == 'mirage'", specifier = ">=0.0.2a0,<0.1" },
     { name = "mypy", marker = "extra == 'dev'", specifier = ">=1.10" },
     { name = "openevals", marker = "extra == 'eval'", specifier = ">=0.1" },
     { name = "poethepoet", marker = "extra == 'dev'", specifier = ">=0.32" },
     { name = "pyseccomp", marker = "sys_platform == 'linux' and extra == 'bubblewrap'", specifier = ">=0.1.2" },
-    { name = "pyseccomp", marker = "sys_platform == 'linux' and extra == 'dev'", specifier = ">=0.1.2" },
     { name = "pytest", marker = "extra == 'dev'", specifier = ">=8.0" },
     { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.24" },
     { name = "pytest-xdist", marker = "extra == 'dev'", specifier = ">=3.5" },

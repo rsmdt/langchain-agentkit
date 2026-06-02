@@ -9,6 +9,28 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.33.0] — 2026-06-02
+
+### Changed
+
+- **BREAKING**: The package layout was reorganized for clarity. Framework internals moved into a private `_internal/` package (`graph_builder`, `hook_runner`, `streaming`, `frontmatter`), and the user-facing composition surface moved into `composition/` (`Agent`, `AgentKit`, `Extension`, hooks, state, prompts, composability) — all previously top-level modules. The public `langchain_agentkit` namespace is unchanged: `from langchain_agentkit import AgentKit, Agent, Extension, ...` still works. Only direct submodule imports must update, e.g. `from langchain_agentkit.agent_kit import AgentKit` → `from langchain_agentkit import AgentKit` (or `from langchain_agentkit.composition.agent_kit import AgentKit`).
+- **BREAKING**: Internal plumbing is no longer re-exported from the top-level package — `HookRunner`, `FilteredGraph`, `StreamingFilter`, `build_graph`, `build_ephemeral_graph`, `parse_frontmatter`, and `parse_frontmatter_string`. These carried no stability guarantee and now live under `_internal/`.
+- Ambiguous modules were renamed: `backends/helpers.py` → `backends/file_prep.py`, `extensions/agents/filter.py` → `extensions/agents/llm_filter.py`, `extensions/agents/output.py` → `extensions/agents/output_strategies.py`, `extensions/teams/filter.py` → `extensions/teams/llm_filter.py`. The history extension's `_file_ops`/`_summarizer`/`_token_accounting` modules dropped their leading underscores. Symbols reached through the public namespace are unaffected.
+
+### Added
+
+- The top-level package now exports the previously-omitted `MemoryExtension`, `EnvExtension`, and `CoreBehaviorExtension`, completing the set of all 14 shipped extension classes on the public surface.
+- For symmetry, the extension state schemas (`TasksState`, `TeamState`, `TurnBudgetState`) and backend result types (`ReadResult`, `ReadBytesResult`, `WriteResult`, `EditResult`, `EditError`, `FileError`, `FileUploadResult`, `FileDownloadResult`, `ExecuteResponse`, `SandboxEnvironment`) are now exported from the top-level package.
+
+### Fixed
+
+- `tests/unit/` no longer requires the optional `mirage-ai` SDK to be installed. `test_mirage_backend.py` drives the backend through an in-file fake workspace, but `MirageBackend`'s module-level `from mirage import Workspace` previously broke collection of the whole unit suite when the SDK was absent. A guarded stub in `tests/unit/conftest.py` registers a minimal `mirage` module only when the real SDK is missing; the real integration conformance in `tests/integration/test_backend_protocol.py` rejects the stub and still runs against a genuine install.
+
+### Developer experience
+
+- Optional backend SDKs (`daytona-sdk`, `agentfs-sdk`, `pyseccomp`, `mirage-ai`) are no longer pulled into the `dev` extra — each lives only in its dedicated extra (`daytona`, `agentfs`, `bubblewrap`, `mirage`), keeping the default dev install lean and free of prerelease/heavy SDKs. The default `uv sync --extra dev` + unit suite no longer drags them in; unit tests for the SDK-importing backends run against in-file fakes via guarded stubs in `tests/unit/conftest.py`.
+- Backend conformance is now opt-in per run, e.g. `uv run --extra dev --extra mirage poe test:mirage` (likewise `test:agentfs`, `test:daytona`, `test:bubblewrap`). Each has a dedicated CI job: `agentfs` and `mirage` run in-process with no external dependencies; `bubblewrap` installs `bwrap` on a Linux runner; `daytona` is credential-gated and skips with a notice when `DAYTONA_API_KEY` isn't configured. This stops the daytona suite from erroring in the default integration matrix when stray credentials are present.
+
 ## [0.32.3] — 2026-06-01
 
 ### Changed
