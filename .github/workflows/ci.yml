@@ -81,10 +81,9 @@ jobs:
           - backend: daytona
             name: Daytona Backend Conformance
             gated: true
-          # bubblewrap conformance is NOT run here: bwrap needs an unprivileged
-          # network namespace that the bare GitHub runner forbids
-          # (RTM_NEWADDR: Operation not permitted). It is verified locally via
-          # tests/docker/Dockerfile (scripts/test-in-docker.sh).
+          # bubblewrap is NOT in this in-process matrix: bwrap needs privileged
+          # namespace ops (netns/loopback, procfs mount) a bare runner denies. It
+          # runs in its own `bubblewrap` job below, inside a privileged container.
     steps:
       - uses: actions/checkout@v6
 
@@ -103,6 +102,26 @@ jobs:
       - name: Skip ${{ matrix.backend }} (no credentials)
         if: ${{ matrix.gated && env.DAYTONA_API_KEY == '' }}
         run: echo "::notice::Skipping ${{ matrix.backend }} conformance — DAYTONA_API_KEY secret not configured"
+
+  bubblewrap:
+    runs-on: ubuntu-latest
+    name: Bubblewrap Backend Conformance
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Build bubblewrap test image
+        run: docker build -f tests/docker/Dockerfile -t akit-bwrap .
+
+      # bwrap needs privileged namespace ops (netns/loopback, procfs mount) the
+      # bare runner denies. Privilege is on the OUTER container only — the inner
+      # bwrap sandbox still drops caps and applies its own seccomp filter, so what
+      # BubblewrapBackend enforces is unchanged. See tests/docker/Dockerfile.
+      - name: Run bubblewrap conformance (privileged container)
+        run: |
+          docker run --rm --privileged akit-bwrap sh -c '
+            uv run pytest tests/integration/test_backend_protocol.py -k bubblewrap --tb=short -v &&
+            uv run pytest tests/integration/test_bubblewrap_security.py --tb=short -v
+          '
 
   evals:
     runs-on: ubuntu-latest
