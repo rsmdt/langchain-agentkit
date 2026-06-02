@@ -47,7 +47,7 @@ jobs:
     strategy:
       matrix:
         python: ["3.12", "3.13"]
-    name: Unit Tests (Python ${{ matrix.python }})
+    name: Tests (Python ${{ matrix.python }})
     steps:
       - uses: actions/checkout@v6
 
@@ -59,8 +59,23 @@ jobs:
       - name: Install dependencies
         run: uv sync --extra dev
 
-      - name: Run unit tests
+      - name: Unit tests
         run: uv run pytest tests/unit/ --tb=short -q
+
+      # Integration suite minus the backend-specific files: test_backend_protocol
+      # and test_bubblewrap_security are covered by the `backends` matrix (they
+      # need optional SDKs / a privileged container).
+      - name: Integration tests
+        run: >
+          uv run pytest tests/integration/
+          --ignore=tests/integration/test_backend_protocol.py
+          --ignore=tests/integration/test_bubblewrap_security.py
+          --tb=short -q
+
+      # Eval dataset validation (no API key, no eval extra). The LLM evals
+      # themselves run in the gated `evals` job.
+      - name: Eval dataset validation
+        run: uv run pytest tests/evals/test_eval_runner.py --tb=short -q
 
   backends:
     runs-on: ubuntu-latest
