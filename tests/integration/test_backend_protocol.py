@@ -72,6 +72,15 @@ def _daytona_available() -> bool:
         return False
     if not os.environ.get("DAYTONA_API_KEY"):
         return False
+    # The unit suite registers a stub `daytona_sdk` module; real conformance
+    # must only run against a genuine install.
+    try:
+        import daytona_sdk
+
+        if getattr(daytona_sdk, "__agentkit_test_stub__", False):
+            return False
+    except ImportError:
+        pass
     cls, _ = _import_daytona()
     return cls is not None
 
@@ -121,10 +130,12 @@ def _mirage_available() -> bool:
     in-memory ``RAMResource`` at ``/``.
     """
     try:
-        import mirage  # noqa: F401
+        import mirage
     except ImportError:
         return False
-    return True
+    # The unit suite registers a stub `mirage` module; real conformance must
+    # only run against a genuine mirage-ai install.
+    return not getattr(mirage, "__agentkit_test_stub__", False)
 
 
 # ---------------------------------------------------------------------------
