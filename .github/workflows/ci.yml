@@ -74,6 +74,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # In-process backends run on the host via uv.
           - backend: mirage
             name: Mirage Backend Conformance
           - backend: agentfs
@@ -81,42 +82,43 @@ jobs:
           - backend: daytona
             name: Daytona Backend Conformance
             gated: true
-          # bubblewrap is NOT in this in-process matrix: bwrap needs privileged
-          # namespace ops (netns/loopback, procfs mount) a bare runner denies. It
-          # runs in its own `bubblewrap` job below, inside a privileged container.
+          # bwrap needs privileged namespace ops (netns/loopback, procfs mount) a
+          # bare runner denies, so this leg runs inside a privileged container.
+          - backend: bubblewrap
+            name: Bubblewrap Backend Conformance
+            docker: true
     steps:
       - uses: actions/checkout@v6
 
+      # --- host path: in-process backends (mirage / agentfs / daytona) ---
       - uses: astral-sh/setup-uv@v7
+        if: ${{ !matrix.docker }}
 
       - name: Install Python
+        if: ${{ !matrix.docker }}
         run: uv python install 3.13
 
       - name: Install dependencies
+        if: ${{ !matrix.docker }}
         run: uv sync --extra dev --extra ${{ matrix.backend }}
 
       - name: Run ${{ matrix.backend }} conformance
-        if: ${{ !matrix.gated || env.DAYTONA_API_KEY != '' }}
+        if: ${{ !matrix.docker && (!matrix.gated || env.DAYTONA_API_KEY != '') }}
         run: uv run pytest tests/integration/test_backend_protocol.py -k ${{ matrix.backend }} --tb=short -v
 
       - name: Skip ${{ matrix.backend }} (no credentials)
         if: ${{ matrix.gated && env.DAYTONA_API_KEY == '' }}
         run: echo "::notice::Skipping ${{ matrix.backend }} conformance — DAYTONA_API_KEY secret not configured"
 
-  bubblewrap:
-    runs-on: ubuntu-latest
-    name: Bubblewrap Backend Conformance
-    steps:
-      - uses: actions/checkout@v6
-
+      # --- container path: bubblewrap. Privilege is on the OUTER container only;
+      # the inner bwrap sandbox still drops caps and applies its own seccomp, so
+      # what BubblewrapBackend enforces is unchanged. See tests/docker/Dockerfile.
       - name: Build bubblewrap test image
+        if: ${{ matrix.docker }}
         run: docker build -f tests/docker/Dockerfile -t akit-bwrap .
 
-      # bwrap needs privileged namespace ops (netns/loopback, procfs mount) the
-      # bare runner denies. Privilege is on the OUTER container only — the inner
-      # bwrap sandbox still drops caps and applies its own seccomp filter, so what
-      # BubblewrapBackend enforces is unchanged. See tests/docker/Dockerfile.
-      - name: Run bubblewrap conformance (privileged container)
+      - name: Run ${{ matrix.backend }} conformance (privileged container)
+        if: ${{ matrix.docker }}
         run: |
           docker run --rm --privileged akit-bwrap sh -c '
             uv run pytest tests/integration/test_backend_protocol.py -k bubblewrap --tb=short -v &&
