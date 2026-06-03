@@ -109,6 +109,8 @@ app = Researcher(backend=my_backend).compile()
 
 Use `graph()` instead of `compile()` when you need the uncompiled `StateGraph` for composition — e.g. passing to `AgentsExtension(agents=[...])` or embedding as a subgraph.
 
+A compiled agent also drops straight into an external supervisor/router graph as a node: it shares the parent's `messages` channel, and a tool you pass it can return `Command(goto=..., graph=Command.PARENT)` to hand control back to the supervisor — no framework change required. See [`examples/supervisor.py`](examples/supervisor.py) for a complete example.
+
 ### `AgentKit` for managed or manual graph wiring
 
 `AgentKit` accepts extensions, user tools, model, and prompt — then `compile(handler)` builds a complete ReAct graph with hooks wired:
