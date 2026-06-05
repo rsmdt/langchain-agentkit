@@ -17,7 +17,7 @@ from langgraph.graph import END, StateGraph
 from langgraph.prebuilt import ToolNode, ToolRuntime
 
 from langchain_agentkit._internal.hook_runner import HookRunner
-from langchain_agentkit.composition.state import AgentKitState
+from langchain_agentkit.composition.state import AgentKitState, public_state_schema
 
 if TYPE_CHECKING:
     from langchain_core.language_models import BaseChatModel
@@ -77,6 +77,53 @@ def _merge_before_updates_into_result(
     if before_messages:
         combined = list(before_messages)
         combined.extend(result.get("messages") or [])
+        result["messages"] = combined
+
+
+def _post_handler_state(state: dict[str, Any], result: Any) -> dict[str, Any]:
+    """Build the state view after_model hooks observe.
+
+    after_model runs *after* the handler, so hooks should see what the model
+    just produced. This merges the handler's output onto the node's input
+    state: ``messages`` is concatenated under ``add_messages`` semantics (so
+    the model's new turn is visible — a grader can score the final answer, a
+    guard can react to fresh tool calls); every other handler key overwrites.
+    Returns a fresh dict — neither ``state`` nor ``result`` is mutated.
+    """
+    if not isinstance(result, dict):
+        return state
+    post = dict(state)
+    new_messages = result.get("messages")
+    for key, value in result.items():
+        if key != "messages":
+            post[key] = value
+    if new_messages:
+        post["messages"] = list(state.get("messages") or []) + list(new_messages)
+    return post
+
+
+def _apply_after_update(result: dict[str, Any], update: dict[str, Any]) -> None:
+    """Merge one after_model hook update into the node result.
+
+    Lifts ``jump_to`` onto the private routing channel without suppressing
+    its sibling keys: a hook may inject a message *and* route in the same
+    update (e.g. a grader looping back to the model with revision feedback).
+    ``messages`` is concatenated onto the handler's output so an injected
+    turn lands *after* the model's response under the ``add_messages``
+    reducer; every other key overwrites. Mirrors ``_process_before_updates``,
+    which likewise preserves non-``jump_to`` keys. Mutates ``result``.
+    """
+    extra_messages = update.get("messages")
+    for key, value in update.items():
+        if key == "jump_to":
+            result["_agentkit_jump_to"] = value
+        elif key == "messages":
+            continue
+        else:
+            result[key] = value
+    if extra_messages:
+        combined = list(result.get("messages") or [])
+        combined.extend(extra_messages)
         result["messages"] = combined
 
 
@@ -203,14 +250,15 @@ def build_graph(  # noqa: C901
             raise
 
         # --- after_model hooks ---
-        after_updates = await hook_runner.run_after("model", state=state, runtime=runtime)
+        # Hooks see a post-handler view so they can inspect the model's
+        # just-produced output (the AIMessage lives in ``result``, not yet in
+        # ``state``). Routing/state updates still merge into ``result``.
+        post_state = _post_handler_state(state, result)
+        after_updates = await hook_runner.run_after("model", state=post_state, runtime=runtime)
 
         if isinstance(result, dict):
             for update in after_updates:
-                if "jump_to" in update:
-                    result["_agentkit_jump_to"] = update["jump_to"]
-                else:
-                    result.update(update)
+                _apply_after_update(result, update)
             # Clear jump_to if no hook set it (reset from any previous step)
             if "_agentkit_jump_to" not in result:
                 result["_agentkit_jump_to"] = None
@@ -250,7 +298,16 @@ def build_graph(  # noqa: C901
 
     # --- Build graph ---
 
-    workflow: StateGraph[Any] = StateGraph(state_type)
+    # Keys annotated with PrivateStateAttr stay out of the public input/output
+    # schema while remaining real channels (nodes, hooks, get_state see them).
+    # When nothing is private, ``public`` is None and the full schema is used —
+    # so graphs without private keys are untouched.
+    public = public_state_schema(state_type)
+    workflow: StateGraph[Any]
+    if public is not None:
+        workflow = StateGraph(state_type, input_schema=public, output_schema=public)
+    else:
+        workflow = StateGraph(state_type)
     workflow.add_node(node_name, _agent_node)  # type: ignore[type-var]
 
     # Add run lifecycle nodes BEFORE graph_modifier so extensions (e.g.,

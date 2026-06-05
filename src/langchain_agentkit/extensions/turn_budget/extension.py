@@ -99,9 +99,10 @@ class TurnBudgetExtension(Extension):
         return {"prompt": budget, "reminder": reminder}
 
     async def after_model(self, *, state: dict[str, Any], runtime: Any) -> dict[str, Any]:
-        # Returns either a ``+1`` increment or a ``jump_to: end`` — never both,
-        # because an ``after_model`` update carrying ``jump_to`` discards its
-        # sibling keys in the graph builder.
+        # Returns either a ``+1`` increment or a ``jump_to: end``. On the final
+        # turn the increment is moot — the loop is ending and the count is no
+        # longer read — so the terminal update carries only the routing
+        # directive.
         used = state.get("_turn_budget_used", 0) or 0
         if used + 1 >= self._max_turns:
             return {"jump_to": "end"}

@@ -20,6 +20,7 @@ from langchain_agentkit.extensions.hitl import HITLExtension
 from langchain_agentkit.extensions.memory import MemoryExtension
 from langchain_agentkit.extensions.persistence import MessagePersistenceExtension
 from langchain_agentkit.extensions.resilience import ResilienceExtension
+from langchain_agentkit.extensions.rubric import RubricExtension
 from langchain_agentkit.extensions.skills import SkillsExtension
 from langchain_agentkit.extensions.tasks import TasksExtension
 from langchain_agentkit.extensions.teams import TeamExtension
@@ -42,6 +43,7 @@ __all__ = [
     "MessagePersistenceExtension",
     "QwantSearchProvider",
     "ResilienceExtension",
+    "RubricExtension",
     "SkillsExtension",
     "TasksExtension",
     "TeamExtension",

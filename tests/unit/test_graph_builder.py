@@ -11,7 +11,11 @@ from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import StructuredTool
 from pydantic import BaseModel, Field
 
-from langchain_agentkit._internal.graph_builder import build_ephemeral_graph
+from langchain_agentkit._internal.graph_builder import (
+    _apply_after_update,
+    _post_handler_state,
+    build_ephemeral_graph,
+)
 
 
 class _EchoInput(BaseModel):
@@ -133,6 +137,64 @@ class TestBuildEphemeralGraphBindsTools:
         assert "echoed:hello" in tool_results[0].content
         # And the final AI response comes after the tool result.
         assert result["messages"][-1].content == "final"
+
+
+class TestApplyAfterUpdate:
+    """``_apply_after_update`` lifts jump_to without dropping sibling keys.
+
+    A self-correction hook (e.g. the rubric grader) must inject a message AND
+    route back to the model in one update. Historically a jump_to update had
+    its other keys discarded, so the injected feedback never reached the model.
+    """
+
+    def test_jump_to_preserves_injected_message_and_bookkeeping(self):
+        result: dict[str, Any] = {"messages": [AIMessage(content="draft")]}
+        revision = HumanMessage(content="fix it")
+        _apply_after_update(
+            result,
+            {"jump_to": "model", "messages": [revision], "_rubric_iterations": 1},
+        )
+        assert result["_agentkit_jump_to"] == "model"
+        assert result["_rubric_iterations"] == 1
+        # Injected message lands AFTER the model's output (add_messages order).
+        assert result["messages"] == [result["messages"][0], revision]
+        assert result["messages"][-1] is revision
+
+    def test_jump_to_without_messages_still_merges_keys(self):
+        result: dict[str, Any] = {"messages": [AIMessage(content="x")]}
+        _apply_after_update(result, {"jump_to": "end", "_turn_budget_used": 1})
+        assert result["_agentkit_jump_to"] == "end"
+        assert result["_turn_budget_used"] == 1
+        assert len(result["messages"]) == 1  # unchanged
+
+    def test_non_jump_update_merges_normally(self):
+        result: dict[str, Any] = {"messages": [AIMessage(content="x")]}
+        _apply_after_update(result, {"_some_key": "v"})
+        assert result["_some_key"] == "v"
+        assert "_agentkit_jump_to" not in result
+
+
+class TestPostHandlerState:
+    """``_post_handler_state`` exposes the model's just-produced output to hooks."""
+
+    def test_messages_concatenated_and_keys_merged(self):
+        state = {"messages": [HumanMessage(content="go")], "rubric": "- r"}
+        new_ai = AIMessage(content="answer")
+        post = _post_handler_state(state, {"messages": [new_ai], "sender": "agent"})
+        assert post["messages"] == [state["messages"][0], new_ai]
+        assert post["sender"] == "agent"
+        assert post["rubric"] == "- r"
+
+    def test_does_not_mutate_inputs(self):
+        state = {"messages": [HumanMessage(content="go")]}
+        result = {"messages": [AIMessage(content="answer")]}
+        _post_handler_state(state, result)
+        assert len(state["messages"]) == 1
+        assert len(result["messages"]) == 1
+
+    def test_non_dict_result_returns_state(self):
+        state = {"messages": []}
+        assert _post_handler_state(state, "not-a-dict") is state
 
 
 class TestBuildEphemeralGraphMaxTurns:
