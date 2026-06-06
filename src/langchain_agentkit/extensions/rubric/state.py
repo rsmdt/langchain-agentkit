@@ -51,3 +51,9 @@ class RubricState(TypedDict, total=False):
 
     _active_rubric: Annotated[str, PrivateStateAttr]
     """The rubric that minted ``_current_grading_run_id``."""
+
+    _rubric_turns_since_review: Annotated[int, PrivateStateAttr]
+    """Assistant turns completed since the last review (drives the window)."""
+
+    _rubric_review_requested: Annotated[bool, PrivateStateAttr]
+    """Set by ``request_review`` so the next natural stop is graded early."""

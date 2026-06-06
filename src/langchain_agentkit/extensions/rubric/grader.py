@@ -101,7 +101,13 @@ class Grader:
         ]
         if self._tools:
             await self._gather_evidence(messages)
-        verdict = await self._model.with_structured_output(GraderResponse).ainvoke(messages)
+        # ``function_calling`` (tool-calling) rather than the provider default:
+        # GraderResponse's per-criterion discriminated union emits a JSON-schema
+        # ``oneOf``, which strict JSON-mode structured output (e.g. OpenAI's
+        # default) rejects. Tool-calling structured output supports it and is
+        # available across every major provider.
+        structured = self._model.with_structured_output(GraderResponse, method="function_calling")
+        verdict = await structured.ainvoke(messages)
         return {"structured_response": verdict}
 
     async def _gather_evidence(self, messages: list[Any]) -> None:

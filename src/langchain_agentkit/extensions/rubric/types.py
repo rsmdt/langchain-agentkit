@@ -22,14 +22,15 @@ GraderVerdict = Literal["satisfied", "needs_revision", "failed"]
   against the transcript.
 """
 
-RubricResult = GraderVerdict | Literal["max_iterations_reached", "grader_error"]
+RubricResult = GraderVerdict | Literal["review_limit_reached", "grader_error"]
 """Status recorded on each evaluation.
 
-Superset of :data:`GraderVerdict` with two middleware-synthesized terminal
+Superset of :data:`GraderVerdict` with two extension-synthesized terminal
 statuses the grader cannot emit itself:
 
-- ``max_iterations_reached``: the iteration cap fired on a ``needs_revision``
-  verdict; the agent terminates with its last response intact.
+- ``review_limit_reached``: the review budget (``review.stop``) was exhausted
+  on a ``needs_revision`` verdict; the agent terminates with its last response
+  intact.
 - ``grader_error``: the grader sub-agent raised an exception (provider
   timeout, missing credentials, malformed structured response, etc.).
   Distinct from ``failed``, which the grader returns about the *rubric*,
@@ -40,11 +41,11 @@ grading run.
 """
 
 TERMINAL_RESULTS: frozenset[RubricResult] = frozenset(
-    {"satisfied", "max_iterations_reached", "failed", "grader_error"}
+    {"satisfied", "review_limit_reached", "failed", "grader_error"}
 )
 """Statuses that signal a completed grading run; a same-rubric invocation
 after one of these starts a fresh run with a new ``grading_run_id`` and a
-reset iteration budget."""
+reset review budget."""
 
 RUBRIC_GRADER_MESSAGE_SOURCE = "rubric_grader"
 """Tag stored on synthetic revision messages this extension injects.
