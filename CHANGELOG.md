@@ -9,6 +9,17 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.34.0] — 2026-06-07
+
+### Added
+
+- **`RubricExtension`** — rubric-gated iteration. A separate grader sub-agent reviews the agent's work against a caller-supplied `rubric` (passed on invocation state) and drives revision until every criterion is met. Two modes: `mode="auto"` self-revises in a closed loop (the grader's per-criterion feedback is injected and the model re-drafts) until satisfied or the review budget is spent; `mode="user"` yields the turn back to the user on `needs_revision`, surfacing the rubric and the still-open gaps to the agent so it collaborates across conversation turns (in prose, or via a HITL tool of its own choosing). A `review=ReviewPolicy(min, max, stop)` policy controls *when* the grader runs — a turn window `[min, max]` with a give-up budget `stop` — and a `request_review` tool lets the agent request an early grade when a discretionary window exists. Grading runs off-graph via tool-calling structured output, so it works across providers. Bookkeeping is observable via `get_state`, the `on_evaluation` callback, or `rubric_evaluation_*` stream events.
+- **`PrivateStateAttr`** — a state-annotation marker (`Annotated[T, PrivateStateAttr]`) that keeps an extension's internal bookkeeping out of a graph's public input/output schema while leaving the keys as real channels (still visible to nodes, hooks, and `get_state`). `RubricExtension` uses it for its `_rubric_*` keys so they no longer leak into the `invoke` result.
+
+### Fixed
+
+- `after_model` hooks that return a `jump_to` routing directive no longer drop their sibling keys — an injected message and state updates now travel with the jump (matching `before_model`'s behavior). Hooks also now observe the model's just-produced message via a post-handler state view, so a hook can react to what the model emitted on the turn it fires.
+
 ## [0.33.0] — 2026-06-02
 
 ### Changed
