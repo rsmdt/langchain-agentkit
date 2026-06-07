@@ -30,6 +30,7 @@ Composable extension framework for LangGraph agents.
   - [HistoryExtension](#historyextension)
   - [HITLExtension](#hitlextension)
   - [TeamExtension](#teamextension)
+  - [RubricExtension](#rubricextension)
 - [FilesystemExtension Backends](#filesystemextension-backends)
 - [Custom Extensions](#custom-extensions)
   - [Lifecycle hooks](#lifecycle-hooks)
@@ -521,6 +522,45 @@ graph = Lead().compile()
 | Use case | "Do this and report back" | "Let's work on this together" |
 
 See [`examples/team.py`](examples/team.py) for a complete example.
+
+### RubricExtension
+
+Rubric-gated iteration: a separate (often cheaper) grader sub-agent reviews the agent's work against a caller-supplied `rubric` and drives revision until every criterion is met. Pass the rubric on invocation state; with no rubric the extension is a no-op, so it's safe to include unconditionally.
+
+```python
+from langchain_anthropic import ChatAnthropic
+from langchain_agentkit.extensions.rubric import RubricExtension, ReviewPolicy
+
+ext = RubricExtension(
+    model=ChatAnthropic(model="claude-haiku-4-5"),  # grader (separate from the agent's model)
+    mode="auto",                                     # auto | user
+    review=ReviewPolicy(min=1, max=5, stop=7),
+)
+# invoke with:  {"messages": [...], "rubric": "- criterion A\n- criterion B"}
+```
+
+**Modes** — what happens when the grader returns `needs_revision`:
+
+| `mode` | Action | Who's in the loop |
+|--------|--------|-------------------|
+| `auto` | Grader feedback is injected; the model re-drafts autonomously until satisfied | Nobody — closed loop |
+| `user` | The turn yields to the user; the agent sees the rubric + open gaps and converses (prose, or a HITL tool of its choosing) toward the criteria | The user, across turns |
+
+**`review`** — when the grader runs (an `int`, a dict, or a `ReviewPolicy`):
+
+| Field | Unit | Meaning |
+|-------|------|---------|
+| `min` | turns | earliest assistant turn to grade |
+| `max` | turns | force a grade by this turn; the agent may call `request_review()` earlier |
+| `stop` | reviews | give up after this many reviews (graceful terminal `review_limit_reached`) |
+
+`review=1` grades every turn; `review=5` expands to `(min=1, max=5)`. A `request_review` tool is offered in `user` mode when a discretionary window exists (`max > min`).
+
+The grader runs off-graph and uses tool-calling structured output, so it works across providers. Its `_rubric_*` bookkeeping is marked `PrivateStateAttr` — kept out of the `invoke` result; observe the verdict via `get_state`, the `on_evaluation` callback, or `rubric_evaluation_*` stream events. Terminal statuses: `satisfied`, `failed`, `review_limit_reached`, `grader_error`.
+
+In `auto` mode the revision loop routes via `jump_to`, honored only when the kit exposes at least one tool; the rubric's `review.stop` should sit within the agent's `max_turns` ceiling (see [Recommended ordering](#recommended-ordering)).
+
+See [`examples/rubric.py`](examples/rubric.py) for a complete example.
 
 ## FilesystemExtension Backends
 
