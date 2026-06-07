@@ -9,6 +9,12 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.34.1] — 2026-06-07
+
+### Documentation
+
+- Documented `RubricExtension` in the README — a TOC entry and a section covering the two modes (`auto`/`user`), the `review` cadence policy (`min`/`max`/`stop`), and how to observe the verdict — and added a runnable `examples/rubric.py` demonstrating the auto-mode revision loop end to end.
+
 ## [0.34.0] — 2026-06-07
 
 ### Added
