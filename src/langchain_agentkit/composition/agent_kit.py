@@ -81,6 +81,12 @@ class AgentKit:
             outbound stream is shaped. Default ``True`` preserves
             pre-existing behavior. Extensions may override per-tool
             via ``Extension.stream_tool_results(tool_name)``.
+        max_turns: Outer turn budget (hard ceiling). When set, delegating
+            extensions (``AgentsExtension``, ``TeamExtension``) hand it to
+            subagents whose own ``max_turns`` is unset, so a subagent
+            inherits the parent's ceiling instead of LangGraph's default.
+            ``None`` (default) leaves subagents on the default unless they
+            declare their own budget.
 
     Example::
 
@@ -103,6 +109,7 @@ class AgentKit:
         name: str = "agent",
         preset: str | None = None,
         stream_tool_results: bool = True,
+        max_turns: int | None = None,
     ) -> None:
         seeded = _seed_preset_extensions(preset)
         combined: list[Extension] = [*seeded, *(extensions or [])]
@@ -113,6 +120,7 @@ class AgentKit:
         self._model_resolver = model_resolver
         self._name = name
         self._stream_tool_results = stream_tool_results
+        self._max_turns = max_turns
         self._tools_cache: list[BaseTool] | None = None
 
     @property
@@ -134,6 +142,15 @@ class AgentKit:
         this per tool via :meth:`Extension.stream_tool_results`.
         """
         return self._stream_tool_results
+
+    @property
+    def max_turns(self) -> int | None:
+        """Outer turn budget inherited by subagents with an unset budget.
+
+        Read by delegating extensions during ``setup()`` to seed a
+        subagent's hard ceiling when the subagent declares none of its own.
+        """
+        return self._max_turns
 
     def suppressed_tool_names(self) -> frozenset[str]:
         """Names of tools whose result payload should be redacted on the stream.
@@ -443,6 +460,9 @@ async def run_extension_setup(kit: AgentKit) -> None:
         # fully-resolved model and the final merged tool list.
         "llm_getter": lambda: kit.model,
         "tools_getter": lambda: kit.tools,
+        # Outer hard-ceiling budget, surfaced so delegating extensions can
+        # seed subagents that declare no budget of their own.
+        "max_turns": kit._max_turns,
     }
     for ext in kit._extensions:
         setup = getattr(ext, "setup", None)

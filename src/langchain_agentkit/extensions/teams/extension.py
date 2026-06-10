@@ -144,6 +144,11 @@ class TeamExtension(Extension):
         self._parent_tools_getter: Any = _default_tools_getter
         self._model_resolver: Any = None
         self._skills_resolver: Any = None
+        # Outer turn budget, captured in setup() and inherited by teammates
+        # that declare none of their own: hard = AgentKit.max_turns ceiling,
+        # soft = a parent TurnBudgetExtension's graceful budget.
+        self._parent_hard_max_turns: int | None = None
+        self._parent_soft_max_turns: int | None = None
         # Per-turn mutable list populated by teammate loops, drained by
         # the before_model hook.  A new list is allocated on each turn
         # during rehydration so the tasks spawned on that turn bind to
@@ -272,6 +277,7 @@ class TeamExtension(Extension):
         model_resolver: Any = None,
         llm_getter: Any = None,
         tools_getter: Any = None,
+        max_turns: int | None = None,
         **_: Any,
     ) -> None:
         from langchain_agentkit.extensions.history.extension import HistoryExtension
@@ -308,6 +314,12 @@ class TeamExtension(Extension):
             self._parent_llm_getter = llm_getter
         if tools_getter is not None and self._parent_tools_getter is _default_tools_getter:
             self._parent_tools_getter = tools_getter
+
+        # --- Capture outer turn budget for teammate inheritance ---
+        from langchain_agentkit.extensions.agents.budget import detect_parent_soft_budget
+
+        self._parent_hard_max_turns = max_turns
+        self._parent_soft_max_turns = detect_parent_soft_budget(extensions)
 
         # --- Deferred backend discovery ---
         await self._run_deferred_discovery()
@@ -474,6 +486,8 @@ class TeamExtension(Extension):
                     parent_llm_getter=self._parent_llm_getter,
                     model_resolver=self._model_resolver,
                     skills_resolver=self._skills_resolver,
+                    parent_hard=self._parent_hard_max_turns,
+                    parent_soft=self._parent_soft_max_turns,
                 )
             if isinstance(target, AgentLike):
                 return target
@@ -487,12 +501,21 @@ class TeamExtension(Extension):
                     "AgentKit wires this at graph build time."
                 )
             llm = self._parent_llm_getter()
+            # Dynamic teammates carry proxy task tools, so they loop — inherit
+            # the parent's budget (no own ``max_turns`` exists for dynamic).
+            from langchain_agentkit.extensions.agents.budget import resolve_inherited_budget
+
+            hard_max_turns, inherited_extensions = resolve_inherited_budget(
+                None, self._parent_hard_max_turns, self._parent_soft_max_turns
+            )
             return build_ephemeral_graph(
                 name=member_name,
                 llm=llm,
                 prompt=_TEAMMATE_ADDENDUM + system_prompt,
                 user_tools=create_task_proxy_tools(bus, member_name),
                 checkpointer=None,
+                max_turns=hard_max_turns,
+                extensions=inherited_extensions,
             )
 
         raise ValueError(f"Unknown TeammateSpec kind: {kind!r}")

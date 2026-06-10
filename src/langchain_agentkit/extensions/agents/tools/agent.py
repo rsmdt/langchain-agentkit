@@ -12,6 +12,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from langchain_core.messages import HumanMessage, ToolMessage
 from langchain_core.tools import InjectedToolCallId, StructuredTool, ToolException
+from langgraph.errors import GraphRecursionError
 from langgraph.graph import END
 from langgraph.prebuilt import InjectedState, ToolNode
 from langgraph.types import Command
@@ -105,6 +106,7 @@ def _compile_or_resolve(
     target: Any,
     compiled_cache: dict[str, Any],
     parent_tools_getter: Callable[[], list[BaseTool]] | None,
+    parent_hard: int | None = None,
 ) -> Any:
     """Resolve a delegation target to an invocable object."""
     from langchain_agentkit.composition.composability import AgentLike
@@ -112,13 +114,14 @@ def _compile_or_resolve(
     if isinstance(target, AgentLike):
         return target
 
-    return _compile_agent(target, compiled_cache, parent_tools_getter)
+    return _compile_agent(target, compiled_cache, parent_tools_getter, parent_hard)
 
 
 def _compile_agent(
     graph: Any,
     compiled_cache: dict[str, Any],
     parent_tools_getter: Callable[[], list[BaseTool]] | None,
+    parent_hard: int | None = None,
 ) -> Any:
     """Compile a raw StateGraph agent, caching the result."""
     name: str = graph.name
@@ -170,7 +173,11 @@ def _compile_agent(
     # Honor ``max_turns`` attached to the StateGraph (1 ReAct turn = handler
     # + ToolNode = 2 graph steps). ``recursion_limit`` is a runtime config
     # in LangGraph, so it is applied via ``with_config`` after compile.
+    # A graph that declares no budget of its own inherits the parent's hard
+    # ceiling; a graph with its own ``max_turns`` keeps it.
     max_turns = getattr(graph, "max_turns", None)
+    if max_turns is None:
+        max_turns = parent_hard
     if max_turns is not None:
         compiled = compiled.with_config(recursion_limit=max_turns * 2)
     compiled_cache[name] = compiled
@@ -191,12 +198,15 @@ async def _run_delegation(
     output_strategy: Any = None,
     strategy_context: Any = None,
     agent_config: Any = None,
+    max_turns: int | None = None,
 ) -> Any:
     """Invoke a compiled graph, shape the result via ``output_strategy``.
 
-    On timeout / unexpected error, emits a single error ``ToolMessage``
-    so the parent's tool_call_id pairing invariant holds regardless of
-    the configured strategy.
+    On timeout / turn-limit exhaustion / unexpected error, emits a single
+    error ``ToolMessage`` so the parent's tool_call_id pairing invariant
+    holds regardless of the configured strategy. A turn-limit hit gets a
+    distinct message so callers can tell "exhausted budget" from "crashed";
+    a soft ``TurnBudgetExtension`` never reaches here — it ends gracefully.
     """
     try:
         result = await asyncio.wait_for(compiled.ainvoke(scoped_state), timeout=timeout)
@@ -206,6 +216,23 @@ async def _run_delegation(
                 "messages": [
                     ToolMessage(
                         content=f"Delegation to '{agent}' timed out after {timeout}s",
+                        tool_call_id=tool_call_id,
+                        name=agent,
+                        status="error",
+                    ),
+                ],
+            }
+        )
+    except GraphRecursionError:
+        budget = f" ({max_turns} turns)" if max_turns is not None else ""
+        return Command(
+            update={
+                "messages": [
+                    ToolMessage(
+                        content=(
+                            f"Delegation to '{agent}' reached its turn limit{budget} "
+                            "before finishing."
+                        ),
                         tool_call_id=tool_call_id,
                         name=agent,
                         status="error",
@@ -272,6 +299,8 @@ async def _agent_tool(
     skills_resolver: Callable[[list[str]], str] | None = None,
     output_strategy: Any = None,
     strategy_context: Any = None,
+    parent_hard: int | None = None,
+    parent_soft: int | None = None,
 ) -> Any:
     """Delegate a task to a pre-defined or dynamically created agent."""
     agent_ref = agent if isinstance(agent, dict) else agent.model_dump()
@@ -290,6 +319,8 @@ async def _agent_tool(
             skills_resolver=skills_resolver,
             output_strategy=output_strategy,
             strategy_context=strategy_context,
+            parent_hard=parent_hard,
+            parent_soft=parent_soft,
         )
 
     if "prompt" in agent_ref:
@@ -327,6 +358,8 @@ async def _delegate_predefined(
     skills_resolver: Callable[[list[str]], str] | None = None,
     output_strategy: Any = None,
     strategy_context: Any = None,
+    parent_hard: int | None = None,
+    parent_soft: int | None = None,
 ) -> Any:
     """Delegate a task to a named pre-defined agent."""
     target = resolve_agent_by_name(agent_id, agents_by_name)
@@ -346,9 +379,11 @@ async def _delegate_predefined(
             tool_call_id=tool_call_id,
             output_strategy=output_strategy,
             strategy_context=strategy_context,
+            parent_hard=parent_hard,
+            parent_soft=parent_soft,
         )
 
-    compiled = _compile_or_resolve(target, compiled_cache, parent_tools_getter)
+    compiled = _compile_or_resolve(target, compiled_cache, parent_tools_getter, parent_hard)
     scoped_state = _build_scoped_state(message)
 
     return await _run_delegation(
@@ -374,6 +409,8 @@ async def _delegate_agent_config(
     tool_call_id: str,
     output_strategy: Any = None,
     strategy_context: Any = None,
+    parent_hard: int | None = None,
+    parent_soft: int | None = None,
 ) -> Any:
     """Delegate to an AgentConfig — resolve model, tools, skills, max_turns."""
     if agent_config.model and model_resolver:
@@ -399,13 +436,20 @@ async def _delegate_agent_config(
 
     agent_name = agent_config.name
 
+    from langchain_agentkit.extensions.agents.budget import resolve_inherited_budget
+
+    hard_max_turns, inherited_extensions = resolve_inherited_budget(
+        agent_config.max_turns, parent_hard, parent_soft
+    )
+
     try:
         compiled = build_ephemeral_graph(
             name=agent_name,
             llm=llm,
             prompt=prompt,
             user_tools=agent_tools,
-            max_turns=agent_config.max_turns,
+            max_turns=hard_max_turns,
+            extensions=inherited_extensions,
         )
     except Exception as exc:
         raise ToolException(f"Failed to create agent '{agent_name}': {exc}") from exc
@@ -421,6 +465,7 @@ async def _delegate_agent_config(
         output_strategy=output_strategy,
         strategy_context=strategy_context,
         agent_config=agent_config,
+        max_turns=hard_max_turns,
     )
 
 
@@ -490,6 +535,8 @@ def create_agent_tools(
     skills_resolver: Callable[[list[str]], str] | None = None,
     output_strategy: Any = None,
     strategy_context: Any = None,
+    parent_hard_getter: Callable[[], int | None] | None = None,
+    parent_soft_getter: Callable[[], int | None] | None = None,
 ) -> list[BaseTool]:
     """Create the unified Agent tool for agent-to-agent delegation."""
     if ephemeral and parent_llm_getter is None:
@@ -534,6 +581,8 @@ def create_agent_tools(
             skills_resolver=skills_resolver,
             output_strategy=output_strategy,
             strategy_context=strategy_context,
+            parent_hard=parent_hard_getter() if parent_hard_getter else None,
+            parent_soft=parent_soft_getter() if parent_soft_getter else None,
             **llm_kwargs,
         )
 

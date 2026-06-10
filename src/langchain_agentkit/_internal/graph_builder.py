@@ -436,6 +436,7 @@ def build_ephemeral_graph(
     user_tools: list[BaseTool] | None = None,
     max_turns: int | None = None,
     checkpointer: Any | None = None,
+    extensions: list[Any] | None = None,
 ) -> Any:
     """Build and compile a minimal ReAct graph for ephemeral / config-based agents.
 
@@ -450,6 +451,8 @@ def build_ephemeral_graph(
         user_tools: Optional list of tools the agent can invoke.
         max_turns: When set, caps ``recursion_limit`` to ``max_turns * 2``.
         checkpointer: Optional checkpointer forwarded to ``compile``.
+        extensions: Optional extensions to compose into the ephemeral kit
+            (e.g. an inherited ``TurnBudgetExtension``). Defaults to none.
     """
     from langchain_agentkit.composition.agent_kit import AgentKit
 
@@ -473,7 +476,13 @@ def build_ephemeral_graph(
         response = await bound.ainvoke(msgs)
         return {"messages": [response], "sender": name}
 
-    kit = AgentKit(extensions=[], prompt=prompt, tools=agent_tools, model=llm, name=name)
+    kit = AgentKit(
+        extensions=extensions or [],
+        prompt=prompt,
+        tools=agent_tools,
+        model=llm,
+        name=name,
+    )
     graph = kit.compile(_handler)
     compile_kwargs: dict[str, Any] = {}
     if checkpointer is not None:

@@ -137,6 +137,8 @@ def _compile_config_with_proxy_tasks(
     parent_llm_getter: Any,
     model_resolver: Any,
     skills_resolver: Any,
+    parent_hard: int | None = None,
+    parent_soft: int | None = None,
 ) -> Any:
     """Compile an ``AgentConfig``-based teammate into a ready-to-run graph.
 
@@ -179,12 +181,19 @@ def _compile_config_with_proxy_tasks(
             prompt = prompt + "\n\n" + skill_content
     prompt = _TEAMMATE_ADDENDUM + prompt
 
+    from langchain_agentkit.extensions.agents.budget import resolve_inherited_budget
+
+    hard_max_turns, inherited_extensions = resolve_inherited_budget(
+        config.max_turns, parent_hard, parent_soft
+    )
+
     return build_ephemeral_graph(
         name=config.name,
         llm=llm,
         prompt=prompt,
         user_tools=user_tools,
-        max_turns=config.max_turns,
+        max_turns=hard_max_turns,
+        extensions=inherited_extensions,
     )
 
 

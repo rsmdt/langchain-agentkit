@@ -178,6 +178,11 @@ class AgentsExtension(Extension):
         self._parent_llm_getter: Any = None
         self._model_resolver: Any = None
         self._skills_resolver: Any = None
+        # Outer turn budget, captured in setup() and handed to subagents that
+        # declare none of their own: hard = AgentKit.max_turns ceiling,
+        # soft = a parent TurnBudgetExtension's graceful budget.
+        self._parent_hard_max_turns: int | None = None
+        self._parent_soft_max_turns: int | None = None
 
         self._custom_tools: tuple[BaseTool, ...] | None = (
             tuple(tools) if tools is not None else None
@@ -201,6 +206,7 @@ class AgentsExtension(Extension):
         model_resolver: Any = None,
         llm_getter: Any = None,
         tools_getter: Any = None,
+        max_turns: int | None = None,
         **_: Any,
     ) -> None:
         if self._strategy_tags_hidden:
@@ -208,6 +214,13 @@ class AgentsExtension(Extension):
 
         if model_resolver is not None and self._model_resolver is None:
             self._model_resolver = model_resolver
+
+        # Capture the outer turn budget so subagents without their own
+        # ``max_turns`` inherit it (hard ceiling and/or soft graceful budget).
+        from langchain_agentkit.extensions.agents.budget import detect_parent_soft_budget
+
+        self._parent_hard_max_turns = max_turns
+        self._parent_soft_max_turns = detect_parent_soft_budget(extensions)
 
         # Config-based agents without an explicit ``model`` inherit the
         # parent LLM via ``parent_llm_getter``. Without this wiring,
@@ -333,6 +346,8 @@ class AgentsExtension(Extension):
             ),
             output_strategy=self._output_strategy,
             strategy_context=self._strategy_context,
+            parent_hard_getter=lambda: self._parent_hard_max_turns,
+            parent_soft_getter=lambda: self._parent_soft_max_turns,
         )
 
     def set_parent_tools_getter(self, getter: Any) -> None:

@@ -66,6 +66,7 @@ async def _build_agent_graph(
     model_resolver: Any = None,
     name: str = "agent",
     stream_tool_results: bool = True,
+    max_turns: int | None = None,
 ) -> Any:
     """Build the ReAct graph for an :class:`Agent`.
 
@@ -84,6 +85,7 @@ async def _build_agent_graph(
         model_resolver=model_resolver,
         name=name,
         stream_tool_results=stream_tool_results,
+        max_turns=max_turns,
     )
 
     await run_extension_setup(kit)
@@ -248,6 +250,7 @@ class Agent:
             prompt=prompt,
             name=getattr(self, "name", cls.__name__),
             stream_tool_results=bool(getattr(self, "stream_tool_results", True)),
+            max_turns=getattr(self, "max_turns", None),
         )
 
         # Attach Agent-specific metadata

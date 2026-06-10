@@ -75,6 +75,15 @@ class TurnBudgetExtension(Extension):
         self._max_turns = max_turns
 
     @property
+    def max_turns(self) -> int:
+        """The configured turn budget (number of model calls permitted).
+
+        Public so a delegating extension can read a parent's soft budget and
+        propagate it to subagents that declare none of their own.
+        """
+        return self._max_turns
+
+    @property
     @override
     def state_schema(self) -> type:
         return TurnBudgetState

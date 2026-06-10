@@ -110,13 +110,20 @@ def test_compile_config_with_proxy_tasks_resolves_model_tools_skills(
     captured: dict[str, Any] = {}
 
     def _fake_build(
-        *, name: str, llm: Any, prompt: str, user_tools: list[Any], max_turns: Any = None
+        *,
+        name: str,
+        llm: Any,
+        prompt: str,
+        user_tools: list[Any],
+        max_turns: Any = None,
+        extensions: Any = None,
     ) -> Any:
         captured["name"] = name
         captured["llm"] = llm
         captured["prompt"] = prompt
         captured["user_tools"] = user_tools
         captured["max_turns"] = max_turns
+        captured["extensions"] = extensions
         return MagicMock(name="compiled-graph")
 
     monkeypatch.setattr(

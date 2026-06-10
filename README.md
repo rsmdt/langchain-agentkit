@@ -326,7 +326,7 @@ AgentConfig(
     model="gpt-4o-mini",            # resolved via model_resolver
     tools=["WebSearch", "Read"],     # filtered from parent's tools
     skills=["api-conventions"],      # preloaded into prompt at delegation time
-    max_turns=10,                    # recursion limit
+    max_turns=10,                    # hard recursion ceiling; unset → inherit parent's budget
 )
 ```
 
@@ -358,6 +358,11 @@ You are a research assistant.
 - `skills` preloading — full skill content injected into agent's prompt at startup
 - `model` override — per-agent model selection via `model_resolver`
 - `delegation_timeout` — max seconds per delegation (default 300s)
+- `max_turns` inheritance — a subagent that sets no `max_turns`/`maxTurns` inherits the
+  outer agent's turn budget: a parent `TurnBudgetExtension` (soft, graceful wrap-up) and/or
+  the parent's hard ceiling (`Agent`/`AgentKit` `max_turns`). An explicit per-subagent value
+  is a hard ceiling and overrides inheritance. A subagent that hits its hard ceiling returns a
+  distinct "reached its turn limit" result rather than a generic error.
 
 See [`examples/delegation.py`](examples/delegation.py) for a complete example.
 
