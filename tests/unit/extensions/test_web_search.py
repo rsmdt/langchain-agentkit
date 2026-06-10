@@ -55,6 +55,77 @@ class TestDuckDuckGoSearchProviderStandalone:
         tool = DuckDuckGoSearchProvider()
         assert "User-Agent" in tool.headers
 
+    def test_instant_mode_is_default(self):
+        tool = DuckDuckGoSearchProvider()
+        assert tool.use_html is False
+
+    def test_instant_mode_uses_platform_user_agent(self):
+        """The Instant Answer API works with the lightweight platform UA."""
+        tool = DuckDuckGoSearchProvider()
+        assert "Mozilla" not in tool.headers["User-Agent"]
+
+    def test_html_mode_defaults_to_browser_user_agent(self):
+        """The HTML SERP endpoint blocks non-browser clients, so HTML mode
+        must default to a browser User-Agent."""
+        tool = DuckDuckGoSearchProvider(use_html=True)
+        assert "Mozilla" in tool.headers["User-Agent"]
+
+    def test_explicit_headers_override_html_default(self):
+        tool = DuckDuckGoSearchProvider(use_html=True, headers={"User-Agent": "custom"})
+        assert tool.headers["User-Agent"] == "custom"
+
+    def test_html_mode_parses_serp_results(self):
+        """HTML mode extracts title, URL, and snippet from SERP markup."""
+        from unittest.mock import patch
+
+        sample_html = """
+        <h2 class="result__title">
+          <a rel="nofollow" class="result__a" href="https://example.com/a">First Result</a>
+        </h2>
+        <a class="result__snippet" href="https://example.com/a">Snippet <b>one</b> here.</a>
+        <h2 class="result__title">
+          <a class="result__a" href="https://example.com/b">Second Result</a>
+        </h2>
+        <a class="result__snippet" href="https://example.com/b">Snippet two.</a>
+        """
+
+        class _FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return sample_html.encode()
+
+        tool = DuckDuckGoSearchProvider(use_html=True)
+        with patch("urllib.request.urlopen", return_value=_FakeResponse()):
+            output = tool.invoke("any query")
+
+        assert "[First Result](https://example.com/a)" in output
+        assert "Snippet one here." in output
+        assert "[Second Result](https://example.com/b)" in output
+
+    def test_html_mode_no_results_returns_message(self):
+        from unittest.mock import patch
+
+        class _FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return b"<html><body>nothing here</body></html>"
+
+        tool = DuckDuckGoSearchProvider(use_html=True)
+        with patch("urllib.request.urlopen", return_value=_FakeResponse()):
+            output = tool.invoke("any query")
+
+        assert output == "No results found."
+
 
 class TestQwantSearchProviderStandalone:
     def test_default_name(self):
@@ -63,19 +134,20 @@ class TestQwantSearchProviderStandalone:
 
 
 class TestDefaultProvider:
-    def test_no_providers_uses_qwant_default(self):
-        """When no providers given, uses built-in Qwant search."""
+    def test_no_providers_uses_duckduckgo_default(self):
+        """When no providers given, uses built-in DuckDuckGo search."""
         mw = WebSearchExtension()
         assert len(mw.tools) == 1
         assert mw.tools[0].name == "WebSearch"
+        assert mw.tools[0].providers[0].name == "DuckDuckGoSearch"
 
     def test_none_providers_uses_default(self):
-        """When providers=None, uses built-in Qwant search."""
+        """When providers=None, uses built-in DuckDuckGo search."""
         mw = WebSearchExtension(providers=None)
         assert len(mw.tools) == 1
 
     def test_empty_list_uses_default(self):
-        """When providers=[], uses built-in Qwant search."""
+        """When providers=[], uses built-in DuckDuckGo search."""
         mw = WebSearchExtension(providers=[])
         assert len(mw.tools) == 1
 
