@@ -103,35 +103,15 @@ class TeamExtension(Extension):
         token_counter: Any = "approximate",
         tools: Sequence[BaseTool] | None = None,
     ) -> None:
-        from langchain_agentkit.extensions.agents.refs import validate_agent_list
-        from langchain_agentkit.extensions.agents.types import (
-            _AgentConfigProxy,
-            _wrap_agents,
-        )
+        from langchain_agentkit.extensions.agents.refs import load_agent_roster
 
         if max_team_size < 1:
             raise ValueError("max_team_size must be >= 1")
 
         self._backend = backend
-        self._deferred_path: str | None = None
-
-        if isinstance(agents, list):
-            wrapped = _wrap_agents(agents)
-            self._agents_by_name: dict[str, Any] = validate_agent_list(wrapped)
-        elif isinstance(agents, (str, Path)):
-            if backend is not None:
-                self._deferred_path = str(agents)
-                self._agents_by_name = {}
-            else:
-                from langchain_agentkit.extensions.agents.discovery import (
-                    discover_agents_from_directory,
-                )
-
-                defs = discover_agents_from_directory(Path(agents))
-                proxies = [_AgentConfigProxy(d) for d in defs]
-                self._agents_by_name = validate_agent_list(proxies) if proxies else {}
-        else:
-            raise TypeError(f"agents must be list, str, or Path, got {type(agents).__name__}")
+        self._agents_by_name: dict[str, Any]
+        self._deferred_path: str | None
+        self._agents_by_name, self._deferred_path, _ = load_agent_roster(agents, backend)
 
         self._ephemeral = ephemeral
         self._max_team_size = max_team_size

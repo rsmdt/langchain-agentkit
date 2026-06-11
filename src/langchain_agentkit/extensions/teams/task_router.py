@@ -54,7 +54,7 @@ async def _notify_assignment(
             "timestamp": str(timestamp),
         }
     )
-    with contextlib.suppress(ValueError, Exception):
+    with contextlib.suppress(Exception):
         await bus.send("lead", new_owner, notification)
 
 

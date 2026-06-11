@@ -9,6 +9,7 @@ explicit.
 from __future__ import annotations
 
 import logging
+from pathlib import Path
 from typing import Any
 
 from langchain_core.tools import ToolException
@@ -43,6 +44,45 @@ def validate_agent_list(agents: list[Any]) -> dict[str, Any]:
         dupes = [n for n in names if names.count(n) > 1]
         raise ValueError(f"Duplicate agent names: {set(dupes)}")
     return {name: agent for name, agent in zip(names, agents, strict=True)}  # type: ignore[misc]
+
+
+def load_agent_roster(
+    agents: list[Any] | str | Path,
+    backend: Any,
+) -> tuple[dict[str, Any], str | None, bool]:
+    """Normalize the ``agents`` constructor argument into a roster.
+
+    Shared by ``AgentsExtension`` and ``TeamExtension``. Returns
+    ``(agents_by_name, deferred_path, has_config_agents)``:
+
+    - **list** — wrap raw entries, validate, roster is immediate.
+    - **str/Path with a backend** — discovery must run against the
+      backend's filesystem, so it is deferred to async ``setup()``;
+      ``deferred_path`` carries the directory and the roster is empty.
+    - **str/Path without a backend** — synchronous host-filesystem
+      discovery.
+    """
+    from langchain_agentkit.extensions.agents.discovery import (
+        discover_agents_from_directory,
+    )
+    from langchain_agentkit.extensions.agents.types import (
+        _AgentConfigProxy,
+        _wrap_agents,
+    )
+
+    if isinstance(agents, list):
+        wrapped = _wrap_agents(agents)
+        has_config = any(isinstance(a, _AgentConfigProxy) for a in wrapped)
+        return validate_agent_list(wrapped), None, has_config
+    if isinstance(agents, (str, Path)):
+        if backend is not None:
+            # Defer async discovery to setup().
+            return {}, str(agents), False
+        defs = discover_agents_from_directory(Path(agents))
+        proxies = [_AgentConfigProxy(d) for d in defs]
+        roster = validate_agent_list(proxies) if proxies else {}
+        return roster, None, bool(proxies)
+    raise TypeError(f"agents must be list, str, or Path, got {type(agents).__name__}")
 
 
 def resolve_agent_by_name(agent_name: str, agents_by_name: dict[str, Any]) -> Any:

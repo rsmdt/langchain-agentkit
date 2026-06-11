@@ -8,14 +8,11 @@ from typing import TYPE_CHECKING, Any, override
 from langchain_core.prompts import PromptTemplate
 
 from langchain_agentkit.composition.extension import Extension
-from langchain_agentkit.extensions.agents.discovery import (
-    discover_agents_from_directory,
+from langchain_agentkit.extensions.agents.refs import (
+    load_agent_roster,
+    validate_agent_list,
 )
-from langchain_agentkit.extensions.agents.refs import validate_agent_list
-from langchain_agentkit.extensions.agents.types import (
-    _AgentConfigProxy,
-    _wrap_agents,
-)
+from langchain_agentkit.extensions.agents.types import _AgentConfigProxy
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
@@ -133,7 +130,6 @@ class AgentsExtension(Extension):
         )
 
         self._backend = backend
-        self._deferred_path: str | None = None
         self._output_strategy = resolve_output_strategy(output_mode)
         self._metadata_prefix = metadata_prefix
         self._strategy_context = StrategyContext(metadata_prefix=metadata_prefix)
@@ -147,27 +143,11 @@ class AgentsExtension(Extension):
             getattr(self._output_strategy, "_tags_hidden_from_llm", False)
         )
 
-        if isinstance(agents, list):
-            wrapped = _wrap_agents(agents)
-            self._agents_by_name: dict[str, Any] = validate_agent_list(wrapped)
-            self._has_config_agents = any(isinstance(a, _AgentConfigProxy) for a in wrapped)
-        elif isinstance(agents, (str, Path)):
-            if backend is not None:
-                # Defer async discovery to setup()
-                self._deferred_path = str(agents)
-                self._agents_by_name = {}
-                self._has_config_agents = False
-            else:
-                defs = discover_agents_from_directory(Path(agents))
-                proxies = [_AgentConfigProxy(d) for d in defs]
-                if proxies:
-                    self._agents_by_name = validate_agent_list(proxies)
-                else:
-                    self._agents_by_name = {}
-                self._has_config_agents = bool(proxies)
-        else:
-            msg = f"agents must be list, str, or Path, got {type(agents).__name__}"
-            raise TypeError(msg)
+        self._agents_by_name: dict[str, Any]
+        self._deferred_path: str | None
+        self._agents_by_name, self._deferred_path, self._has_config_agents = load_agent_roster(
+            agents, backend
+        )
 
         self._ephemeral = ephemeral
         self._default_conciseness = default_conciseness

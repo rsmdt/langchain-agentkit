@@ -8,6 +8,7 @@ out of the box.
 from __future__ import annotations
 
 import asyncio
+import logging
 from typing import TYPE_CHECKING, Annotated, Any
 
 from langchain_core.messages import HumanMessage, ToolMessage
@@ -29,6 +30,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from langchain_core.tools import BaseTool
+
+_logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
@@ -241,12 +244,7 @@ async def _run_delegation(
             }
         )
     except Exception:
-        import logging
-
-        logging.getLogger(__name__).exception(
-            "Delegation to '%s' failed",
-            agent,
-        )
+        _logger.exception("Delegation to '%s' failed", agent)
         return Command(
             update={
                 "messages": [
