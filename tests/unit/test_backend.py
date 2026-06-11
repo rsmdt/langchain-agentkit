@@ -85,6 +85,27 @@ class TestSymlinks:
             assert result.error == "permission_denied"
 
 
+class TestGlobGrepPermissionDenied:
+    """Traversal-escaping paths return empty results instead of raising.
+
+    ``glob``/``grep`` have no error-result wrapper, so expected
+    LLM-actionable failures degrade to "no matches" — same behavior
+    as the sandbox backends.
+    """
+
+    async def test_glob_symlink_escape_returns_empty(self):
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as other:
+            backend = OSBackend(tmpdir)
+            os.symlink(other, os.path.join(tmpdir, "escape"))
+            assert await backend.glob("*.txt", "/escape") == []
+
+    async def test_grep_symlink_escape_returns_empty(self):
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as other:
+            backend = OSBackend(tmpdir)
+            os.symlink(other, os.path.join(tmpdir, "escape"))
+            assert await backend.grep("secret", "/escape") == []
+
+
 class TestConvenienceMethods:
     """ls(), exists(), delete() — not part of FilesystemProtocol."""
 

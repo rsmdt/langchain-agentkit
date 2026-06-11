@@ -203,7 +203,10 @@ class OSBackend:
         return EditResult(path=path, replacements=count)
 
     async def glob(self, pattern: str, path: str = "/") -> list[str]:
-        real_path = self._resolve(path)
+        try:
+            real_path = self._resolve(path)
+        except PermissionError:
+            return []
         full_pattern = os.path.join(real_path, pattern)
         matches = glob_mod.glob(full_pattern, recursive=True)
         result: list[str] = []
@@ -219,7 +222,10 @@ class OSBackend:
         glob: str | None = None,
         ignore_case: bool = False,
     ) -> list[GrepMatch]:
-        search_root = Path(self._resolve(path or "/"))
+        try:
+            search_root = Path(self._resolve(path or "/"))
+        except PermissionError:
+            return []
         backend_root = Path(self._root)
         matches: list[GrepMatch] = []
         flags = re.IGNORECASE if ignore_case else 0

@@ -387,7 +387,10 @@ class DaytonaBackend:
         Supports recursive patterns like ``**/*.py`` by translating them
         to ``find -path`` predicates, matching ``OSBackend.glob()`` semantics.
         """
-        real_path = self._resolve(path)
+        try:
+            real_path = self._resolve(path)
+        except PermissionError:
+            return []
         if "**" in pattern or "/" in pattern:
             find_pattern = pattern.replace("**", "*")
             full_pattern = f"{real_path}/{find_pattern}"
@@ -421,7 +424,10 @@ class DaytonaBackend:
         ignore_case: bool = False,
     ) -> list[GrepMatch]:
         """Search file contents for a regex pattern."""
-        real_path = self._resolve(path or "/")
+        try:
+            real_path = self._resolve(path or "/")
+        except PermissionError:
+            return []
         flags = "-rn"
         if ignore_case:
             flags += "i"

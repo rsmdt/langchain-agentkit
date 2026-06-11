@@ -114,6 +114,30 @@ class TestResolve:
 
 
 # ---------------------------------------------------------------------------
+# glob / grep — graceful permission handling
+# ---------------------------------------------------------------------------
+
+
+class TestGlobGrepPermissionDenied:
+    """Traversal-escaping paths return empty results instead of raising.
+
+    Matches the behavior of the other backends (OS, Bubblewrap, Mirage,
+    AgentFS): ``glob``/``grep`` have no error-result wrapper, so expected
+    LLM-actionable failures degrade to "no matches".
+    """
+
+    async def test_glob_traversal_returns_empty(self):
+        backend, mock = _make_backend()
+        assert await backend.glob("*.py", "../../etc") == []
+        mock.process.exec.assert_not_called()
+
+    async def test_grep_traversal_returns_empty(self):
+        backend, mock = _make_backend()
+        assert await backend.grep("secret", "../../etc") == []
+        mock.process.exec.assert_not_called()
+
+
+# ---------------------------------------------------------------------------
 # execute — SDK bridge
 # ---------------------------------------------------------------------------
 
