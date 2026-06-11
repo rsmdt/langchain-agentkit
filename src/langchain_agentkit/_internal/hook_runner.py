@@ -192,22 +192,22 @@ class HookRunner:
         if not applicable:
             return await handler(state)
 
-        # Build onion: last hook wraps the handler, first hook is outermost
+        # Build onion: last hook wraps the handler, first hook is outermost.
+        # ``make_layer`` exists to bind the loop variables by value — a bare
+        # closure would late-bind and every layer would wrap the last hook.
+        def make_layer(
+            m: Callable[..., Any],
+            h: Callable[..., Any],
+            rt: Any,
+        ) -> Callable[..., Any]:
+            async def layer(st: Any) -> Any:
+                return await m(state=st, handler=h, runtime=rt)
+
+            return layer
+
         current_handler = handler
         for method in reversed(applicable):
-            outer_handler = current_handler
-
-            async def make_layer(
-                m: Callable[..., Any],
-                h: Callable[..., Any],
-                rt: Any,
-            ) -> Callable[..., Any]:
-                async def layer(st: Any) -> Any:
-                    return await m(state=st, handler=h, runtime=rt)
-
-                return layer
-
-            current_handler = await make_layer(method, outer_handler, runtime)
+            current_handler = make_layer(method, current_handler, runtime)
 
         return await current_handler(state)
 

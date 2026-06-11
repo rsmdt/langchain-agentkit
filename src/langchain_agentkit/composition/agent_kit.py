@@ -47,6 +47,11 @@ _logger = logging.getLogger(__name__)
 
 _VALID_PRESETS: frozenset[str] = frozenset({"full"})
 
+# Signature-inspection memo for ``_call_prompt``: whether each extension
+# type's ``prompt()`` accepts the ``tools`` kwarg. Keyed by type — a
+# class's signature never changes at runtime, so entries are write-once.
+_PROMPT_ACCEPTS_TOOLS_CACHE: dict[type, bool] = {}
+
 
 class AgentKit:
     """Sync composition engine — merges extensions, tools, model, and prompt.
@@ -401,12 +406,8 @@ class AgentKit:
         mirrors how :func:`run_extension_setup` dispatches to ``setup()``.
         """
         prompt_fn = ext.prompt
-        cache: dict[type, bool] | None = getattr(AgentKit, "_prompt_accepts_tools_cache", None)
-        if cache is None:
-            cache = {}
-            AgentKit._prompt_accepts_tools_cache = cache  # type: ignore[attr-defined]
         ext_type = type(ext)
-        accepts = cache.get(ext_type)
+        accepts = _PROMPT_ACCEPTS_TOOLS_CACHE.get(ext_type)
         if accepts is None:
             try:
                 params = inspect.signature(prompt_fn).parameters
@@ -416,7 +417,7 @@ class AgentKit:
                 accepts = "tools" in params or any(
                     p.kind is inspect.Parameter.VAR_KEYWORD for p in params.values()
                 )
-            cache[ext_type] = accepts
+            _PROMPT_ACCEPTS_TOOLS_CACHE[ext_type] = accepts
         if accepts:
             return prompt_fn(state, runtime, tools=tool_names)
         return prompt_fn(state, runtime)
