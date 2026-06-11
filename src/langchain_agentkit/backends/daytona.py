@@ -29,7 +29,6 @@ from __future__ import annotations
 import base64
 import json
 import posixpath
-import re
 from typing import TYPE_CHECKING
 
 from daytona_sdk import FileDownloadRequest, FileUpload
@@ -39,7 +38,6 @@ from langchain_agentkit.backends.protocol import (
     GrepMatch,
 )
 from langchain_agentkit.backends.results import (
-    PROBED_TOOLS,
     EditResult,
     FileDownloadResult,
     FileUploadResult,
@@ -48,50 +46,15 @@ from langchain_agentkit.backends.results import (
     SandboxEnvironment,
     WriteResult,
 )
+from langchain_agentkit.backends.shell import (
+    BASH_STARTUP_WARNING_RE,
+    ENV_PROBE_SCRIPT,
+    ENV_PROBE_SEPARATOR,
+    shell_quote,
+)
 
 if TYPE_CHECKING:
     from daytona_sdk import Sandbox
-
-
-def _shell_quote(s: str) -> str:
-    """Quote a string for safe shell interpolation (POSIX)."""
-    return "'" + s.replace("'", "'\"'\"'") + "'"
-
-
-# Strip bash's ``setlocale: LC_ALL: cannot change locale`` startup warnings
-# from stdout. Daytona's ``process.exec`` invokes ``bash`` to run commands,
-# and on minimal Linux snapshots bash emits this warning to stdout (not
-# stderr) at startup *before* any in-shell ``export`` can adjust the locale.
-# Left unstripped it corrupts ``read``/``read_bytes`` content and the
-# environment probe (whose first line is then the warning, not ``uname -srm``).
-_BASH_STARTUP_WARNING_RE = re.compile(
-    r"^[^:\n]*: warning: setlocale:[^\n]*\n",
-    re.MULTILINE,
-)
-
-
-# Single-shot environment probe. Output layout (line-oriented):
-#   line 1:  uname -srm output (e.g. "Linux 5.15.0-91-generic x86_64")
-#   line 2:  $SHELL value (or "/bin/sh" if unset)
-#   line 3:  literal separator "TOOLS_BEGIN"
-#   lines 4+: one available tool name per line, in PROBED_TOOLS order
-#
-# Daytona's ``process.exec`` runs commands under zsh by default; ``===``
-# trips zsh's ``=cmd`` path-expansion syntax, so the separator is an
-# unambiguous identifier instead.
-_ENV_PROBE_SEPARATOR = "TOOLS_BEGIN"
-_ENV_PROBE_SCRIPT = (
-    "uname -srm\n"
-    'echo "${SHELL:-/bin/sh}"\n'
-    f"echo {_ENV_PROBE_SEPARATOR}\n"
-    "for t in " + " ".join(PROBED_TOOLS) + "; do "
-    'command -v "$t" >/dev/null 2>&1 && echo "$t"; '
-    "done\n"
-    # Ensure the script always exits 0 so ``environment()`` parses the
-    # well-formed output. Without this, the exit code is whatever the last
-    # ``command -v`` returned — non-zero if the final probed tool is absent.
-    "exit 0"
-)
 
 
 # Python program executed inside the sandbox to perform an edit.
@@ -236,7 +199,7 @@ class DaytonaBackend:
                 f"Daytona sandbox execution failed for command: {command!r}"
             ) from exc
         stderr = getattr(result, "stderr", None) or ""
-        output = _BASH_STARTUP_WARNING_RE.sub("", result.result or "")
+        output = BASH_STARTUP_WARNING_RE.sub("", result.result or "")
         return ExecuteResponse(
             output=output,
             exit_code=result.exit_code,
@@ -258,14 +221,14 @@ class DaytonaBackend:
         if self._env_cache is not None:
             return self._env_cache
 
-        result = await self.execute(_ENV_PROBE_SCRIPT)
+        result = await self.execute(ENV_PROBE_SCRIPT)
         os_line = "unknown"
         shell = "/bin/sh"
         tools: set[str] = set()
         if result.get("exit_code") == 0:
             lines = result.get("output", "").splitlines()
             try:
-                sep_idx = lines.index(_ENV_PROBE_SEPARATOR)
+                sep_idx = lines.index(ENV_PROBE_SEPARATOR)
             except ValueError:
                 sep_idx = -1
             if sep_idx >= 2:
@@ -288,16 +251,16 @@ class DaytonaBackend:
             real_path = self._resolve(path)
         except PermissionError as exc:
             return ReadBytesResult(error="permission_denied", error_message=str(exc))
-        check = await self.execute(f"test -f {_shell_quote(real_path)}")
+        check = await self.execute(f"test -f {shell_quote(real_path)}")
         if check["exit_code"] != 0:
             # Distinguish "is a directory" from "does not exist"
-            isdir = await self.execute(f"test -d {_shell_quote(real_path)}")
+            isdir = await self.execute(f"test -d {shell_quote(real_path)}")
             if isdir["exit_code"] == 0:
                 return ReadBytesResult(
                     error="is_directory", error_message=f"Path is a directory: {path}"
                 )
             return ReadBytesResult(error="file_not_found", error_message=f"File not found: {path}")
-        result = await self.execute(f"cat {_shell_quote(real_path)} | base64")
+        result = await self.execute(f"cat {shell_quote(real_path)} | base64")
         if result["exit_code"] != 0:
             return ReadBytesResult(
                 error="io_error",
@@ -310,9 +273,9 @@ class DaytonaBackend:
             real_path = self._resolve(path)
         except PermissionError as exc:
             return ReadResult(error="permission_denied", error_message=str(exc))
-        check = await self.execute(f"test -f {_shell_quote(real_path)}")
+        check = await self.execute(f"test -f {shell_quote(real_path)}")
         if check["exit_code"] != 0:
-            isdir = await self.execute(f"test -d {_shell_quote(real_path)}")
+            isdir = await self.execute(f"test -d {shell_quote(real_path)}")
             if isdir["exit_code"] == 0:
                 return ReadResult(
                     error="is_directory", error_message=f"Path is a directory: {path}"
@@ -320,7 +283,7 @@ class DaytonaBackend:
             return ReadResult(error="file_not_found", error_message=f"File not found: {path}")
         start = offset + 1
         end = offset + limit
-        cmd = f"sed -n '{start},{end}p' {_shell_quote(real_path)}"
+        cmd = f"sed -n '{start},{end}p' {shell_quote(real_path)}"
         result = await self.execute(cmd)
         if result["exit_code"] != 0:
             return ReadResult(
@@ -337,8 +300,8 @@ class DaytonaBackend:
         raw = content.encode("utf-8") if isinstance(content, str) else content
         encoded = base64.b64encode(raw).decode("ascii")
         cmd = (
-            f"mkdir -p $(dirname {_shell_quote(real_path)}) && "
-            f"echo {_shell_quote(encoded)} | base64 -d > {_shell_quote(real_path)}"
+            f"mkdir -p $(dirname {shell_quote(real_path)}) && "
+            f"echo {shell_quote(encoded)} | base64 -d > {shell_quote(real_path)}"
         )
         result = await self.execute(cmd)
         if result["exit_code"] != 0:
@@ -369,7 +332,7 @@ class DaytonaBackend:
         )
         encoded = base64.b64encode(payload.encode()).decode("ascii")
         script = _EDIT_SCRIPT
-        result = await self.execute(f"python3 -c {_shell_quote(script)} {_shell_quote(encoded)}")
+        result = await self.execute(f"python3 -c {shell_quote(script)} {shell_quote(encoded)}")
         if result["exit_code"] != 0:
             return EditResult(
                 error="io_error",
@@ -429,14 +392,14 @@ class DaytonaBackend:
             find_pattern = pattern.replace("**", "*")
             full_pattern = f"{real_path}/{find_pattern}"
             cmd = (
-                f"find {_shell_quote(real_path)}"
-                f" -path {_shell_quote(full_pattern)}"
+                f"find {shell_quote(real_path)}"
+                f" -path {shell_quote(full_pattern)}"
                 f" -type f 2>/dev/null | sort"
             )
         else:
             cmd = (
-                f"find {_shell_quote(real_path)}"
-                f" -name {_shell_quote(pattern)}"
+                f"find {shell_quote(real_path)}"
+                f" -name {shell_quote(pattern)}"
                 f" -type f 2>/dev/null | sort"
             )
         result = await self.execute(cmd)
@@ -462,9 +425,9 @@ class DaytonaBackend:
         flags = "-rn"
         if ignore_case:
             flags += "i"
-        cmd = f"grep {flags} {_shell_quote(pattern)} {_shell_quote(real_path)}"
+        cmd = f"grep {flags} {shell_quote(pattern)} {shell_quote(real_path)}"
         if glob:
-            cmd += f" --include={_shell_quote(glob)}"
+            cmd += f" --include={shell_quote(glob)}"
         cmd += " 2>/dev/null || true"
         result = await self.execute(cmd)
         if not result["output"].strip():

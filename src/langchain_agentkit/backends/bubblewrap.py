@@ -100,7 +100,6 @@ import contextlib
 import json
 import os
 import posixpath
-import re
 import resource
 import shutil
 import warnings
@@ -115,7 +114,6 @@ from langchain_agentkit.backends.execution import (
 )
 from langchain_agentkit.backends.protocol import ExecuteResponse, GrepMatch
 from langchain_agentkit.backends.results import (
-    PROBED_TOOLS,
     EditResult,
     FileDownloadResult,
     FileUploadResult,
@@ -123,6 +121,12 @@ from langchain_agentkit.backends.results import (
     ReadResult,
     SandboxEnvironment,
     WriteResult,
+)
+from langchain_agentkit.backends.shell import (
+    BASH_STARTUP_WARNING_RE,
+    ENV_PROBE_SCRIPT,
+    ENV_PROBE_SEPARATOR,
+    shell_quote,
 )
 
 if TYPE_CHECKING:
@@ -168,39 +172,6 @@ _DENIED_BIND_HOST_PREFIXES: tuple[str, ...] = (
     "/var/log",
     "/var/lib",
 )
-
-# Strip bash's ``setlocale`` startup warning. Same idiom as DaytonaBackend
-# — the locale data isn't bound into the minimal sandbox image, so bash
-# emits the warning to stdout before any in-shell ``export`` can adjust
-# LC_ALL. Left unstripped it corrupts the first line of file content
-# and the environment probe.
-_BASH_STARTUP_WARNING_RE = re.compile(
-    r"^[^:\n]*: warning: setlocale:[^\n]*\n",
-    re.MULTILINE,
-)
-
-
-def _shell_quote(s: str) -> str:
-    """POSIX single-quote escape — same idiom DaytonaBackend uses."""
-    return "'" + s.replace("'", "'\"'\"'") + "'"
-
-
-# In-sandbox environment probe. Output layout (line-oriented):
-#   line 1:  uname -srm
-#   line 2:  $SHELL (or /bin/sh)
-#   line 3:  literal "TOOLS_BEGIN" separator
-#   lines 4+: one available PROBED_TOOLS entry per line
-_ENV_PROBE_SEPARATOR = "TOOLS_BEGIN"
-_ENV_PROBE_SCRIPT = (
-    "uname -srm\n"
-    'echo "${SHELL:-/bin/sh}"\n'
-    f"echo {_ENV_PROBE_SEPARATOR}\n"
-    "for t in " + " ".join(PROBED_TOOLS) + "; do "
-    'command -v "$t" >/dev/null 2>&1 && echo "$t"; '
-    "done\n"
-    "exit 0"
-)
-
 
 # In-sandbox edit script. Receives a base64-encoded JSON payload with
 # ``{path, old, new, replace_all, max_bytes}``. Emits one JSON line on
@@ -899,14 +870,14 @@ class BubblewrapBackend:
         if self._env_cache is not None:
             return self._env_cache
 
-        result = await self._shell(_ENV_PROBE_SCRIPT)
+        result = await self._shell(ENV_PROBE_SCRIPT)
         os_line = "unknown"
         shell = "/bin/sh"
         tools: set[str] = set()
         if result.get("exit_code") == 0:
             lines = result.get("output", "").splitlines()
             try:
-                sep_idx = lines.index(_ENV_PROBE_SEPARATOR)
+                sep_idx = lines.index(ENV_PROBE_SEPARATOR)
             except ValueError:
                 sep_idx = -1
             if sep_idx >= 2:
@@ -929,7 +900,7 @@ class BubblewrapBackend:
             sb_path = self._resolve(path)
         except PermissionError as exc:
             return ReadResult(error="permission_denied", error_message=str(exc))
-        q = _shell_quote(sb_path)
+        q = shell_quote(sb_path)
         # Single-shell probe + read in one spawn — saves a bwrap round trip
         # vs the two-step Daytona pattern (where each step pays a network
         # RTT, so consolidation isn't worth the parsing complexity).
@@ -955,7 +926,7 @@ class BubblewrapBackend:
             sb_path = self._resolve(path)
         except PermissionError as exc:
             return ReadBytesResult(error="permission_denied", error_message=str(exc))
-        q = _shell_quote(sb_path)
+        q = shell_quote(sb_path)
         check = await self._shell(
             f"if [ -d {q} ]; then echo D; "
             f"elif [ -f {q} ]; then echo F; stat -c %s {q}; "
@@ -995,7 +966,7 @@ class BubblewrapBackend:
         except PermissionError as exc:
             return WriteResult(error="permission_denied", error_message=str(exc))
         raw = content.encode("utf-8") if isinstance(content, str) else content
-        q = _shell_quote(sb_path)
+        q = shell_quote(sb_path)
         # Pipe bytes via stdin — avoids ARG_MAX entirely.
         result = await self._shell(
             f'mkdir -p "$(dirname {q})" && cat > {q}',
@@ -1029,9 +1000,7 @@ class BubblewrapBackend:
             }
         )
         encoded = base64.b64encode(payload.encode()).decode("ascii")
-        result = await self._shell(
-            f"python3 -c {_shell_quote(_EDIT_SCRIPT)} {_shell_quote(encoded)}"
-        )
+        result = await self._shell(f"python3 -c {shell_quote(_EDIT_SCRIPT)} {shell_quote(encoded)}")
         if result["exit_code"] != 0:
             return EditResult(
                 error="io_error",
@@ -1092,13 +1061,13 @@ class BubblewrapBackend:
             sb_path = self._resolve(path)
         except PermissionError:
             return []
-        q = _shell_quote(sb_path)
+        q = shell_quote(sb_path)
         if "**" in pattern or "/" in pattern:
             find_pattern = pattern.replace("**", "*")
             full_pattern = f"{sb_path}/{find_pattern}"
-            cmd = f"find {q} -path {_shell_quote(full_pattern)} -type f 2>/dev/null | sort"
+            cmd = f"find {q} -path {shell_quote(full_pattern)} -type f 2>/dev/null | sort"
         else:
-            cmd = f"find {q} -name {_shell_quote(pattern)} -type f 2>/dev/null | sort"
+            cmd = f"find {q} -name {shell_quote(pattern)} -type f 2>/dev/null | sort"
         exit_code, content_bytes, _ = await self._shell_raw(
             cmd, max_bytes=self._max_glob_output_bytes
         )
@@ -1127,9 +1096,9 @@ class BubblewrapBackend:
         except PermissionError:
             return []
         flags = "-rni" if ignore_case else "-rn"
-        cmd = f"grep {flags} {_shell_quote(pattern)} {_shell_quote(sb_path)}"
+        cmd = f"grep {flags} {shell_quote(pattern)} {shell_quote(sb_path)}"
         if glob:
-            cmd += f" --include={_shell_quote(glob)}"
+            cmd += f" --include={shell_quote(glob)}"
         cmd += " 2>/dev/null || true"
         result = await self._shell(cmd)
         if not result["output"].strip():
@@ -1452,4 +1421,4 @@ async def _read_capped(stream: asyncio.StreamReader, max_bytes: int) -> tuple[by
 
 def _strip_locale(text: str) -> str:
     """Strip bash setlocale warnings from output."""
-    return _BASH_STARTUP_WARNING_RE.sub("", text)
+    return BASH_STARTUP_WARNING_RE.sub("", text)

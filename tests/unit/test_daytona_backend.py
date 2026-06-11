@@ -12,7 +12,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from langchain_agentkit.backends.daytona import DaytonaBackend, _shell_quote
+from langchain_agentkit.backends.daytona import DaytonaBackend
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -24,37 +24,6 @@ def _make_backend(workdir: str = "/workspace") -> tuple[DaytonaBackend, MagicMoc
     mock_sandbox = MagicMock()
     backend = DaytonaBackend(mock_sandbox, timeout=60, workdir=workdir)
     return backend, mock_sandbox
-
-
-# ---------------------------------------------------------------------------
-# _shell_quote
-# ---------------------------------------------------------------------------
-
-
-class TestShellQuote:
-    def test_plain_string(self):
-        assert _shell_quote("hello") == "'hello'"
-
-    def test_string_with_spaces(self):
-        assert _shell_quote("hello world") == "'hello world'"
-
-    def test_string_with_single_quote(self):
-        result = _shell_quote("it's")
-        assert result == "'it'\"'\"'s'"
-
-    def test_string_with_special_chars(self):
-        result = _shell_quote("$HOME `cmd` \\n")
-        # Inside single quotes, $, `, \ are literal
-        assert result.startswith("'")
-        assert result.endswith("'")
-        assert "$HOME" in result
-
-    def test_empty_string(self):
-        assert _shell_quote("") == "''"
-
-    def test_string_with_newline(self):
-        result = _shell_quote("line1\nline2")
-        assert "\n" in result
 
 
 # ---------------------------------------------------------------------------

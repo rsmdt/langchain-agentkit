@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import fnmatch
+import glob as glob_mod
 import itertools
 import os
 import platform
@@ -203,8 +204,6 @@ class OSBackend:
 
     async def glob(self, pattern: str, path: str = "/") -> list[str]:
         real_path = self._resolve(path)
-        import glob as glob_mod
-
         full_pattern = os.path.join(real_path, pattern)
         matches = glob_mod.glob(full_pattern, recursive=True)
         result: list[str] = []
@@ -389,6 +388,4 @@ class OSBackend:
         if os.path.isfile(real_path):
             os.remove(real_path)
         elif os.path.isdir(real_path):
-            import shutil
-
             shutil.rmtree(real_path)

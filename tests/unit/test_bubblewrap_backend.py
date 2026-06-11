@@ -32,7 +32,6 @@ from langchain_agentkit.backends.bubblewrap import (
     BubblewrapBackend,
     CgroupLimits,
     ResourceLimits,
-    _shell_quote,
     _validate_bind_path,
     default_seccomp_program,
 )
@@ -93,23 +92,6 @@ def _make_backend(
             allow_network=allow_network,
             extra_ro_binds=extra_ro_binds,
         )
-
-
-# ---------------------------------------------------------------------------
-# _shell_quote
-# ---------------------------------------------------------------------------
-
-
-class TestShellQuote:
-    def test_plain_string(self):
-        assert _shell_quote("hello") == "'hello'"
-
-    def test_with_single_quote(self):
-        # POSIX 'safe' single-quote: 'it'"'"'s'
-        assert _shell_quote("it's") == "'it'\"'\"'s'"
-
-    def test_empty(self):
-        assert _shell_quote("") == "''"
 
 
 # ---------------------------------------------------------------------------

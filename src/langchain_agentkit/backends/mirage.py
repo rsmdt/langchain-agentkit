@@ -74,14 +74,10 @@ from langchain_agentkit.backends.results import (
     SandboxEnvironment,
     WriteResult,
 )
+from langchain_agentkit.backends.shell import shell_quote
 
 if TYPE_CHECKING:
     from langchain_agentkit.backends.results import FileError
-
-
-def _shell_quote(s: str) -> str:
-    """Quote a string for safe POSIX-shell interpolation."""
-    return "'" + s.replace("'", "'\"'\"'") + "'"
 
 
 # Map Python exception types to the framework's stable FileError
@@ -369,22 +365,22 @@ class MirageBackend:
         if basename_match is not None:
             basename = basename_match.group(1)
             cmd = (
-                f"find {_shell_quote(real_path)}"
-                f" -name {_shell_quote(basename)}"
+                f"find {shell_quote(real_path)}"
+                f" -name {shell_quote(basename)}"
                 f" -type f 2>/dev/null | sort"
             )
         elif "**" in pattern or "/" in pattern:
             find_pattern = pattern.replace("**", "*")
             full_pattern = f"{real_path.rstrip('/')}/{find_pattern}"
             cmd = (
-                f"find {_shell_quote(real_path)}"
-                f" -path {_shell_quote(full_pattern)}"
+                f"find {shell_quote(real_path)}"
+                f" -path {shell_quote(full_pattern)}"
                 f" -type f 2>/dev/null | sort"
             )
         else:
             cmd = (
-                f"find {_shell_quote(real_path)}"
-                f" -name {_shell_quote(pattern)}"
+                f"find {shell_quote(real_path)}"
+                f" -name {shell_quote(pattern)}"
                 f" -type f 2>/dev/null | sort"
             )
         io = await self._workspace.execute(cmd)
@@ -420,9 +416,9 @@ class MirageBackend:
         flags = "-rn"
         if ignore_case:
             flags += "i"
-        cmd = f"grep {flags} {_shell_quote(pattern)} {_shell_quote(real_path)}"
+        cmd = f"grep {flags} {shell_quote(pattern)} {shell_quote(real_path)}"
         if glob:
-            cmd += f" --include={_shell_quote(glob)}"
+            cmd += f" --include={shell_quote(glob)}"
         cmd += " 2>/dev/null || true"
         io = await self._workspace.execute(cmd)
         output = await io.stdout_str()
