@@ -270,14 +270,14 @@ class WebSearchExtension(Extension):
     multiple configured search providers in parallel.
 
     Each provider is a BaseTool or callable supplied by the application.
-    The extensions creates a single ``WebSearch`` tool that:
+    The extension creates a single ``WebSearch`` tool that:
     1. Calls all providers concurrently via asyncio.gather
     2. Returns results attributed per provider
 
     Args:
         providers: List of search providers. Each is a BaseTool instance
             or a callable with signature ``(query: str) -> str``.
-            Callables are auto-wrapped into BaseTool via @tool.
+            Callables are auto-wrapped into a ``StructuredTool``.
             When ``None`` or empty, defaults to the built-in DuckDuckGo provider.
         prompt_template: Optional custom prompt template path or string.
             Defaults to built-in search guidance.

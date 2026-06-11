@@ -6,8 +6,12 @@ originating ``tool_call_id``. Prevents orphan ``AIMessage(tool_calls=...)``
 from ever being written to the checkpoint, which is what causes the
 OpenAI Responses API error ``"No tool output found for function call"``.
 
+Layer 2 (shipped): read-time repair. Before each LLM call, scans the
+message list for orphan tool calls already in state (from earlier
+crashes, infrastructure failures, or manual edits) and injects
+synthetic ``ToolMessage``\\ s so the model request is always well-formed.
+
 Future layers (not yet shipped):
-    - Layer 2: read-time repair of orphan tool calls already in state
     - Layer 3: richer telemetry, persistence of repairs
 """
 
