@@ -33,6 +33,11 @@ from typing import TYPE_CHECKING
 
 from daytona_sdk import FileDownloadRequest, FileUpload
 
+from langchain_agentkit.backends.execution import (
+    DEFAULT_MAX_OUTPUT_BYTES,
+    DEFAULT_MAX_OUTPUT_LINES,
+    BoundedCapture,
+)
 from langchain_agentkit.backends.protocol import (
     ExecuteResponse,
     GrepMatch,
@@ -108,6 +113,11 @@ class DaytonaBackend:
             own ``WORKDIR`` (https://www.daytona.io/docs/en/file-system-operations/).
             Pass an explicit value when using a custom snapshot whose
             image declares a different ``WORKDIR``.
+        max_output_bytes: Bounded-tail byte cap for ``execute()`` output
+            (per stream). Overflow spills to a host-side temp file
+            surfaced via ``output_path``.
+        max_output_lines: Bounded-tail line cap for ``execute()`` output
+            (per stream).
     """
 
     def __init__(
@@ -115,10 +125,14 @@ class DaytonaBackend:
         sandbox: Sandbox,
         timeout: int = 300,
         workdir: str = "/home/daytona",
+        max_output_bytes: int = DEFAULT_MAX_OUTPUT_BYTES,
+        max_output_lines: int = DEFAULT_MAX_OUTPUT_LINES,
     ) -> None:
         self._sandbox = sandbox
         self._timeout = timeout
         self._workdir: str = workdir.rstrip("/")
+        self._max_output_bytes = max_output_bytes
+        self._max_output_lines = max_output_lines
         self._env_cache: SandboxEnvironment | None = None
 
     @property
@@ -184,6 +198,52 @@ class DaytonaBackend:
     ) -> ExecuteResponse:
         """Execute a shell command in the Daytona sandbox.
 
+        Output is bounded through :class:`BoundedCapture`: the response
+        carries a tail window and, on overflow, ``truncated=True`` with
+        the full transcript spilled to a host-side temp file surfaced
+        via ``output_path``. Internal file operations use the unbounded
+        ``_exec_raw`` path instead — they parse structured command
+        output that must never be truncated.
+
+        Raises:
+            RuntimeError: If the Daytona SDK call fails (network, auth, etc.).
+        """
+        raw = await self._exec_raw(command, timeout=timeout, workdir=workdir)
+        capture = BoundedCapture(
+            stdout_max_bytes=self._max_output_bytes,
+            stdout_max_lines=self._max_output_lines,
+            stderr_max_bytes=self._max_output_bytes,
+            stderr_max_lines=self._max_output_lines,
+        )
+        try:
+            await capture.feed_stdout(raw["output"].encode("utf-8", errors="replace"))
+            await capture.feed_stderr((raw["stderr"] or "").encode("utf-8", errors="replace"))
+        except Exception:
+            capture.abandon()
+            raise
+        stdout_res, stderr_res, spill_path = capture.finalize()
+        return ExecuteResponse(
+            output=stdout_res.tail.decode("utf-8", errors="replace"),
+            stderr=stderr_res.tail.decode("utf-8", errors="replace"),
+            exit_code=raw["exit_code"],
+            truncated=spill_path is not None,
+            output_path=str(spill_path) if spill_path is not None else None,
+            lines_dropped=stdout_res.lines_dropped + stderr_res.lines_dropped,
+            bytes_dropped=stdout_res.bytes_dropped + stderr_res.bytes_dropped,
+        )
+
+    async def _exec_raw(
+        self,
+        command: str,
+        timeout: int | None = None,
+        workdir: str | None = None,
+    ) -> ExecuteResponse:
+        """Run a command and return its full, unbounded output.
+
+        Used by the file-operation methods, whose structured output
+        (base64 payloads, JSON envelopes, find/grep listings) must be
+        parsed whole. LLM-facing callers go through ``execute()``.
+
         Raises:
             RuntimeError: If the Daytona SDK call fails (network, auth, etc.).
         """
@@ -221,7 +281,7 @@ class DaytonaBackend:
         if self._env_cache is not None:
             return self._env_cache
 
-        result = await self.execute(ENV_PROBE_SCRIPT)
+        result = await self._exec_raw(ENV_PROBE_SCRIPT)
         os_line = "unknown"
         shell = "/bin/sh"
         tools: set[str] = set()
@@ -251,16 +311,16 @@ class DaytonaBackend:
             real_path = self._resolve(path)
         except PermissionError as exc:
             return ReadBytesResult(error="permission_denied", error_message=str(exc))
-        check = await self.execute(f"test -f {shell_quote(real_path)}")
+        check = await self._exec_raw(f"test -f {shell_quote(real_path)}")
         if check["exit_code"] != 0:
             # Distinguish "is a directory" from "does not exist"
-            isdir = await self.execute(f"test -d {shell_quote(real_path)}")
+            isdir = await self._exec_raw(f"test -d {shell_quote(real_path)}")
             if isdir["exit_code"] == 0:
                 return ReadBytesResult(
                     error="is_directory", error_message=f"Path is a directory: {path}"
                 )
             return ReadBytesResult(error="file_not_found", error_message=f"File not found: {path}")
-        result = await self.execute(f"cat {shell_quote(real_path)} | base64")
+        result = await self._exec_raw(f"cat {shell_quote(real_path)} | base64")
         if result["exit_code"] != 0:
             return ReadBytesResult(
                 error="io_error",
@@ -273,9 +333,9 @@ class DaytonaBackend:
             real_path = self._resolve(path)
         except PermissionError as exc:
             return ReadResult(error="permission_denied", error_message=str(exc))
-        check = await self.execute(f"test -f {shell_quote(real_path)}")
+        check = await self._exec_raw(f"test -f {shell_quote(real_path)}")
         if check["exit_code"] != 0:
-            isdir = await self.execute(f"test -d {shell_quote(real_path)}")
+            isdir = await self._exec_raw(f"test -d {shell_quote(real_path)}")
             if isdir["exit_code"] == 0:
                 return ReadResult(
                     error="is_directory", error_message=f"Path is a directory: {path}"
@@ -284,7 +344,7 @@ class DaytonaBackend:
         start = offset + 1
         end = offset + limit
         cmd = f"sed -n '{start},{end}p' {shell_quote(real_path)}"
-        result = await self.execute(cmd)
+        result = await self._exec_raw(cmd)
         if result["exit_code"] != 0:
             return ReadResult(
                 error="io_error",
@@ -303,7 +363,7 @@ class DaytonaBackend:
             f"mkdir -p $(dirname {shell_quote(real_path)}) && "
             f"echo {shell_quote(encoded)} | base64 -d > {shell_quote(real_path)}"
         )
-        result = await self.execute(cmd)
+        result = await self._exec_raw(cmd)
         if result["exit_code"] != 0:
             return WriteResult(
                 error="io_error",
@@ -332,7 +392,7 @@ class DaytonaBackend:
         )
         encoded = base64.b64encode(payload.encode()).decode("ascii")
         script = _EDIT_SCRIPT
-        result = await self.execute(f"python3 -c {shell_quote(script)} {shell_quote(encoded)}")
+        result = await self._exec_raw(f"python3 -c {shell_quote(script)} {shell_quote(encoded)}")
         if result["exit_code"] != 0:
             return EditResult(
                 error="io_error",
@@ -405,7 +465,7 @@ class DaytonaBackend:
                 f" -name {shell_quote(pattern)}"
                 f" -type f 2>/dev/null | sort"
             )
-        result = await self.execute(cmd)
+        result = await self._exec_raw(cmd)
         if result["exit_code"] != 0 or not result["output"].strip():
             return []
         matches = []
@@ -435,7 +495,7 @@ class DaytonaBackend:
         if glob:
             cmd += f" --include={shell_quote(glob)}"
         cmd += " 2>/dev/null || true"
-        result = await self.execute(cmd)
+        result = await self._exec_raw(cmd)
         if not result["output"].strip():
             return []
         matches: list[GrepMatch] = []

@@ -214,6 +214,78 @@ class TestExecute:
 
 
 # ---------------------------------------------------------------------------
+# execute — output bounding
+# ---------------------------------------------------------------------------
+
+
+class TestExecuteOutputBounding:
+    """execute() bounds output through BoundedCapture.
+
+    A verbose command must never return an unbounded payload with
+    ``truncated=False`` — that blows the LLM context while claiming
+    nothing was dropped. Internal file ops use the raw path and are
+    exercised separately.
+    """
+
+    def _bounded_backend(
+        self, *, max_bytes: int = 1024, max_lines: int = 50
+    ) -> tuple[DaytonaBackend, MagicMock]:
+        mock_sandbox = MagicMock()
+        backend = DaytonaBackend(
+            mock_sandbox,
+            timeout=60,
+            workdir="/workspace",
+            max_output_bytes=max_bytes,
+            max_output_lines=max_lines,
+        )
+        return backend, mock_sandbox
+
+    async def test_oversized_output_is_truncated_and_spilled(self):
+        backend, mock = self._bounded_backend(max_bytes=1024)
+        big = "x" * 100 + "\n"
+        mock.process.exec.return_value = SimpleNamespace(
+            result=big * 100,  # ~10 KiB, far beyond the 1 KiB tail
+            exit_code=0,
+        )
+        result = await backend.execute("verbose_command")
+        assert result["truncated"] is True
+        assert result["bytes_dropped"] > 0
+        assert len(result["output"].encode()) <= 1024
+        spill = result["output_path"]
+        assert spill is not None
+        from pathlib import Path
+
+        spill_file = Path(spill)
+        assert spill_file.exists()
+        assert len(spill_file.read_bytes()) == len(big) * 100
+        spill_file.unlink()
+
+    async def test_line_cap_applies(self):
+        backend, mock = self._bounded_backend(max_bytes=1024 * 1024, max_lines=10)
+        mock.process.exec.return_value = SimpleNamespace(
+            result="line\n" * 100,
+            exit_code=0,
+        )
+        result = await backend.execute("many_lines")
+        assert result["truncated"] is True
+        assert result["output"].count("\n") <= 10
+        from pathlib import Path
+
+        assert result["output_path"] is not None
+        Path(result["output_path"]).unlink()
+
+    async def test_small_output_passes_through_unmarked(self):
+        backend, mock = self._bounded_backend()
+        mock.process.exec.return_value = SimpleNamespace(result="hello\n", exit_code=0)
+        result = await backend.execute("echo hello")
+        assert result["output"] == "hello\n"
+        assert result["truncated"] is False
+        assert result["output_path"] is None
+        assert result["lines_dropped"] == 0
+        assert result["bytes_dropped"] == 0
+
+
+# ---------------------------------------------------------------------------
 # Constructor
 # ---------------------------------------------------------------------------
 
