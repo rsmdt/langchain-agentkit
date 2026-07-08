@@ -23,10 +23,8 @@ import platform
 import urllib.parse
 import urllib.request
 from html.parser import HTMLParser
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, override
 
-from langchain_core.prompts import PromptTemplate
 from langchain_core.tools import BaseTool
 
 from langchain_agentkit.composition.extension import Extension
@@ -34,11 +32,6 @@ from langchain_agentkit.extensions.web_search.tools.web_search import _WebSearch
 
 if TYPE_CHECKING:
     from collections.abc import Callable
-
-
-_PROMPT_FILE = Path(__file__).parent / "prompt.md"
-
-_web_search_system_prompt = PromptTemplate.from_file(_PROMPT_FILE)
 
 
 def _default_user_agent() -> str:
@@ -279,8 +272,6 @@ class WebSearchExtension(Extension):
             or a callable with signature ``(query: str) -> str``.
             Callables are auto-wrapped into a ``StructuredTool``.
             When ``None`` or empty, defaults to the built-in DuckDuckGo provider.
-        prompt_template: Optional custom prompt template path or string.
-            Defaults to built-in search guidance.
 
     Example::
 
@@ -294,13 +285,11 @@ class WebSearchExtension(Extension):
         self,
         *,
         providers: list[BaseTool | Callable[[str], str]] | None = None,
-        prompt_template: str | Path | None = None,
     ) -> None:
         if providers is None or len(providers) == 0:
             providers = [DuckDuckGoSearchProvider()]
 
         self._providers = [self._resolve_provider(p) for p in providers]
-        self._prompt_template = self._load_prompt(prompt_template)
         self._tools: list[BaseTool] = [_WebSearchTool(providers=self._providers)]
 
     def _resolve_provider(self, provider: BaseTool | Callable[[str], str]) -> BaseTool:
@@ -317,14 +306,6 @@ class WebSearchExtension(Extension):
         raise TypeError(
             f"Each provider must be a BaseTool or callable, got {type(provider).__name__!r}"
         )
-
-    def _load_prompt(self, prompt_template: str | Path | None) -> PromptTemplate:
-        if prompt_template is None:
-            return _web_search_system_prompt
-        path = Path(prompt_template)
-        if path.exists():
-            return PromptTemplate.from_file(path)
-        return PromptTemplate.from_template(str(prompt_template))
 
     @property
     @override

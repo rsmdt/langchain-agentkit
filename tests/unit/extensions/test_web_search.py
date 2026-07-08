@@ -189,16 +189,6 @@ class TestWebSearchExtensionPrompt:
         assert prompt is not None
         assert "Sources" in prompt
 
-    def test_prompt_emits_sources_norm_with_custom_template(self):
-        """Custom template no longer affects the (norm-only) prompt output."""
-        mock_tool = _make_mock_tool("test_search")
-        custom_template = "Use {provider_names} for all web searches."
-        mw = WebSearchExtension(providers=[mock_tool], prompt_template=custom_template)
-
-        prompt = mw.prompt({}, _TEST_RUNTIME)
-        assert prompt is not None
-        assert "Sources" in prompt
-
 
 class TestWebSearchToolExecution:
     async def test_web_search_fans_out_to_all_providers(self):
