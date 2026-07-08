@@ -59,7 +59,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, override
 
 from langchain_core.messages import AIMessage, BaseMessage, ToolMessage
 from langchain_core.tools import ToolException
@@ -119,6 +119,31 @@ class ResilienceExtension(Extension):
         self._orphan_message = orphan_repair_message
         self._on_orphan = on_orphan_repaired
 
+    @override
+    def setup(self, *, extensions: list[Any]) -> None:  # type: ignore[override]
+        """Fail fast when a ``wrap_tool``-bearing extension precedes this one.
+
+        Hook onions compose first-extension-outermost, so the
+        tool-call/result pairing guarantee only covers ``wrap_tool``
+        behaviour this extension actually wraps. An extension listed
+        before this one sits *outside* the safety net: an exception in
+        its ``wrap_tool`` orphans the tool call, silently defeating the
+        reason resilience was added.
+        """
+        for ext in extensions:
+            if ext is self:
+                return
+            get_hooks = getattr(ext, "get_all_hooks", None)
+            if callable(get_hooks) and ("wrap", "tool") in get_hooks():
+                raise ValueError(
+                    f"ResilienceExtension must be listed before "
+                    f"{type(ext).__name__}: it composes outermost in the "
+                    f"tool-hook chain (first extension = outermost) to "
+                    f"guarantee the tool-call/result pairing invariant. "
+                    f"Reorder extensions=[ResilienceExtension(), ..., "
+                    f"{type(ext).__name__}(...)]."
+                )
+
     async def wrap_tool(
         self,
         *,
@@ -128,7 +153,8 @@ class ResilienceExtension(Extension):
     ) -> Any:
         # Sits outermost in the tool-hook chain so it wraps every other
         # extension's tool behaviour; whatever they do, if it raises, the
-        # tool-call/result pairing invariant still holds.
+        # tool-call/result pairing invariant still holds. setup() rejects
+        # extension orders that would break this.
         try:
             return await handler(state)
         except ToolException:

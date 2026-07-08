@@ -450,3 +450,46 @@ class TestOrphanRepair:
 
         # Repair still applied; handler still invoked.
         assert len(captured[0]) == 2
+
+
+# ---------------------------------------------------------------------------
+# setup — outermost-ordering enforcement
+# ---------------------------------------------------------------------------
+
+
+class TestOrderingEnforcement:
+    """Resilience must compose outermost among wrap_tool extensions.
+
+    Hook onions compose first-extension-outermost; a wrap_tool-bearing
+    extension listed before resilience would sit outside the safety net
+    and silently lose orphan prevention. setup() rejects that order.
+    """
+
+    @staticmethod
+    def _wrapping_extension():
+        from langchain_agentkit.composition.extension import Extension
+
+        class GateExtension(Extension):
+            async def wrap_tool(self, *, state, handler, runtime):
+                return await handler(state)
+
+        return GateExtension()
+
+    def test_wrap_tool_extension_before_resilience_rejected(self):
+        ext = ResilienceExtension()
+        with pytest.raises(ValueError, match="must be listed before GateExtension"):
+            ext.setup(extensions=[self._wrapping_extension(), ext])
+
+    def test_resilience_first_accepted(self):
+        ext = ResilienceExtension()
+        ext.setup(extensions=[ext, self._wrapping_extension()])
+
+    def test_non_wrapping_predecessors_accepted(self):
+        from langchain_agentkit.composition.extension import Extension
+
+        class PlainExtension(Extension):
+            def prompt(self, state, runtime=None, *, tools=frozenset()):
+                return "hello"
+
+        ext = ResilienceExtension()
+        ext.setup(extensions=[PlainExtension(), ext, self._wrapping_extension()])
