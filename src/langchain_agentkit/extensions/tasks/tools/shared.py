@@ -9,15 +9,10 @@ from __future__ import annotations
 
 from typing import Annotated, Any
 
-from langchain_core.tools import InjectedToolCallId, ToolException
+from langchain_core.tools import InjectedToolCallId
 from langgraph.prebuilt import InjectedState
 from pydantic import BaseModel, Field
 
-from langchain_agentkit.extensions.tasks.core import (
-    cascade_delete,
-    filter_resolved_blockers,
-    unresolved_blockers,
-)
 from langchain_agentkit.extensions.tasks.types import Task, TaskStatus
 
 __all__ = ["Task", "TaskStatus"]
@@ -100,113 +95,3 @@ class _TaskListInput(BaseModel):
 class _TaskGetInput(BaseModel):
     task_id: str = Field(description="Task ID to retrieve.")
     state: Annotated[dict[str, Any], InjectedState]
-
-
-# ---------------------------------------------------------------------------
-# Helpers
-# ---------------------------------------------------------------------------
-
-
-def _compute_blocks(task_id: str, tasks: list[dict[str, Any]]) -> list[str]:
-    """Compute which tasks are blocked by *task_id* (reverse lookup)."""
-    return [
-        t["id"]
-        for t in tasks
-        if task_id in t.get("blocked_by", []) and t.get("status") not in ("completed", "deleted")
-    ]
-
-
-_unresolved_blockers = unresolved_blockers
-_cascade_delete = cascade_delete
-_filter_resolved_blockers = filter_resolved_blockers
-
-
-def _validate_claim(
-    task: dict[str, Any],
-    tasks: list[dict[str, Any]],
-    new_status: str | None,
-    new_owner: str | None,
-) -> None:
-    """Validate dependency and ownership constraints for status transitions."""
-    if new_status == "in_progress":
-        unresolved = _unresolved_blockers(task, tasks)
-        if unresolved:
-            ids = ", ".join(unresolved)
-            raise ToolException(
-                f"Task '{task['id']}' is blocked by unresolved tasks: {ids}. "
-                "Complete blockers first or remove the dependency."
-            )
-
-    existing_owner = task.get("owner")
-    if (
-        new_owner
-        and existing_owner
-        and existing_owner != new_owner
-        and task.get("status") == "in_progress"
-    ):
-        raise ToolException(
-            f"Task '{task['id']}' is already claimed by '{existing_owner}'. "
-            "Wait for them to finish, or set its status back to pending to release it."
-        )
-
-
-def _merge_metadata(
-    task: dict[str, Any],
-    metadata: dict[str, Any],
-) -> None:
-    """Merge metadata into task, removing keys set to None."""
-    existing = dict(task.get("metadata") or {})
-    for key, val in metadata.items():
-        if val is None:
-            existing.pop(key, None)
-        else:
-            existing[key] = val
-    task["metadata"] = existing
-
-
-def _apply_blocks(
-    task_id: str,
-    tasks: list[dict[str, Any]],
-    target_ids: list[str],
-) -> None:
-    """For each target, add *task_id* to its blocked_by list."""
-    for target_id in target_ids:
-        target = next((t for t in tasks if t["id"] == target_id), None)
-        if target is not None:
-            target["blocked_by"] = list(
-                dict.fromkeys(target.get("blocked_by", []) + [task_id]),
-            )
-
-
-def _apply_task_fields(
-    task: dict[str, Any],
-    tasks: list[dict[str, Any]],
-    *,
-    status: str | None = None,
-    subject: str | None = None,
-    description: str | None = None,
-    active_form: str | None = None,
-    owner: str | None = None,
-    metadata: dict[str, Any] | None = None,
-    add_blocked_by: list[str] | None = None,
-    add_blocks: list[str] | None = None,
-) -> None:
-    """Apply field updates to a task dict in place."""
-    if status is not None:
-        task["status"] = status
-    if subject is not None:
-        task["subject"] = subject
-    if description is not None:
-        task["description"] = description
-    if active_form is not None:
-        task["active_form"] = active_form
-    if owner is not None:
-        task["owner"] = owner
-    if metadata is not None:
-        _merge_metadata(task, metadata)
-    if add_blocked_by:
-        task["blocked_by"] = list(
-            dict.fromkeys(task.get("blocked_by", []) + add_blocked_by),
-        )
-    if add_blocks:
-        _apply_blocks(task["id"], tasks, add_blocks)

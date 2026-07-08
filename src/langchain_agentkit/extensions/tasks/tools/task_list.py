@@ -7,10 +7,8 @@ from typing import Any
 
 from langchain_core.tools import StructuredTool
 
-from langchain_agentkit.extensions.tasks.tools.shared import (
-    _filter_resolved_blockers,
-    _TaskListInput,
-)
+from langchain_agentkit.extensions.tasks.core import filter_resolved_blockers
+from langchain_agentkit.extensions.tasks.tools.shared import _TaskListInput
 
 _TASK_LIST_DESCRIPTION = """List the current tasks and their status. Use when reviewing what exists or what's in progress. Read-only; it never creates or changes a task."""
 
@@ -32,7 +30,7 @@ def _task_list(state: dict[str, Any]) -> str:
             "owner": t.get("owner", ""),
             "blocked_by": t.get("blocked_by", []),
         }
-        _filter_resolved_blockers(entry, completed_ids)
+        filter_resolved_blockers(entry, completed_ids)
         summary.append(entry)
     return json.dumps(summary)
 

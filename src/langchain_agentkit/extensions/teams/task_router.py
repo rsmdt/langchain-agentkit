@@ -19,9 +19,10 @@ from typing import TYPE_CHECKING, Any
 from langchain_core.messages import HumanMessage
 
 from langchain_agentkit.extensions.tasks.core import (
-    cascade_delete,
+    TaskUpdateError,
+    apply_task_update,
+    compute_blocks,
     filter_resolved_blockers,
-    unresolved_blockers,
 )
 from langchain_agentkit.extensions.teams.task_proxy import TASK_OP_TYPE
 
@@ -164,44 +165,6 @@ def _op_create(
     return _ack(request_id, task=task), tasks
 
 
-def _apply_scalar_fields(task: dict[str, Any], op: dict[str, Any]) -> None:
-    """Apply simple scalar field updates from an op dict."""
-    for field in ("status", "subject", "description", "active_form", "owner"):
-        if op.get(field) is not None:
-            task[field] = op[field]
-
-
-def _apply_metadata(task: dict[str, Any], metadata: dict[str, Any]) -> None:
-    """Merge metadata into task, removing keys set to ``None``."""
-    existing = dict(task.get("metadata") or {})
-    for key, val in metadata.items():
-        if val is None:
-            existing.pop(key, None)
-        else:
-            existing[key] = val
-    task["metadata"] = existing
-
-
-def _apply_dependency_fields(
-    task: dict[str, Any],
-    tasks: list[dict[str, Any]],
-    op: dict[str, Any],
-) -> None:
-    """Apply blocked_by/blocks dependency updates."""
-    task_id = task["id"]
-    if op.get("add_blocked_by"):
-        task["blocked_by"] = list(
-            dict.fromkeys(task.get("blocked_by", []) + op["add_blocked_by"]),
-        )
-    if op.get("add_blocks"):
-        for target_id in op["add_blocks"]:
-            target = next((t for t in tasks if t["id"] == target_id), None)
-            if target is not None:
-                target["blocked_by"] = list(
-                    dict.fromkeys(target.get("blocked_by", []) + [task_id]),
-                )
-
-
 def _op_update(
     op: dict[str, Any],
     tasks: list[dict[str, Any]],
@@ -212,49 +175,26 @@ def _op_update(
         return _ack(request_id, error="Missing task_id"), tasks
 
     tasks = [dict(t) for t in tasks]
-    task = next((t for t in tasks if t["id"] == task_id), None)
-    if task is None:
-        return _ack(request_id, error=f"Task '{task_id}' not found."), tasks
-
-    new_status = op.get("status")
-    new_owner = op.get("owner")
-    sender = op.get("sender")
-
-    # Dependency enforcement: block in_progress when blockers unresolved
-    if new_status == "in_progress":
-        unresolved = unresolved_blockers(task, tasks)
-        if unresolved:
-            ids = ", ".join(unresolved)
-            msg = f"Task '{task_id}' is blocked by unresolved tasks: {ids}."
-            return _ack(request_id, error=msg), tasks
-
-    # Claim validation: prevent overwriting another agent's claim
-    existing_owner = task.get("owner")
-    if (
-        new_owner
-        and existing_owner
-        and existing_owner != new_owner
-        and task.get("status") == "in_progress"
-    ):
-        msg = f"Task '{task_id}' is already claimed by '{existing_owner}'."
-        return _ack(request_id, error=msg), tasks
-
-    # Deletion cascade: remove references from other tasks
-    if new_status == "deleted":
-        cascade_delete(task_id, tasks)
-
-    # Auto-owner: when teammate sets in_progress without explicit owner
-    if new_status == "in_progress" and not new_owner and not task.get("owner") and sender:
-        op["owner"] = sender
-
-    _apply_scalar_fields(task, op)
-    if op.get("metadata") is not None:
-        _apply_metadata(task, op["metadata"])
-    _apply_dependency_fields(task, tasks, op)
+    try:
+        task = apply_task_update(
+            tasks,
+            task_id,
+            status=op.get("status"),
+            subject=op.get("subject"),
+            description=op.get("description"),
+            active_form=op.get("active_form"),
+            owner=op.get("owner"),
+            metadata=op.get("metadata"),
+            add_blocked_by=op.get("add_blocked_by"),
+            add_blocks=op.get("add_blocks"),
+            sender=op.get("sender"),
+        )
+    except TaskUpdateError as exc:
+        return _ack(request_id, error=str(exc)), tasks
 
     # Completion nudge: tell teammate to check for next work
     extra: dict[str, Any] = {"task": task}
-    if new_status == "completed":
+    if op.get("status") == "completed":
         extra["message"] = (
             "Task completed. Call TaskList now to find your next "
             "available task or see if your work unblocked others."
@@ -300,12 +240,7 @@ def _op_get(
         return _ack(request_id, error=f"Task '{task_id}' not found."), tasks
 
     result = dict(task)
-    # Compute reverse blocks
-    result["blocks"] = [
-        t["id"]
-        for t in tasks
-        if task_id in t.get("blocked_by", []) and t.get("status") not in ("completed", "deleted")
-    ]
+    result["blocks"] = compute_blocks(task_id, tasks)
     return _ack(request_id, task=result), tasks
 
 

@@ -7,10 +7,8 @@ from typing import Any
 
 from langchain_core.tools import StructuredTool, ToolException
 
-from langchain_agentkit.extensions.tasks.tools.shared import (
-    _compute_blocks,
-    _TaskGetInput,
-)
+from langchain_agentkit.extensions.tasks.core import compute_blocks
+from langchain_agentkit.extensions.tasks.tools.shared import _TaskGetInput
 
 _TASK_GET_DESCRIPTION = """Get the full stored record of one task. Use when you need a single task's complete detail. Read-only; returns one task and changes nothing."""
 
@@ -22,7 +20,7 @@ def _task_get(task_id: str, state: dict[str, Any]) -> str:
     if task is None:
         raise ToolException(f"Task '{task_id}' not found.")
     result = dict(task)
-    result["blocks"] = _compute_blocks(task_id, tasks)
+    result["blocks"] = compute_blocks(task_id, tasks)
     return json.dumps(result)
 
 

@@ -7,9 +7,9 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import ToolException
 from langgraph.types import Command
 
+from langchain_agentkit.extensions.tasks.core import compute_blocks
 from langchain_agentkit.extensions.tasks.state import _merge_task_pair, _merge_tasks
 from langchain_agentkit.extensions.tasks.tools import create_task_tools
-from langchain_agentkit.extensions.tasks.tools.shared import _compute_blocks
 from langchain_agentkit.extensions.tasks.tools.task_create import _task_create
 from langchain_agentkit.extensions.tasks.tools.task_get import _task_get
 from langchain_agentkit.extensions.tasks.tools.task_list import _task_list
@@ -734,7 +734,7 @@ class TestComputeBlocks:
             {"id": "2", "status": "pending", "blocked_by": ["1"]},
         ]
 
-        assert _compute_blocks("1", tasks) == ["2"]
+        assert compute_blocks("1", tasks) == ["2"]
 
     def test_excludes_completed(self):
         tasks = [
@@ -742,7 +742,7 @@ class TestComputeBlocks:
             {"id": "2", "status": "completed", "blocked_by": ["1"]},
         ]
 
-        assert _compute_blocks("1", tasks) == []
+        assert compute_blocks("1", tasks) == []
 
     def test_excludes_deleted(self):
         tasks = [
@@ -750,12 +750,12 @@ class TestComputeBlocks:
             {"id": "2", "status": "deleted", "blocked_by": ["1"]},
         ]
 
-        assert _compute_blocks("1", tasks) == []
+        assert compute_blocks("1", tasks) == []
 
     def test_empty_when_no_blockers(self):
         tasks = [{"id": "1", "status": "pending"}]
 
-        assert _compute_blocks("1", tasks) == []
+        assert compute_blocks("1", tasks) == []
 
 
 class TestMergeTaskPair:
@@ -935,3 +935,75 @@ class TestMergeTasks:
 
         assert len(result) == 1
         assert result[0]["id"] == "1"
+
+
+class TestUpdatePathParity:
+    """The tool and router paths share one transition semantics.
+
+    Regression guard: the router used to auto-claim when a teammate set
+    in_progress while the direct TaskUpdate tool did not — the same
+    operation produced different state depending on which path carried it.
+    """
+
+    @staticmethod
+    def _base_task():
+        return {
+            "id": "t1",
+            "subject": "Do thing",
+            "description": "",
+            "status": "pending",
+            "active_form": "",
+        }
+
+    def test_tool_auto_claims_for_identified_sender(self):
+        state = {"tasks": [self._base_task()], "sender": "alice"}
+        result = _task_update(
+            task_id="t1",
+            state=state,
+            tool_call_id=FAKE_TOOL_CALL_ID,
+            status="in_progress",
+        )
+        assert result.update["tasks"][0]["owner"] == "alice"
+
+    def test_tool_leaves_owner_unset_without_sender(self):
+        state = {"tasks": [self._base_task()]}
+        result = _task_update(
+            task_id="t1",
+            state=state,
+            tool_call_id=FAKE_TOOL_CALL_ID,
+            status="in_progress",
+        )
+        assert not result.update["tasks"][0].get("owner")
+
+    def test_explicit_owner_wins_over_sender(self):
+        state = {"tasks": [self._base_task()], "sender": "alice"}
+        result = _task_update(
+            task_id="t1",
+            state=state,
+            tool_call_id=FAKE_TOOL_CALL_ID,
+            status="in_progress",
+            owner="bob",
+        )
+        assert result.update["tasks"][0]["owner"] == "bob"
+
+    def test_tool_and_router_produce_identical_task_state(self):
+        from langchain_agentkit.extensions.teams.task_router import process_task_op
+
+        op = {
+            "op": "update",
+            "request_id": "r1",
+            "task_id": "t1",
+            "status": "in_progress",
+            "sender": "alice",
+        }
+        _, router_tasks = process_task_op(op, [self._base_task()])
+
+        state = {"tasks": [self._base_task()], "sender": "alice"}
+        tool_tasks = _task_update(
+            task_id="t1",
+            state=state,
+            tool_call_id=FAKE_TOOL_CALL_ID,
+            status="in_progress",
+        ).update["tasks"]
+
+        assert router_tasks == tool_tasks

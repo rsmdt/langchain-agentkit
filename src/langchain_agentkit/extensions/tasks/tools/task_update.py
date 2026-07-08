@@ -9,12 +9,8 @@ from langchain_core.messages import ToolMessage
 from langchain_core.tools import StructuredTool, ToolException
 from langgraph.types import Command
 
-from langchain_agentkit.extensions.tasks.tools.shared import (
-    _apply_task_fields,
-    _cascade_delete,
-    _TaskUpdateInput,
-    _validate_claim,
-)
+from langchain_agentkit.extensions.tasks.core import TaskUpdateError, apply_task_update
+from langchain_agentkit.extensions.tasks.tools.shared import _TaskUpdateInput
 
 _TASK_UPDATE_DESCRIPTION = """Change a task's status or details. Use when a task's state or content changes, such as marking it done. Modifies one existing task."""
 
@@ -34,27 +30,22 @@ def _task_update(
 ) -> Command:  # type: ignore[type-arg]
     """Update an existing task."""
     tasks = [dict(t) for t in (state.get("tasks") or [])]
-    task = next((t for t in tasks if t["id"] == task_id), None)
-    if task is None:
-        raise ToolException(f"Task '{task_id}' not found.")
-
-    _validate_claim(task, tasks, status, owner)
-
-    if status == "deleted":
-        _cascade_delete(task_id, tasks)
-
-    _apply_task_fields(
-        task,
-        tasks,
-        status=status,
-        subject=subject,
-        description=description,
-        active_form=active_form,
-        owner=owner,
-        metadata=metadata,
-        add_blocked_by=add_blocked_by,
-        add_blocks=add_blocks,
-    )
+    try:
+        task = apply_task_update(
+            tasks,
+            task_id,
+            status=status,
+            subject=subject,
+            description=description,
+            active_form=active_form,
+            owner=owner,
+            metadata=metadata,
+            add_blocked_by=add_blocked_by,
+            add_blocks=add_blocks,
+            sender=state.get("sender"),
+        )
+    except TaskUpdateError as exc:
+        raise ToolException(str(exc)) from exc
 
     return Command(
         update={
