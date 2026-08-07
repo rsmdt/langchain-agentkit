@@ -28,6 +28,8 @@ from langchain_agentkit.extensions.turn_budget import TurnBudgetExtension
 from langchain_agentkit.extensions.web_search import (
     DuckDuckGoSearchProvider,
     QwantSearchProvider,
+    SearchProvider,
+    SearchResult,
     WebSearchExtension,
 )
 
@@ -44,6 +46,8 @@ __all__ = [
     "QwantSearchProvider",
     "ResilienceExtension",
     "RubricExtension",
+    "SearchProvider",
+    "SearchResult",
     "SkillsExtension",
     "TasksExtension",
     "TeamExtension",

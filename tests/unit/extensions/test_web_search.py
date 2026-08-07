@@ -1,14 +1,16 @@
 """Tests for WebSearchExtension."""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock, patch
 
 import pytest
-from langchain_core.tools import BaseTool
+from langchain_core.messages import ToolCall
 from langgraph.prebuilt import ToolRuntime
 
 from langchain_agentkit.extensions.web_search import (
     DuckDuckGoSearchProvider,
     QwantSearchProvider,
+    SearchProvider,
+    SearchResult,
     WebSearchExtension,
 )
 
@@ -22,70 +24,86 @@ _TEST_RUNTIME = ToolRuntime(
 )
 
 
-def _make_mock_tool(name: str, return_value: str = "search results") -> MagicMock:
-    mock = MagicMock(spec=BaseTool)
-    mock.name = name
-    mock.ainvoke = AsyncMock(return_value=return_value)
-    mock.invoke = MagicMock(return_value=return_value)
-    return mock
+class _FakeProvider(SearchProvider):
+    """In-memory provider returning canned records, or raising."""
+
+    def __init__(self, name: str, results=None, error: Exception | None = None) -> None:
+        self.name = name
+        self._results = results or []
+        self._error = error
+        self.calls = 0
+
+    def search(self, query: str, *, max_results: int) -> list[SearchResult]:
+        self.calls += 1
+        if self._error is not None:
+            raise self._error
+        return list(self._results[:max_results])
+
+
+def _result(url: str, title: str = "t", snippet: str = "s") -> SearchResult:
+    return SearchResult(url=url, title=title, snippet=snippet)
+
+
+def _tool_call(query: str = "q", **args) -> ToolCall:
+    """A proper ToolCall payload — makes a content_and_artifact tool return a ToolMessage."""
+    return ToolCall(name="WebSearch", args={"query": query, **args}, id="call-1", type="tool_call")
+
+
+class TestSearchResult:
+    def test_as_dict_is_serializable(self):
+        r = SearchResult(url="https://x", title="T", snippet="S", provider="P")
+        assert r.as_dict() == {
+            "url": "https://x",
+            "title": "T",
+            "snippet": "S",
+            "published": None,
+            "score": None,
+            "provider": "P",
+        }
 
 
 class TestWebSearchExtensionConstruction:
     def test_empty_providers_uses_default(self):
         mw = WebSearchExtension(providers=[])
-
         assert len(mw.tools) == 1
         assert mw.tools[0].name == "WebSearch"
+
+    def test_none_providers_uses_default(self):
+        mw = WebSearchExtension(providers=None)
+        assert mw.tools[0].providers[0].name == "DuckDuckGoSearch"
 
     def test_invalid_provider_type_raises_type_error(self):
         with pytest.raises(TypeError):
             WebSearchExtension(providers=[42])  # type: ignore[list-item]
 
-    def test_invalid_string_provider_raises_type_error(self):
+    def test_basetool_provider_rejected(self):
+        """Direct BaseTool providers are no longer accepted — providers are SearchProvider."""
         with pytest.raises(TypeError):
-            WebSearchExtension(providers=["not_a_provider"])  # type: ignore[list-item]
+            WebSearchExtension(providers=[MagicMock()])  # type: ignore[list-item]
 
 
 class TestDuckDuckGoSearchProviderStandalone:
     def test_default_name(self):
-        tool = DuckDuckGoSearchProvider()
-        assert tool.name == "DuckDuckGoSearch"
-
-    def test_default_headers_has_user_agent(self):
-        tool = DuckDuckGoSearchProvider()
-        assert "User-Agent" in tool.headers
+        assert DuckDuckGoSearchProvider().name == "DuckDuckGoSearch"
 
     def test_instant_mode_is_default(self):
-        tool = DuckDuckGoSearchProvider()
-        assert tool.use_html is False
+        assert DuckDuckGoSearchProvider().use_html is False
 
     def test_instant_mode_uses_platform_user_agent(self):
-        """The Instant Answer API works with the lightweight platform UA."""
-        tool = DuckDuckGoSearchProvider()
-        assert "Mozilla" not in tool.headers["User-Agent"]
+        assert "Mozilla" not in DuckDuckGoSearchProvider().headers["User-Agent"]
 
     def test_html_mode_defaults_to_browser_user_agent(self):
-        """The HTML SERP endpoint blocks non-browser clients, so HTML mode
-        must default to a browser User-Agent."""
-        tool = DuckDuckGoSearchProvider(use_html=True)
-        assert "Mozilla" in tool.headers["User-Agent"]
+        assert "Mozilla" in DuckDuckGoSearchProvider(use_html=True).headers["User-Agent"]
 
     def test_explicit_headers_override_html_default(self):
         tool = DuckDuckGoSearchProvider(use_html=True, headers={"User-Agent": "custom"})
         assert tool.headers["User-Agent"] == "custom"
 
-    def test_html_mode_parses_serp_results(self):
-        """HTML mode extracts title, URL, and snippet from SERP markup."""
-        from unittest.mock import patch
-
+    def test_html_mode_parses_serp_results_as_records(self):
         sample_html = """
-        <h2 class="result__title">
-          <a rel="nofollow" class="result__a" href="https://example.com/a">First Result</a>
-        </h2>
-        <a class="result__snippet" href="https://example.com/a">Snippet <b>one</b> here.</a>
-        <h2 class="result__title">
-          <a class="result__a" href="https://example.com/b">Second Result</a>
-        </h2>
+        <a class="result__a" href="https://example.com/a">First Result</a>
+        <a class="result__snippet" href="https://example.com/a">Snippet one here.</a>
+        <a class="result__a" href="https://example.com/b">Second Result</a>
         <a class="result__snippet" href="https://example.com/b">Snippet two.</a>
         """
 
@@ -101,15 +119,14 @@ class TestDuckDuckGoSearchProviderStandalone:
 
         tool = DuckDuckGoSearchProvider(use_html=True)
         with patch("urllib.request.urlopen", return_value=_FakeResponse()):
-            output = tool.invoke("any query")
+            results = tool.search("any query")
 
-        assert "[First Result](https://example.com/a)" in output
-        assert "Snippet one here." in output
-        assert "[Second Result](https://example.com/b)" in output
+        assert [r.url for r in results] == ["https://example.com/a", "https://example.com/b"]
+        assert results[0].title == "First Result"
+        assert results[0].snippet == "Snippet one here."
+        assert results[0].published is None
 
-    def test_html_mode_no_results_returns_message(self):
-        from unittest.mock import patch
-
+    def test_html_mode_no_results_returns_empty(self):
         class _FakeResponse:
             def __enter__(self):
                 return self
@@ -122,146 +139,152 @@ class TestDuckDuckGoSearchProviderStandalone:
 
         tool = DuckDuckGoSearchProvider(use_html=True)
         with patch("urllib.request.urlopen", return_value=_FakeResponse()):
-            output = tool.invoke("any query")
+            assert tool.search("any query") == []
 
-        assert output == "No results found."
+    def test_max_results_is_honored(self):
+        class _FakeResponse:
+            def __enter__(self):
+                return self
+
+            def __exit__(self, *args):
+                return False
+
+            def read(self):
+                return (
+                    b'{"Abstract":"","RelatedTopics":['
+                    b'{"Text":"one","FirstURL":"https://x/1"},'
+                    b'{"Text":"two","FirstURL":"https://x/2"},'
+                    b'{"Text":"three","FirstURL":"https://x/3"}]}'
+                )
+
+        tool = DuckDuckGoSearchProvider()
+        with patch("urllib.request.urlopen", return_value=_FakeResponse()):
+            assert len(tool.search("q", max_results=2)) == 2
 
 
 class TestQwantSearchProviderStandalone:
     def test_default_name(self):
-        tool = QwantSearchProvider()
-        assert tool.name == "QwantSearch"
+        assert QwantSearchProvider().name == "QwantSearch"
 
 
-class TestDefaultProvider:
-    def test_no_providers_uses_duckduckgo_default(self):
-        """When no providers given, uses built-in DuckDuckGo search."""
+class TestDefaultProviderPrompt:
+    def test_prompt_emits_sources_norm_when_tool_present(self):
         mw = WebSearchExtension()
-        assert len(mw.tools) == 1
-        assert mw.tools[0].name == "WebSearch"
-        assert mw.tools[0].providers[0].name == "DuckDuckGoSearch"
-
-    def test_none_providers_uses_default(self):
-        """When providers=None, uses built-in DuckDuckGo search."""
-        mw = WebSearchExtension(providers=None)
-        assert len(mw.tools) == 1
-
-    def test_empty_list_uses_default(self):
-        """When providers=[], uses built-in DuckDuckGo search."""
-        mw = WebSearchExtension(providers=[])
-        assert len(mw.tools) == 1
-
-    def test_default_provider_prompt_emits_sources_norm(self):
-        """WebSearchExtension contributes the Sources behavioral norm."""
-        mw = WebSearchExtension()
-        prompt = mw.prompt({}, MagicMock())
+        prompt = mw.prompt({}, _TEST_RUNTIME, tools=frozenset({"WebSearch"}))
         assert prompt is not None
         assert "Sources" in prompt
 
+    def test_prompt_emits_sources_norm_outside_composed_kit(self):
+        """Empty tools set means standalone call — keep the norm."""
+        assert "Sources" in WebSearchExtension().prompt({}, _TEST_RUNTIME)
 
-class TestWebSearchExtensionTools:
-    def test_tools_returns_single_web_search_tool(self):
-        mock_tool = _make_mock_tool("test_search")
-        mw = WebSearchExtension(providers=[mock_tool])
-
-        tools = mw.tools
-
-        assert len(tools) == 1
-        assert tools[0].name == "WebSearch"
-
-    def test_tools_cached_after_first_access(self):
-        mock_tool = _make_mock_tool("test_search")
-        mw = WebSearchExtension(providers=[mock_tool])
-
-        first = mw.tools
-        second = mw.tools
-
-        assert first is second
+    def test_prompt_suppressed_when_tool_shadowed(self):
+        """When WebSearch is composed away (shadowed), the norm is not contributed."""
+        mw = WebSearchExtension()
+        assert mw.prompt({}, _TEST_RUNTIME, tools=frozenset({"OtherTool"})) is None
 
 
-class TestWebSearchExtensionPrompt:
-    def test_prompt_emits_sources_norm(self):
-        """The Sources behavioral norm is contributed regardless of provider."""
-        mock_tool = _make_mock_tool("brave_search")
-        mw = WebSearchExtension(providers=[mock_tool])
+class TestFallbackMode:
+    async def test_single_provider_returns_records(self):
+        p = _FakeProvider("solo", [_result("https://a"), _result("https://b")])
+        tool = WebSearchExtension(providers=[p]).tools[0]
 
-        prompt = mw.prompt({}, _TEST_RUNTIME)
-        assert prompt is not None
-        assert "Sources" in prompt
+        msg = await tool.ainvoke(_tool_call())
+
+        assert "https://a" in msg.content
+        assert [r["url"] for r in msg.artifact] == ["https://a", "https://b"]
+        assert msg.artifact[0]["provider"] == "solo"
+
+    async def test_first_nonempty_provider_wins(self):
+        empty = _FakeProvider("empty", [])
+        full = _FakeProvider("full", [_result("https://a")])
+        tool = WebSearchExtension(providers=[empty, full]).tools[0]
+
+        msg = await tool.ainvoke(_tool_call())
+
+        assert empty.calls == 1
+        assert full.calls == 1
+        assert [r["url"] for r in msg.artifact] == ["https://a"]
+
+    async def test_all_providers_fail_raises(self):
+        """Terminal failure propagates so ResilienceExtension can handle it."""
+        a = _FakeProvider("a", error=RuntimeError("a failed"))
+        b = _FakeProvider("b", error=RuntimeError("b failed"))
+        tool = WebSearchExtension(providers=[a, b]).tools[0]
+
+        with pytest.raises(RuntimeError):
+            await tool.ainvoke(_tool_call())
+
+    async def test_empty_results_render_no_results_message(self):
+        tool = WebSearchExtension(providers=[_FakeProvider("empty", [])]).tools[0]
+        msg = await tool.ainvoke(_tool_call())
+        assert msg.content == "No results found."
+        assert msg.artifact == []
 
 
-class TestWebSearchToolExecution:
-    async def test_web_search_fans_out_to_all_providers(self):
-        provider_a = _make_mock_tool("provider_a", return_value="result from a")
-        provider_b = _make_mock_tool("provider_b", return_value="result from b")
-        mw = WebSearchExtension(providers=[provider_a, provider_b])
-        web_search_tool = mw.tools[0]
+class TestFanOutMode:
+    async def test_merges_and_dedupes_by_url(self):
+        a = _FakeProvider("a", [_result("https://dup"), _result("https://a-only")])
+        b = _FakeProvider("b", [_result("https://dup"), _result("https://b-only")])
+        tool = WebSearchExtension(providers=[a, b], fan_out=True).tools[0]
 
-        output = await web_search_tool.ainvoke({"query": "test query"})
+        msg = await tool.ainvoke(_tool_call())
 
-        provider_a.ainvoke.assert_called_once()
-        provider_b.ainvoke.assert_called_once()
-        assert "result from a" in output
-        assert "result from b" in output
+        urls = [r["url"] for r in msg.artifact]
+        assert urls.count("https://dup") == 1
+        assert set(urls) == {"https://dup", "https://a-only", "https://b-only"}
 
-    async def test_provider_error_captured_not_raised(self):
-        good_provider = _make_mock_tool("good_provider", return_value="good result")
-        bad_provider = _make_mock_tool("bad_provider")
-        bad_provider.ainvoke = AsyncMock(side_effect=RuntimeError("provider failed"))
-        mw = WebSearchExtension(providers=[good_provider, bad_provider])
-        web_search_tool = mw.tools[0]
+    async def test_ranks_by_score_descending(self):
+        a = _FakeProvider("a", [SearchResult(url="https://low", score=0.1)])
+        b = _FakeProvider("b", [SearchResult(url="https://high", score=0.9)])
+        tool = WebSearchExtension(providers=[a, b], fan_out=True).tools[0]
 
-        output = await web_search_tool.ainvoke({"query": "test query"})
+        msg = await tool.ainvoke(_tool_call())
 
-        assert "good result" in output
-        assert output is not None
+        assert [r["url"] for r in msg.artifact] == ["https://high", "https://low"]
 
-    async def test_all_providers_fail_returns_errors(self):
-        provider_a = _make_mock_tool("provider_a")
-        provider_a.ainvoke = AsyncMock(side_effect=RuntimeError("a failed"))
-        provider_b = _make_mock_tool("provider_b")
-        provider_b.ainvoke = AsyncMock(side_effect=RuntimeError("b failed"))
-        mw = WebSearchExtension(providers=[provider_a, provider_b])
-        web_search_tool = mw.tools[0]
+    async def test_partial_failure_still_returns(self):
+        good = _FakeProvider("good", [_result("https://a")])
+        bad = _FakeProvider("bad", error=RuntimeError("boom"))
+        tool = WebSearchExtension(providers=[good, bad], fan_out=True).tools[0]
 
-        output = await web_search_tool.ainvoke({"query": "test query"})
+        msg = await tool.ainvoke(_tool_call())
 
-        assert output is not None
-        assert isinstance(output, str)
+        assert [r["url"] for r in msg.artifact] == ["https://a"]
 
-    async def test_results_attributed_per_provider(self):
-        provider_a = _make_mock_tool("provider_a", return_value="result from a")
-        provider_b = _make_mock_tool("provider_b", return_value="result from b")
-        mw = WebSearchExtension(providers=[provider_a, provider_b])
-        web_search_tool = mw.tools[0]
+    async def test_all_fail_raises(self):
+        a = _FakeProvider("a", error=RuntimeError("a"))
+        b = _FakeProvider("b", error=RuntimeError("b"))
+        tool = WebSearchExtension(providers=[a, b], fan_out=True).tools[0]
 
-        output = await web_search_tool.ainvoke({"query": "test query"})
+        with pytest.raises(RuntimeError):
+            await tool.ainvoke(_tool_call())
 
-        assert "## provider_a" in output
-        assert "## provider_b" in output
+    async def test_max_results_caps_merged_list(self):
+        a = _FakeProvider("a", [_result("https://1"), _result("https://2")])
+        b = _FakeProvider("b", [_result("https://3"), _result("https://4")])
+        tool = WebSearchExtension(providers=[a, b], fan_out=True).tools[0]
 
-    def test_sync_run_works(self):
-        mock_tool = _make_mock_tool("test_search", return_value="sync result")
-        mw = WebSearchExtension(providers=[mock_tool])
-        web_search_tool = mw.tools[0]
+        msg = await tool.ainvoke(_tool_call(max_results=3))
 
-        output = web_search_tool.invoke({"query": "test query"})
+        assert len(msg.artifact) == 3
 
-        assert output is not None
-        assert isinstance(output, str)
+
+class TestSyncExecution:
+    def test_sync_run_returns_records(self):
+        p = _FakeProvider("solo", [_result("https://a")])
+        tool = WebSearchExtension(providers=[p]).tools[0]
+        msg = tool.invoke(_tool_call())
+        assert [r["url"] for r in msg.artifact] == ["https://a"]
 
 
 class TestExtensionProtocol:
     def test_implements_extension_protocol(self):
-        mock_tool = _make_mock_tool("test_search")
-        mw = WebSearchExtension(providers=[mock_tool])
-
+        mw = WebSearchExtension(providers=[_FakeProvider("x")])
         assert hasattr(mw, "tools")
         assert isinstance(mw.tools, list)
         assert callable(mw.prompt)
 
-    def test_no_wrap_tool_call(self):
-        mock_tool = _make_mock_tool("test_search")
-        mw = WebSearchExtension(providers=[mock_tool])
-
-        assert not hasattr(mw, "wrap_tool_call")
+    def test_tool_advertises_content_and_artifact(self):
+        tool = WebSearchExtension(providers=[_FakeProvider("x")]).tools[0]
+        assert tool.response_format == "content_and_artifact"

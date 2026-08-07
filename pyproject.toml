@@ -22,12 +22,18 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+web = [
+    "markdownify>=0.11",
+    "readabilipy>=0.2",
+]
 dev = [
     "poethepoet>=0.32",
     "pytest>=8.0",
     "pytest-asyncio>=0.24",
     "pytest-xdist>=3.5",
     "langchain-openai>=0.3",
+    "markdownify>=0.11",
+    "readabilipy>=0.2",
     "mypy>=1.10",
     "ruff>=0.8",
     "types-PyYAML>=6.0",
@@ -109,9 +115,9 @@ enable_error_code = ["explicit-override"]
 packages = ["langchain_agentkit"]
 mypy_path = "src"
 
-# Optional backend SDKs are absent from the default dev install (each lives in its
-# own extra). Let mypy run cleanly when they're missing; when an extra is installed
-# the module is resolved normally.
+# Optional dependencies live in their own extras and may be absent from a given
+# install, or present but untyped (no py.typed / stubs). Let mypy run cleanly in
+# both cases; when the extra is installed the module still resolves at runtime.
 [[tool.mypy.overrides]]
 module = [
     "daytona_sdk",
@@ -120,5 +126,7 @@ module = [
     "mirage.*",
     "agentfs_sdk",
     "agentfs_sdk.*",
+    "readabilipy",
+    "readabilipy.*",
 ]
 ignore_missing_imports = true

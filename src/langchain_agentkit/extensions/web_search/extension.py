@@ -1,23 +1,21 @@
-"""WebSearchExtension — fan-out web search across multiple providers.
+"""WebSearchExtension — web search over a typed provider contract.
 
 Usage::
 
     from langchain_agentkit import WebSearchExtension, DuckDuckGoSearchProvider
 
-    mw = WebSearchExtension()  # defaults to built-in DuckDuckGo provider
-    mw = WebSearchExtension(providers=[my_search_tool, another_search_fn])
+    ext = WebSearchExtension()                       # built-in DuckDuckGo provider
+    ext = WebSearchExtension(providers=[my_provider])
+    ext = WebSearchExtension(providers=[a, b], fan_out=True)  # concurrent, merged
 
-    # Use DuckDuckGoSearchProvider standalone as any other LangChain tool
-    tool = DuckDuckGoSearchProvider()                # instant-answer mode
-    tool = DuckDuckGoSearchProvider(use_html=True)   # opt-in general web results
-    result = tool.invoke("latest AI news")
-    tools = mw.tools           # [WebSearch]
-    prompt = mw.prompt(state, runtime)  # Search guidance with provider names
+    # A provider is any SearchProvider; use one standalone:
+    provider = DuckDuckGoSearchProvider()            # instant-answer mode
+    provider = DuckDuckGoSearchProvider(use_html=True)   # general web results
+    records = provider.search("latest AI news", max_results=5)  # list[SearchResult]
 """
 
 from __future__ import annotations
 
-import asyncio
 import json
 import platform
 import urllib.parse
@@ -25,13 +23,12 @@ import urllib.request
 from html.parser import HTMLParser
 from typing import TYPE_CHECKING, Any, override
 
-from langchain_core.tools import BaseTool
-
 from langchain_agentkit.composition.extension import Extension
+from langchain_agentkit.extensions.web_search.provider import SearchProvider, SearchResult
 from langchain_agentkit.extensions.web_search.tools.web_search import _WebSearchTool
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from langchain_core.tools import BaseTool
 
 
 def _default_user_agent() -> str:
@@ -99,7 +96,7 @@ class _DDGHTMLResultParser(HTMLParser):
         self._buf = []
 
 
-class DuckDuckGoSearchProvider(BaseTool):
+class DuckDuckGoSearchProvider(SearchProvider):
     """Built-in web search using DuckDuckGo. No API key required.
 
     Two modes:
@@ -107,78 +104,80 @@ class DuckDuckGoSearchProvider(BaseTool):
     - Default (``use_html=False``): the Instant Answer API. Returns
       abstracts, related topics, and direct answers. Reliable, but only
       covers queries with an instant-answer entry — many general queries
-      return "No results found."
-    - Opt-in (``use_html=True``): the HTML SERP endpoint. Returns ranked
-      general web results scraped from DuckDuckGo's HTML interface. Broader
+      return no results.
+    - Opt-in (``use_html=True``): the HTML SERP endpoint. Returns general
+      web results scraped from DuckDuckGo's HTML interface. Broader
       coverage, but scrapes markup and may rate-limit or change shape.
 
+    Neither mode returns publication timestamps, so ``SearchResult.published``
+    is always ``None`` here.
+
     Args:
-        max_results: Maximum number of results to return.
+        max_results: Default result cap when a caller does not pass one.
         use_html: When True, query the HTML SERP endpoint for general web
             results instead of the Instant Answer API.
         headers: HTTP headers for requests. Defaults to a User-Agent
             derived from the host machine's platform info, or a browser
-            User-Agent in HTML mode (the HTML endpoint blocks non-browser
-            clients).
+            User-Agent in HTML mode.
     """
 
-    name: str = "DuckDuckGoSearch"
-    description: str = "Search the web using DuckDuckGo."
-    max_results: int = 5
-    use_html: bool = False
-    headers: dict[str, str] | None = None
+    name = "DuckDuckGoSearch"
 
-    def __init__(self, **kwargs: Any) -> None:
-        if "headers" not in kwargs or kwargs["headers"] is None:
-            user_agent = _BROWSER_USER_AGENT if kwargs.get("use_html") else _default_user_agent()
-            kwargs["headers"] = {"User-Agent": user_agent}
-        super().__init__(**kwargs)
+    def __init__(
+        self,
+        *,
+        max_results: int = 5,
+        use_html: bool = False,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self.max_results = max_results
+        self.use_html = use_html
+        if headers is None:
+            headers = {"User-Agent": _BROWSER_USER_AGENT if use_html else _default_user_agent()}
+        self.headers = headers
 
     @override
-    def _run(self, query: str) -> str:
+    def search(self, query: str, *, max_results: int | None = None) -> list[SearchResult]:
+        limit = max_results if max_results is not None else self.max_results
         if self.use_html:
-            return self._run_html(query)
-        return self._run_instant(query)
+            return self._search_html(query, limit)
+        return self._search_instant(query, limit)
 
-    def _run_instant(self, query: str) -> str:
+    def _search_instant(self, query: str, limit: int) -> list[SearchResult]:
         params = urllib.parse.urlencode(
             {"q": query, "format": "json", "no_html": 1, "skip_disambig": 1},
         )
         url = f"https://api.duckduckgo.com/?{params}"
-        request = urllib.request.Request(url, headers=self.headers)  # type: ignore[arg-type]
+        request = urllib.request.Request(url, headers=self.headers)
         with urllib.request.urlopen(request, timeout=10) as response:
             data = json.loads(response.read().decode())
 
-        results: list[str] = []
-
-        # Abstract (main answer)
+        results: list[SearchResult] = []
         abstract = data.get("Abstract", "")
         abstract_url = data.get("AbstractURL", "")
-        if abstract:
-            source = data.get("AbstractSource", "")
-            results.append(f"**{source}**: {abstract}")
-            if abstract_url:
-                results.append(f"  Source: {abstract_url}")
-
-        # Related topics
-        for topic in data.get("RelatedTopics", [])[: self.max_results]:
+        if abstract and abstract_url:
+            results.append(
+                SearchResult(
+                    url=abstract_url,
+                    title=data.get("AbstractSource", "") or abstract_url,
+                    snippet=abstract,
+                )
+            )
+        for topic in data.get("RelatedTopics", []):
             text = topic.get("Text", "")
             first_url = topic.get("FirstURL", "")
-            if text:
-                results.append(f"- {text}")
-                if first_url:
-                    results[-1] += f" ({first_url})"
+            if text and first_url:
+                results.append(SearchResult(url=first_url, title=text[:80], snippet=text))
+            if len(results) >= limit:
+                break
+        return results[:limit]
 
-        if not results:
-            return "No results found."
-        return "\n".join(results)
-
-    def _run_html(self, query: str) -> str:
+    def _search_html(self, query: str, limit: int) -> list[SearchResult]:
         params = urllib.parse.urlencode({"q": query})
         request = urllib.request.Request(
             "https://html.duckduckgo.com/html/",
             data=params.encode(),
-            headers=self.headers,  # type: ignore[arg-type]
+            headers=self.headers,
             method="POST",
         )
         with urllib.request.urlopen(request, timeout=10) as response:
@@ -186,21 +185,13 @@ class DuckDuckGoSearchProvider(BaseTool):
 
         parser = _DDGHTMLResultParser()
         parser.feed(body)
-        if not parser.results:
-            return "No results found."
-        return "\n".join(
-            f"- [{r['title']}]({r['url']}): {r['snippet']}"
-            for r in parser.results[: self.max_results]
-        )
-
-    @override
-    async def _arun(self, query: str) -> str:
-        # Runs sync in executor — urllib has no async API.
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._run, query)
+        return [
+            SearchResult(url=r["url"], title=r["title"], snippet=r["snippet"])
+            for r in parser.results[:limit]
+        ]
 
 
-class QwantSearchProvider(BaseTool):
+class QwantSearchProvider(SearchProvider):
     """Web search provider using Qwant's API. No API key required.
 
     Note: Qwant's API may block requests depending on region or rate
@@ -208,103 +199,122 @@ class QwantSearchProvider(BaseTool):
     alternative.
 
     Args:
-        max_results: Maximum number of results to return.
+        max_results: Default result cap when a caller does not pass one.
         locale: Search locale (e.g., ``"en_US"``, ``"fr_FR"``).
         safesearch: Safe search level: 0=off, 1=moderate, 2=strict.
         headers: HTTP headers for requests.
     """
 
-    name: str = "QwantSearch"
-    description: str = "Search the web using Qwant."
-    max_results: int = 5
-    locale: str = "en_US"
-    safesearch: int = 1
-    headers: dict[str, str] | None = None
+    name = "QwantSearch"
 
-    def __init__(self, **kwargs: Any) -> None:
-        if "headers" not in kwargs or kwargs["headers"] is None:
-            kwargs["headers"] = {"User-Agent": _default_user_agent()}
-        super().__init__(**kwargs)
+    def __init__(
+        self,
+        *,
+        max_results: int = 5,
+        locale: str = "en_US",
+        safesearch: int = 1,
+        headers: dict[str, str] | None = None,
+    ) -> None:
+        self.max_results = max_results
+        self.locale = locale
+        self.safesearch = safesearch
+        self.headers = headers or {"User-Agent": _default_user_agent()}
 
     @override
-    def _run(self, query: str) -> str:
+    def search(self, query: str, *, max_results: int | None = None) -> list[SearchResult]:
+        limit = max_results if max_results is not None else self.max_results
         params = urllib.parse.urlencode(
-            {
-                "q": query,
-                "count": self.max_results,
-                "locale": self.locale,
-                "safesearch": self.safesearch,
-            },
+            {"q": query, "count": limit, "locale": self.locale, "safesearch": self.safesearch},
         )
         url = f"https://api.qwant.com/v3/search/web?{params}"
-        request = urllib.request.Request(url, headers=self.headers)  # type: ignore[arg-type]
+        request = urllib.request.Request(url, headers=self.headers)
         with urllib.request.urlopen(request, timeout=10) as response:
             data = json.loads(response.read().decode())
         items = data.get("data", {}).get("result", {}).get("items", [])
-        if not items:
-            return "No results found."
-        results = []
-        for item in items[: self.max_results]:
-            title = item.get("title", "")
-            item_url = item.get("url", "")
-            snippet = item.get("desc", "")
-            results.append(f"- [{title}]({item_url}): {snippet}")
-        return "\n".join(results)
-
-    @override
-    async def _arun(self, query: str) -> str:
-        # Runs sync in executor — urllib has no async API.
-        loop = asyncio.get_event_loop()
-        return await loop.run_in_executor(None, self._run, query)
+        return [
+            SearchResult(
+                url=item.get("url", ""),
+                title=item.get("title", ""),
+                snippet=item.get("desc", ""),
+            )
+            for item in items[:limit]
+            if item.get("url")
+        ]
 
 
 class WebSearchExtension(Extension):
-    """Extension providing a single WebSearch tool that fans out to
-    multiple configured search providers in parallel.
+    """Extension bundling the web capability: a ``WebSearch`` tool and, when
+    ``fetch=True``, a companion ``WebFetch`` tool that reads one URL as markdown.
 
-    Each provider is a BaseTool or callable supplied by the application.
-    The extension creates a single ``WebSearch`` tool that:
-    1. Calls all providers concurrently via asyncio.gather
-    2. Returns results attributed per provider
+    Search discovers URLs; fetch reads one. They travel together because the
+    pair is how the model actually works: search, then read a result. Fetch is
+    opt-in because it needs the ``web`` extra
+    (``pip install langchain-agentkit[web]``) for HTML→markdown conversion,
+    while search runs on the standard library alone.
+
+    By default the search tool queries providers in fallback order — the first
+    provider to return results wins — which with a single provider (the common
+    case) is just that provider, with no cross-provider duplication. Set
+    ``fan_out=True`` to query every provider concurrently and merge, dedupe,
+    and rank their results into one list (one backend call per provider).
+
+    ``WebFetch`` is SSRF-guarded unconditionally. For human approval on each
+    fetch, compose ``HITLExtension(interrupt_on=["WebFetch"])``.
 
     Args:
-        providers: List of search providers. Each is a BaseTool instance
-            or a callable with signature ``(query: str) -> str``.
-            Callables are auto-wrapped into a ``StructuredTool``.
-            When ``None`` or empty, defaults to the built-in DuckDuckGo provider.
+        providers: List of :class:`SearchProvider` instances. When ``None`` or
+            empty, defaults to the built-in DuckDuckGo provider.
+        fan_out: When True, query all providers concurrently and merge results.
+            When False (default), query providers in order until one returns.
+        fetch: When True, also expose a ``WebFetch`` URL-reading tool. Requires
+            the ``web`` extra; construction raises ``ImportError`` without it.
+        fetch_timeout: Per-request timeout (seconds) for ``WebFetch``, per hop.
 
     Example::
 
-        mw = WebSearchExtension()  # uses built-in DuckDuckGo provider
-        mw = WebSearchExtension(providers=[my_search_tool])
-        mw.tools   # [WebSearch]
-        mw.prompt(state, runtime)  # Search guidance with provider names
+        ext = WebSearchExtension()                       # WebSearch only
+        ext = WebSearchExtension(providers=[my_provider])
+        ext = WebSearchExtension(providers=[a, b], fan_out=True)
+        ext = WebSearchExtension(fetch=True)             # WebSearch + WebFetch
     """
 
     def __init__(
         self,
         *,
-        providers: list[BaseTool | Callable[[str], str]] | None = None,
+        providers: list[SearchProvider] | None = None,
+        fan_out: bool = False,
+        fetch: bool = False,
+        fetch_timeout: float = 30.0,
     ) -> None:
-        if providers is None or len(providers) == 0:
+        if not providers:
             providers = [DuckDuckGoSearchProvider()]
-
         self._providers = [self._resolve_provider(p) for p in providers]
-        self._tools: list[BaseTool] = [_WebSearchTool(providers=self._providers)]
+        self._tools: list[BaseTool] = [_WebSearchTool(providers=self._providers, fan_out=fan_out)]
+        if fetch:
+            self._tools.append(self._build_fetch_tool(fetch_timeout))
 
-    def _resolve_provider(self, provider: BaseTool | Callable[[str], str]) -> BaseTool:
-        if isinstance(provider, BaseTool):
-            return provider
-        if callable(provider):
-            from langchain_core.tools.structured import StructuredTool
+    def _build_fetch_tool(self, timeout: float) -> BaseTool:
+        # Import lazily: the fetch tool pulls the optional `web` extra only when
+        # asked for, so a search-only kit never imports the conversion path.
+        # Fail fast at construction rather than at first fetch: a kit that asks
+        # for fetch without the extra is misconfigured, and should say so now.
+        import importlib.util
 
-            description = getattr(provider, "__doc__", None) or "Search provider."
-            return StructuredTool.from_function(
-                func=provider,
-                description=description,
+        from langchain_agentkit.extensions.web_search.tools.web_fetch import _WebFetchTool
+
+        if importlib.util.find_spec("markdownify") is None:
+            raise ImportError(
+                "WebSearchExtension(fetch=True) needs the 'web' extra: "
+                "pip install langchain-agentkit[web]"
             )
+        return _WebFetchTool(timeout=timeout)
+
+    def _resolve_provider(self, provider: SearchProvider) -> SearchProvider:
+        if isinstance(provider, SearchProvider):
+            return provider
         raise TypeError(
-            f"Each provider must be a BaseTool or callable, got {type(provider).__name__!r}"
+            f"Each provider must be a SearchProvider, got {type(provider).__name__!r}. "
+            "Wrap a backend by subclassing SearchProvider and returning list[SearchResult]."
         )
 
     @property
@@ -320,8 +330,13 @@ class WebSearchExtension(Extension):
         *,
         tools: frozenset[str] = frozenset(),
     ) -> str | None:
-        # The behavioral norm lives here; per-call selection guidance lives
-        # on the ``WebSearch`` tool description.
+        # Only contribute the norm when the WebSearch tool is actually composed.
+        # A user tool of the same name shadows ours (kit.tools dedupes user-first),
+        # so emitting this unconditionally would ship guidance for a tool that is
+        # not present. Empty `tools` means "called outside a composed kit" — keep
+        # the norm so standalone prompt() calls still see it.
+        if tools and "WebSearch" not in tools:
+            return None
         return (
             'After answering, end with a "Sources:" section listing the '
             "result URLs as markdown links."

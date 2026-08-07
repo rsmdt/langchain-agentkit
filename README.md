@@ -416,21 +416,61 @@ ext = FilesystemExtension(root="./workspace")
 
 ### WebSearchExtension
 
-Multi-provider web search. Fans out queries to all providers in parallel. Ships with two built-in providers (no API key needed):
+Web search returning typed `SearchResult` records. Providers are queried in
+fallback order by default — the first to return results wins — so with a single
+provider there is no duplication. Set `fan_out=True` to query every provider
+concurrently and merge, dedupe, and rank the results. Ships with two built-in
+providers (no API key needed):
 
 ```python
 from langchain_agentkit import WebSearchExtension, DuckDuckGoSearchProvider
 
-# Zero config (defaults to Qwant)
+# Zero config (defaults to DuckDuckGo)
 ext = WebSearchExtension()
 
-# DuckDuckGo (recommended — more reliable)
-ext = WebSearchExtension(providers=[DuckDuckGoSearchProvider()])
+# DuckDuckGo HTML mode — broader general-web coverage
+ext = WebSearchExtension(providers=[DuckDuckGoSearchProvider(use_html=True)])
 
-# Custom providers
-from langchain_tavily import TavilySearch
+# Multiple providers, queried concurrently and merged
+from langchain_agentkit import QwantSearchProvider
 
-ext = WebSearchExtension(providers=[TavilySearch(max_results=5)])
+ext = WebSearchExtension(
+    providers=[DuckDuckGoSearchProvider(), QwantSearchProvider()],
+    fan_out=True,
+)
+```
+
+A provider is any `SearchProvider` returning `list[SearchResult]`. To use a
+backend (Tavily, Exa, Brave, …), subclass and map its response:
+
+```python
+from langchain_agentkit import SearchProvider, SearchResult
+
+class TavilyProvider(SearchProvider):
+    name = "Tavily"
+
+    def __init__(self, client):
+        self._client = client
+
+    def search(self, query: str, *, max_results: int) -> list[SearchResult]:
+        hits = self._client.search(query, max_results=max_results)["results"]
+        return [
+            SearchResult(url=h["url"], title=h["title"], snippet=h["content"], score=h.get("score"))
+            for h in hits
+        ]
+```
+
+Set `fetch=True` to add a companion `WebFetch` tool that reads one URL as
+markdown — the model searches, then reads a result. Fetch needs the `web` extra
+(`pip install langchain-agentkit[web]`) for HTML→markdown conversion, and is
+SSRF-guarded (scheme allowlist, private/loopback/metadata IP blocking with
+IPv4-mapped and 6to4 unwrapping, DNS pinning against rebinding, per-hop redirect
+re-validation). For human approval on each fetch, compose
+`HITLExtension(interrupt_on=["WebFetch"])`.
+
+```python
+# WebSearch + WebFetch (needs the [web] extra)
+ext = WebSearchExtension(fetch=True)
 ```
 
 ### HistoryExtension
