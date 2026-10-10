@@ -337,13 +337,6 @@ class TestPrompt:
         assert mw.prompt({}, _TEST_RUNTIME) is None
 
 
-class TestStateSchema:
-    def test_state_schema_is_none(self):
-        mw = SkillsExtension(skills=_make_configs())
-
-        assert mw.state_schema is None
-
-
 class TestSkillDescriptionCap:
     def test_short_description_not_truncated(self):
         configs = [
@@ -394,3 +387,151 @@ class TestExtensionProtocol:
 
     def test_has_state_schema_property(self):
         assert isinstance(SkillsExtension.state_schema, property)
+
+
+class TestDescriptionTruncationWarning:
+    def test_warns_once_per_truncated_skill(self, caplog):
+        import logging
+
+        configs = [
+            SkillConfig(name="long-one", description="x" * 300, prompt="p"),
+            SkillConfig(name="short-one", description="fine", prompt="p"),
+        ]
+
+        with caplog.at_level(logging.WARNING):
+            ext = SkillsExtension(skills=configs, max_description_chars=250)
+            ext.prompt({})
+            ext.prompt({})
+
+        truncation_records = [r for r in caplog.records if "long-one" in r.getMessage()]
+        assert len(truncation_records) == 1
+        assert "300" in truncation_records[0].getMessage()
+        assert "250" in truncation_records[0].getMessage()
+        assert not any("short-one" in r.getMessage() for r in caplog.records)
+
+    def test_no_warning_when_cap_disabled(self, caplog):
+        import logging
+
+        configs = [SkillConfig(name="long-one", description="x" * 300, prompt="p")]
+
+        with caplog.at_level(logging.WARNING):
+            SkillsExtension(skills=configs, max_description_chars=0)
+
+        assert caplog.records == []
+
+
+def _pinning_configs() -> list[SkillConfig]:
+    return [
+        SkillConfig(name="write-tests", description="Write tests", prompt="TESTS BODY"),
+        SkillConfig(name="house-style", description="House style", prompt="STYLE BODY"),
+    ]
+
+
+class TestPinnedSkills:
+    async def test_no_pins_returns_none(self):
+        ext = SkillsExtension(skills=_pinning_configs())
+
+        assert await ext.before_model(state={"messages": []}, runtime=None) is None
+
+    async def test_pinned_skill_body_injected_in_named_order(self):
+        from langchain_core.messages import HumanMessage
+
+        ext = SkillsExtension(skills=_pinning_configs())
+
+        update = await ext.before_model(
+            state={"messages": [], "pinned_skills": ["house-style", "write-tests"]},
+            runtime=None,
+        )
+
+        injected = update["messages"]
+        assert all(isinstance(m, HumanMessage) for m in injected)
+        assert [m.additional_kwargs["agentkit"]["pinned_skill"] for m in injected] == [
+            "house-style",
+            "write-tests",
+        ]
+        assert "STYLE BODY" in injected[0].content
+        assert "TESTS BODY" in injected[1].content
+
+    async def test_pins_clear_the_key(self):
+        from langgraph.types import Overwrite
+
+        ext = SkillsExtension(skills=_pinning_configs())
+
+        update = await ext.before_model(
+            state={"messages": [], "pinned_skills": ["write-tests"]}, runtime=None
+        )
+
+        assert isinstance(update["pinned_skills"], Overwrite)
+        assert update["pinned_skills"].value == []
+
+    async def test_duplicate_names_pinned_once(self):
+        ext = SkillsExtension(skills=_pinning_configs())
+
+        update = await ext.before_model(
+            state={"messages": [], "pinned_skills": ["write-tests", "write-tests"]},
+            runtime=None,
+        )
+
+        assert len(update["messages"]) == 1
+
+    async def test_unknown_name_reported_not_raised(self, caplog):
+        import logging
+
+        ext = SkillsExtension(skills=_pinning_configs())
+
+        with caplog.at_level(logging.WARNING):
+            update = await ext.before_model(
+                state={"messages": [], "pinned_skills": ["nope", "write-tests"]},
+                runtime=None,
+            )
+
+        assert [m.additional_kwargs["agentkit"]["pinned_skill"] for m in update["messages"]] == [
+            "write-tests"
+        ]
+        assert any("nope" in r.getMessage() for r in caplog.records)
+
+    async def test_only_unknown_names_still_clears_key(self):
+        ext = SkillsExtension(skills=_pinning_configs())
+
+        update = await ext.before_model(
+            state={"messages": [], "pinned_skills": ["nope"]}, runtime=None
+        )
+
+        assert "messages" not in update
+        assert update["pinned_skills"].value == []
+
+    def test_state_schema_declares_pinned_skills(self):
+        ext = SkillsExtension(skills=_pinning_configs())
+
+        assert "pinned_skills" in ext.state_schema.__annotations__
+
+    async def test_pinned_skill_reaches_model_once_through_compiled_graph(self):
+        from unittest.mock import MagicMock
+
+        from langchain_core.messages import AIMessage, HumanMessage
+
+        from langchain_agentkit.composition.agent_kit import AgentKit
+
+        seen: list[list] = []
+
+        def handler(state, *, llm, tools, prompt):
+            seen.append(list(state["messages"]))
+            return {"messages": [AIMessage(content="ok")]}
+
+        kit = AgentKit(extensions=[SkillsExtension(skills=_pinning_configs())], model=MagicMock())
+        app = kit.compile(handler).compile()
+
+        first = await app.ainvoke(
+            {"messages": [HumanMessage(content="hello")], "pinned_skills": ["write-tests"]}
+        )
+        second = await app.ainvoke({"messages": [*first["messages"], HumanMessage("again")]})
+
+        assert [m.content for m in seen[0]][0] == "hello"
+        assert "TESTS BODY" in seen[0][1].content
+        pinned_in_state = [
+            m
+            for m in second["messages"]
+            if m.additional_kwargs.get("agentkit", {}).get("pinned_skill")
+        ]
+        assert len(pinned_in_state) == 1
+        assert not second.get("pinned_skills")

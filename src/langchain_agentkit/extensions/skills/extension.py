@@ -16,10 +16,14 @@ Two modes:
 
 from __future__ import annotations
 
+import html
+import logging
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, override
 
+from langchain_core.messages import HumanMessage
 from langchain_core.prompts import PromptTemplate
+from langgraph.types import Overwrite
 
 from langchain_agentkit.composition.extension import Extension
 from langchain_agentkit.extensions.skills.discovery import (
@@ -37,6 +41,8 @@ if TYPE_CHECKING:
 
     from langchain_agentkit.backends.protocol import FilesystemProtocol
     from langchain_agentkit.extensions.skills.types import SkillConfig
+
+_logger = logging.getLogger(__name__)
 
 _PROMPT_FILE = Path(__file__).parent / "prompt.md"
 _skills_system_prompt = PromptTemplate.from_file(_PROMPT_FILE)
@@ -85,6 +91,7 @@ class SkillsExtension(Extension):
             msg = f"skills must be list[SkillConfig], str, or Path, got {type(skills).__name__}"
             raise TypeError(msg)
         self._max_description_chars = max_description_chars
+        self._warn_truncated_descriptions()
         self._custom_tools: tuple[BaseTool, ...] | None = (
             tuple(tools) if tools is not None else None
         )
@@ -100,6 +107,52 @@ class SkillsExtension(Extension):
             self._configs = await discover_skills_from_backend(self._backend, self._deferred_path)
             self._deferred_path = None
             self._tools_cache = None  # Rebuild tools with discovered configs
+            self._warn_truncated_descriptions()
+
+    def _warn_truncated_descriptions(self) -> None:
+        cap = self._max_description_chars
+        if not cap:
+            return
+        for config in self._configs:
+            if len(config.description) > cap:
+                _logger.warning(
+                    "Skill '%s' description is %d chars; the skills roster truncates it to %d",
+                    config.name,
+                    len(config.description),
+                    cap,
+                )
+
+    @property
+    @override
+    def state_schema(self) -> type:
+        from langchain_agentkit.extensions.skills.state import SkillsState
+
+        return SkillsState
+
+    async def before_model(
+        self,
+        *,
+        state: dict[str, Any],
+        runtime: Any,
+    ) -> dict[str, Any] | None:
+        names = state.get("pinned_skills")
+        if not names:
+            return None
+        index = {config.name: config for config in self._configs}
+        unknown = [name for name in dict.fromkeys(names) if name not in index]
+        if unknown:
+            _logger.warning(
+                "Cannot pin unknown skill(s) %s; available: %s",
+                ", ".join(unknown),
+                ", ".join(sorted(index)) or "none",
+            )
+        pinned = [
+            _pinned_skill_message(index[name]) for name in dict.fromkeys(names) if name in index
+        ]
+        update: dict[str, Any] = {"pinned_skills": Overwrite([])}
+        if pinned:
+            update["messages"] = pinned
+        return update
 
     @property
     def configs(self) -> list[SkillConfig]:
@@ -144,3 +197,11 @@ class SkillsExtension(Extension):
                 desc = desc[: cap - 1] + "…"
             lines.append(f"- {config.name}: {desc}")
         return "\n".join(lines)
+
+
+def _pinned_skill_message(config: SkillConfig) -> HumanMessage:
+    name = html.escape(config.name, quote=True)
+    return HumanMessage(
+        content=f'<skill name="{name}">\n{config.prompt}\n</skill>',
+        additional_kwargs={"agentkit": {"pinned_skill": config.name}},
+    )
