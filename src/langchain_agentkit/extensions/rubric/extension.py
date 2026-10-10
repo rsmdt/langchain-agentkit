@@ -33,6 +33,7 @@ import uuid
 from typing import TYPE_CHECKING, Any, Literal, override
 
 from langchain_core.messages import HumanMessage
+from langgraph.errors import GraphBubbleUp
 
 from langchain_agentkit.composition.extension import Extension
 from langchain_agentkit.extensions.rubric.grader import (
@@ -48,7 +49,6 @@ from langchain_agentkit.extensions.rubric.types import (
     RUBRIC_GRADER_MESSAGE_SOURCE,
     TERMINAL_RESULTS,
     GraderResponse,
-    GraderVerdict,
     RubricEvaluation,
 )
 
@@ -86,7 +86,8 @@ class RubricExtension(Extension):
             grader reasons from the transcript alone.
         on_evaluation: Optional callback invoked with each
             :class:`RubricEvaluation` after grading. Exceptions it raises are
-            logged and suppressed; do not use it to enforce control flow.
+            logged and suppressed, except LangGraph interrupts, which
+            propagate.
 
     Raises:
         ValueError: If ``model`` is falsy, ``mode`` is unknown, or ``review``
@@ -190,6 +191,7 @@ class RubricExtension(Extension):
             "_active_rubric": rubric,
             "_rubric_turns_since_review": 0,
             "_rubric_review_requested": False,
+            "_rubric_criteria": [],
         }
 
     async def after_model(self, *, state: dict[str, Any], runtime: Any) -> dict[str, Any] | None:
@@ -217,15 +219,38 @@ class RubricExtension(Extension):
         grading_run_id = state.get("_current_grading_run_id") or str(uuid.uuid4())
         self._emit(runtime, "rubric_evaluation_start", grading_run_id, iteration)
 
+        criteria = list(state.get("_rubric_criteria") or [])
         try:
-            graded = await self._grade(rubric, messages, iteration)
+            graded = await self._grade(rubric, messages, iteration, criteria)
+        except GraphBubbleUp:
+            raise
         except Exception as exc:  # noqa: BLE001
             return self._handle_grader_exception(runtime, state, grading_run_id, iteration, exc)
 
         evaluation = _build_evaluation(graded, grading_run_id, iteration)
+        if evaluation["result"] == "satisfied" and _coverage_correction(criteria, graded):
+            logger.warning(
+                "RubricExtension downgrading 'satisfied' to 'needs_revision': the grader "
+                "did not account for every criterion (grading_run_id=%s)",
+                grading_run_id,
+            )
+            evaluation["result"] = "needs_revision"
+            evaluation["unverified"] = True
+            evaluation["explanation"] = (
+                "The grader did not account for every criterion in the rubric, so its "
+                f"'satisfied' verdict is unconfirmed. Grader summary: {graded.explanation}"
+            )
+        if evaluation["result"] == "needs_revision" and iteration + 1 >= self._review.stop:
+            logger.warning(
+                "RubricExtension exhausted review budget (stop=%d) without "
+                "'satisfied' verdict (grading_run_id=%s)",
+                self._review.stop,
+                grading_run_id,
+            )
+            evaluation["result"] = "review_limit_reached"
         self._emit(runtime, "rubric_evaluation_end", grading_run_id, iteration, evaluation)
         self._run_callback(evaluation)
-        return self._compose_update(state, evaluation, graded.result)
+        return self._compose_update(state, evaluation)
 
     # --- Grading decision & action ---
 
@@ -246,7 +271,6 @@ class RubricExtension(Extension):
         self,
         state: dict[str, Any],
         evaluation: RubricEvaluation,
-        graded_result: GraderVerdict,
     ) -> dict[str, Any]:
         next_iteration = evaluation["iteration"] + 1
         evals = [*state.get("_rubric_evaluations", []), evaluation]
@@ -258,19 +282,14 @@ class RubricExtension(Extension):
             "_rubric_turns_since_review": 0,
             "_rubric_review_requested": False,
         }
+        if (
+            not state.get("_rubric_criteria")
+            and evaluation["criteria"]
+            and evaluation["result"] != "failed"
+        ):
+            update["_rubric_criteria"] = [c["name"] for c in evaluation["criteria"]]
 
-        if graded_result == "satisfied" or graded_result == "failed":
-            return update
-
-        # needs_revision
-        if next_iteration >= self._review.stop:
-            logger.warning(
-                "RubricExtension exhausted review budget (stop=%d) without "
-                "'satisfied' verdict (grading_run_id=%s)",
-                self._review.stop,
-                evaluation["grading_run_id"],
-            )
-            update["_rubric_status"] = "review_limit_reached"
+        if evaluation["result"] != "needs_revision":
             return update
 
         if self._mode == "auto":
@@ -303,8 +322,9 @@ class RubricExtension(Extension):
             "grading_run_id": grading_run_id,
             "iteration": iteration,
             "result": "grader_error",
-            "explanation": f"Grader raised {type(exc).__name__}: {exc}",
+            "explanation": _grader_error_explanation(exc),
             "criteria": [],
+            "unverified": False,
         }
         self._emit(runtime, "rubric_evaluation_end", grading_run_id, iteration, evaluation)
         self._run_callback(evaluation)
@@ -342,10 +362,37 @@ class RubricExtension(Extension):
         raise ValueError(msg)
 
     async def _grade(
-        self, rubric: str, messages: list[AnyMessage], iteration: int
+        self,
+        rubric: str,
+        messages: list[AnyMessage],
+        iteration: int,
+        criteria: list[str],
+    ) -> GraderResponse:
+        graded = await self._invoke_grader(rubric, messages, iteration, criteria, None)
+        correction = _coverage_correction(criteria, graded)
+        if correction is None:
+            return graded
+        logger.info(
+            "RubricExtension retrying grader for incomplete criterion coverage: %s", correction
+        )
+        try:
+            return await self._invoke_grader(rubric, messages, iteration, criteria, correction)
+        except GraphBubbleUp:
+            raise
+        except Exception:
+            logger.exception("RubricExtension grader coverage retry raised; keeping first verdict")
+            return graded
+
+    async def _invoke_grader(
+        self,
+        rubric: str,
+        messages: list[AnyMessage],
+        iteration: int,
+        criteria: list[str],
+        correction: str | None,
     ) -> GraderResponse:
         grader = self._ensure_grader()
-        payload = build_grader_payload(rubric, messages, iteration)
+        payload = build_grader_payload(rubric, messages, iteration, criteria, correction)
         result = await grader.ainvoke({"messages": [HumanMessage(content=payload)]})
         return extract_graded(result)
 
@@ -354,6 +401,8 @@ class RubricExtension(Extension):
             return
         try:
             self._on_evaluation(evaluation)
+        except GraphBubbleUp:
+            raise
         except Exception:
             logger.exception("RubricExtension on_evaluation callback raised")
 
@@ -407,7 +456,35 @@ def _build_evaluation(
         "result": graded.result,
         "explanation": graded.explanation,
         "criteria": [dict(c) for c in graded.criteria],  # type: ignore[misc]
+        "unverified": False,
     }
+
+
+def _coverage_correction(criteria: list[str], graded: GraderResponse) -> str | None:
+    if graded.result == "failed":
+        return None
+    expected = len(criteria)
+    actual = len(graded.criteria)
+    if expected and actual < expected:
+        return (
+            f"This response must account for all {expected} listed criteria; returning "
+            f"only {actual} is incomplete. Return exactly {expected} entries."
+        )
+    if not expected and actual == 0:
+        return (
+            "This response must contain one entry per rubric criterion; an empty "
+            "criteria list is incomplete."
+        )
+    return None
+
+
+def _grader_error_explanation(exc: Exception) -> str:
+    status = getattr(exc, "status_code", None)
+    if not isinstance(status, int):
+        status = getattr(getattr(exc, "response", None), "status_code", None)
+    if isinstance(status, int):
+        return f"Grader raised {type(exc).__name__} (HTTP {status}): {exc}"
+    return f"Grader raised {type(exc).__name__}: {exc}"
 
 
 def _failing_criteria(evaluation: RubricEvaluation) -> list[dict[str, Any]]:
@@ -437,10 +514,18 @@ def _open_gaps_reminder(evaluations: list[RubricEvaluation]) -> str:
 
 
 def _revision_prompt(evaluation: RubricEvaluation) -> str:
-    lines = [
-        "A grader reviewed your work against the rubric and asked for "
-        "revisions before we can finish."
-    ]
+    unverified = evaluation.get("unverified", False)
+    if unverified:
+        lines = [
+            "A grader reviewed your work but could not verify every criterion in "
+            "the rubric, so the work is not accepted yet. This is a gap in "
+            "verification, not a list of confirmed defects."
+        ]
+    else:
+        lines = [
+            "A grader reviewed your work against the rubric and asked for "
+            "revisions before we can finish."
+        ]
     explanation = evaluation.get("explanation")
     if explanation:
         lines.append("")
@@ -459,8 +544,14 @@ def _revision_prompt(evaluation: RubricEvaluation) -> str:
                 lines.append(f"- {name} (no specific feedback provided)")
 
     lines.append("")
-    lines.append(
-        "Please address every failing criterion and respond when you believe "
-        "the rubric is satisfied."
-    )
+    if unverified:
+        lines.append(
+            "Re-check your work against every criterion in the rubric and state the "
+            "evidence for each. Keep anything that is already correct unchanged."
+        )
+    else:
+        lines.append(
+            "Please address every failing criterion and respond when you believe "
+            "the rubric is satisfied."
+        )
     return "\n".join(lines)

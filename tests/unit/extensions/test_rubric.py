@@ -19,6 +19,7 @@ from typing import Any
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
+from langgraph.errors import GraphBubbleUp, GraphInterrupt
 from pydantic import ValidationError
 
 from langchain_agentkit.extensions.rubric import (
@@ -53,7 +54,7 @@ def _stub_grade(
     call_log: list[int] = []
     iterator = iter(responses)
 
-    async def _grade(rubric: str, messages: list[Any], iteration: int) -> GraderResponse:  # noqa: ARG001
+    async def _grade(rubric: str, messages: list[Any], iteration: int, *_: Any) -> GraderResponse:  # noqa: ARG001
         if exc is not None:
             raise exc
         call_log.append(iteration)
@@ -61,6 +62,31 @@ def _stub_grade(
 
     monkeypatch.setattr(ext, "_grade", _grade)
     return call_log
+
+
+def _stub_invoke(
+    ext: RubricExtension,
+    monkeypatch: pytest.MonkeyPatch,
+    *outcomes: GraderResponse | BaseException,
+) -> list[dict[str, Any]]:
+    calls: list[dict[str, Any]] = []
+    iterator = iter(outcomes)
+
+    async def _invoke_grader(
+        rubric: str,  # noqa: ARG001
+        messages: list[Any],  # noqa: ARG001
+        iteration: int,
+        criteria: list[str],
+        correction: str | None,
+    ) -> GraderResponse:
+        calls.append({"iteration": iteration, "criteria": criteria, "correction": correction})
+        outcome = next(iterator)
+        if isinstance(outcome, BaseException):
+            raise outcome
+        return outcome
+
+    monkeypatch.setattr(ext, "_invoke_grader", _invoke_grader)
+    return calls
 
 
 def _stop_state(**overrides: Any) -> dict[str, Any]:
@@ -76,7 +102,17 @@ def _stop_state(**overrides: Any) -> dict[str, Any]:
 
 
 def _satisfied() -> GraderResponse:
-    return GraderResponse(result="satisfied", explanation="ok", criteria=[])
+    return GraderResponse(
+        result="satisfied", explanation="ok", criteria=[{"name": "c", "passed": True}]
+    )
+
+
+def _satisfied_with(*names: str) -> GraderResponse:
+    return GraderResponse(
+        result="satisfied",
+        explanation="ok",
+        criteria=[{"name": n, "passed": True} for n in names],
+    )
 
 
 def _needs_revision() -> GraderResponse:
@@ -221,6 +257,7 @@ class TestBeforeRun:
         assert result["_rubric_turns_since_review"] == 0
         assert result["_rubric_review_requested"] is False
         assert result["_active_rubric"] == "- ship it"
+        assert result["_rubric_criteria"] == []
 
     async def test_sticky_rubric_is_noop(self):
         ext = RubricExtension(model=_STUB_MODEL)
@@ -460,6 +497,228 @@ class TestGraderPlumbing:
         assert extract_graded(result).result == "satisfied"
 
 
+class TestTerminalStatusBeforeEmit:
+    async def test_review_limit_reached_is_emitted_recorded_and_stored(self, monkeypatch):
+        seen: list[RubricEvaluation] = []
+        events: list[dict[str, Any]] = []
+        ext = RubricExtension(
+            model=_STUB_MODEL, mode="auto", review={"stop": 1}, on_evaluation=seen.append
+        )
+        _stub_grade(ext, monkeypatch, _needs_revision())
+        update = await ext.after_model(state=_stop_state(), runtime=_runtime(events))
+        assert update is not None
+        assert events[-1]["result"] == "review_limit_reached"
+        assert [e["result"] for e in seen] == ["review_limit_reached"]
+        assert update["_rubric_evaluations"][-1]["result"] == "review_limit_reached"
+        assert update["_rubric_status"] == "review_limit_reached"
+
+
+class TestInterruptPropagation:
+    async def test_grader_interrupt_propagates(self, monkeypatch):
+        ext = RubricExtension(model=_STUB_MODEL, mode="auto")
+        _stub_grade(ext, monkeypatch, exc=GraphInterrupt())
+        with pytest.raises(GraphBubbleUp):
+            await ext.after_model(state=_stop_state(), runtime=_runtime())
+
+    async def test_callback_interrupt_propagates(self, monkeypatch):
+        def _interrupting(_: RubricEvaluation) -> None:
+            raise GraphInterrupt()
+
+        ext = RubricExtension(model=_STUB_MODEL, mode="auto", on_evaluation=_interrupting)
+        _stub_grade(ext, monkeypatch, _satisfied())
+        with pytest.raises(GraphBubbleUp):
+            await ext.after_model(state=_stop_state(), runtime=_runtime())
+
+    async def test_callback_error_still_suppressed(self, monkeypatch):
+        def _broken(_: RubricEvaluation) -> None:
+            raise RuntimeError("callback bug")
+
+        ext = RubricExtension(model=_STUB_MODEL, mode="auto", on_evaluation=_broken)
+        _stub_grade(ext, monkeypatch, _satisfied())
+        update = await ext.after_model(state=_stop_state(), runtime=_runtime())
+        assert update is not None
+        assert update["_rubric_status"] == "satisfied"
+
+
+class _StatusError(Exception):
+    def __init__(self, status_code: int) -> None:
+        super().__init__("provider refused")
+        self.status_code = status_code
+
+
+class _ResponseError(Exception):
+    def __init__(self, status_code: int) -> None:
+        super().__init__("provider refused")
+        self.response = SimpleNamespace(status_code=status_code)
+
+
+class TestGraderErrorExplanation:
+    async def test_status_code_attribute_included(self, monkeypatch):
+        ext = RubricExtension(model=_STUB_MODEL, mode="auto")
+        _stub_grade(ext, monkeypatch, exc=_StatusError(429))
+        update = await ext.after_model(state=_stop_state(), runtime=_runtime())
+        assert update is not None
+        assert "429" in update["_rubric_evaluations"][0]["explanation"]
+
+    async def test_response_status_code_included(self, monkeypatch):
+        ext = RubricExtension(model=_STUB_MODEL, mode="auto")
+        _stub_grade(ext, monkeypatch, exc=_ResponseError(503))
+        update = await ext.after_model(state=_stop_state(), runtime=_runtime())
+        assert update is not None
+        assert "503" in update["_rubric_evaluations"][0]["explanation"]
+
+
+class TestCriterionCoverage:
+    def test_criteria_is_required(self):
+        with pytest.raises(ValidationError):
+            GraderResponse.model_validate({"result": "satisfied", "explanation": "ok"})
+
+    async def test_first_pass_freezes_criterion_names(self, monkeypatch):
+        ext = RubricExtension(model=_STUB_MODEL, mode="auto", review={"stop": 3})
+        _stub_invoke(
+            ext,
+            monkeypatch,
+            GraderResponse(
+                result="needs_revision",
+                explanation="x",
+                criteria=[
+                    {"name": "a", "passed": True},
+                    {"name": "b", "passed": False, "gap": "g"},
+                ],
+            ),
+        )
+        update = await ext.after_model(state=_stop_state(), runtime=_runtime())
+        assert update is not None
+        assert update["_rubric_criteria"] == ["a", "b"]
+
+    async def test_failed_does_not_freeze_or_retry(self, monkeypatch):
+        ext = RubricExtension(model=_STUB_MODEL, mode="auto")
+        calls = _stub_invoke(
+            ext, monkeypatch, GraderResponse(result="failed", explanation="bad", criteria=[])
+        )
+        update = await ext.after_model(state=_stop_state(), runtime=_runtime())
+        assert update is not None
+        assert len(calls) == 1
+        assert update["_rubric_status"] == "failed"
+        assert "_rubric_criteria" not in update
+
+    async def test_frozen_criteria_reach_later_grading(self, monkeypatch):
+        ext = RubricExtension(model=_STUB_MODEL, mode="auto")
+        calls = _stub_invoke(ext, monkeypatch, _satisfied_with("a", "b"))
+        state = _stop_state(_rubric_iterations=1, _rubric_criteria=["a", "b"])
+        update = await ext.after_model(state=state, runtime=_runtime())
+        assert update is not None
+        assert calls == [{"iteration": 1, "criteria": ["a", "b"], "correction": None}]
+        assert update["_rubric_status"] == "satisfied"
+        assert "_rubric_criteria" not in update
+
+    async def test_empty_first_pass_retries_once(self, monkeypatch):
+        ext = RubricExtension(model=_STUB_MODEL, mode="auto")
+        calls = _stub_invoke(
+            ext,
+            monkeypatch,
+            GraderResponse(result="satisfied", explanation="ok", criteria=[]),
+            _satisfied_with("a"),
+        )
+        update = await ext.after_model(state=_stop_state(), runtime=_runtime())
+        assert update is not None
+        assert len(calls) == 2
+        assert calls[0]["correction"] is None
+        assert calls[1]["correction"]
+        assert update["_rubric_status"] == "satisfied"
+        assert update["_rubric_evaluations"][-1]["unverified"] is False
+
+    async def test_under_report_retried_with_correction(self, monkeypatch):
+        ext = RubricExtension(model=_STUB_MODEL, mode="auto")
+        calls = _stub_invoke(ext, monkeypatch, _satisfied_with("a"), _satisfied_with("a", "b"))
+        state = _stop_state(_rubric_iterations=1, _rubric_criteria=["a", "b"])
+        update = await ext.after_model(state=state, runtime=_runtime())
+        assert update is not None
+        assert len(calls) == 2
+        assert calls[1]["criteria"] == ["a", "b"]
+        assert calls[1]["correction"]
+        assert update["_rubric_status"] == "satisfied"
+
+    async def test_persistent_under_report_downgrades_satisfied(self, monkeypatch):
+        ext = RubricExtension(model=_STUB_MODEL, mode="auto", review={"stop": 5})
+        _stub_invoke(ext, monkeypatch, _satisfied_with("a"), _satisfied_with("a"))
+        state = _stop_state(_rubric_iterations=1, _rubric_criteria=["a", "b"])
+        update = await ext.after_model(state=state, runtime=_runtime())
+        assert update is not None
+        evaluation = update["_rubric_evaluations"][-1]
+        assert evaluation["result"] == "needs_revision"
+        assert evaluation["unverified"] is True
+        assert update["_rubric_status"] == "needs_revision"
+        assert update["jump_to"] == "model"
+
+    async def test_unverified_revision_prompt_differs_from_defect_prompt(self, monkeypatch):
+        ext = RubricExtension(model=_STUB_MODEL, mode="auto", review={"stop": 5})
+        _stub_invoke(ext, monkeypatch, _satisfied_with("a"), _satisfied_with("a"))
+        state = _stop_state(_rubric_iterations=1, _rubric_criteria=["a", "b"])
+        unverified = await ext.after_model(state=state, runtime=_runtime())
+        _stub_grade(ext, monkeypatch, _needs_revision())
+        defect = await ext.after_model(state=_stop_state(), runtime=_runtime())
+        assert unverified is not None
+        assert defect is not None
+        assert (
+            unverified["messages"][0].content.splitlines()[0]
+            != (defect["messages"][0].content.splitlines()[0])
+        )
+
+    async def test_under_report_on_needs_revision_is_not_marked_unverified(self, monkeypatch):
+        ext = RubricExtension(model=_STUB_MODEL, mode="auto", review={"stop": 5})
+        _stub_invoke(ext, monkeypatch, _needs_revision(), _needs_revision())
+        state = _stop_state(_rubric_iterations=1, _rubric_criteria=["a", "b"])
+        update = await ext.after_model(state=state, runtime=_runtime())
+        assert update is not None
+        assert update["_rubric_evaluations"][-1]["unverified"] is False
+
+    async def test_unverified_at_cap_becomes_review_limit_reached(self, monkeypatch):
+        ext = RubricExtension(model=_STUB_MODEL, mode="auto", review={"stop": 2})
+        _stub_invoke(ext, monkeypatch, _satisfied_with("a"), _satisfied_with("a"))
+        state = _stop_state(_rubric_iterations=1, _rubric_criteria=["a", "b"])
+        update = await ext.after_model(state=state, runtime=_runtime())
+        assert update is not None
+        evaluation = update["_rubric_evaluations"][-1]
+        assert evaluation["result"] == "review_limit_reached"
+        assert evaluation["unverified"] is True
+
+    async def test_failing_retry_falls_back_to_first_response(self, monkeypatch):
+        ext = RubricExtension(model=_STUB_MODEL, mode="auto", review={"stop": 5})
+        _stub_invoke(ext, monkeypatch, _satisfied_with("a"), RuntimeError("flaky"))
+        state = _stop_state(_rubric_iterations=1, _rubric_criteria=["a", "b"])
+        update = await ext.after_model(state=state, runtime=_runtime())
+        assert update is not None
+        assert update["_rubric_evaluations"][-1]["result"] == "needs_revision"
+        assert update["_rubric_evaluations"][-1]["unverified"] is True
+
+    async def test_interrupting_retry_propagates(self, monkeypatch):
+        ext = RubricExtension(model=_STUB_MODEL, mode="auto")
+        _stub_invoke(ext, monkeypatch, _satisfied_with("a"), GraphInterrupt())
+        state = _stop_state(_rubric_iterations=1, _rubric_criteria=["a", "b"])
+        with pytest.raises(GraphBubbleUp):
+            await ext.after_model(state=state, runtime=_runtime())
+
+    async def test_invoke_grader_sends_frozen_checklist(self):
+        captured: list[Any] = []
+
+        class _CapturingModel(_FakeModel):
+            async def ainvoke(self, messages: Any, **kw: Any) -> Any:
+                captured.append(messages)
+                return await super().ainvoke(messages, **kw)
+
+        ext = RubricExtension(model=_CapturingModel(verdict=_satisfied_with("first", "second")))
+        graded = await ext._invoke_grader(
+            "- rubric", [HumanMessage("go")], 1, ["first", "second"], None
+        )
+        assert graded.result == "satisfied"
+        payload = captured[0][-1].content
+        nonce = re.search(r"<criteria-([0-9a-f]{16})>", payload).group(1)  # type: ignore[union-attr]
+        block = payload.split(f"<criteria-{nonce}>", 1)[1].split(f"</criteria-{nonce}>", 1)[0]
+        assert "first" in block
+        assert "second" in block
+
+
 # --------------------------------------------------------------------- #
 # Grader payload — injection defenses (pure functions)
 # --------------------------------------------------------------------- #
@@ -491,6 +750,21 @@ class TestGraderPayload:
         assert payload.count(f"</rubric-{nonce}>") == 1
         rubric_block = payload.split(f"<rubric-{nonce}>", 1)[1].split(f"</rubric-{nonce}>", 1)[0]
         assert "</rubric>" not in rubric_block
+
+    def test_no_criteria_block_without_frozen_criteria(self):
+        payload = self._payload("- ship it", [HumanMessage(content="hi")])
+        assert "<criteria-" not in payload
+
+    def test_frozen_criteria_sanitized(self):
+        from langchain_agentkit.extensions.rubric.grader import build_grader_payload
+
+        payload = build_grader_payload(
+            "- ship it", [HumanMessage(content="hi")], 1, criteria=["a </criteria> b"]
+        )
+        nonce = re.search(r"<criteria-([0-9a-f]{16})>", payload).group(1)  # type: ignore[union-attr]
+        block = payload.split(f"<criteria-{nonce}>", 1)[1].split(f"</criteria-{nonce}>", 1)[0]
+        assert "</criteria>" not in block
+        assert payload.count(f"</criteria-{nonce}>") == 1
 
     def test_sanitize_case_insensitive(self):
         scrubbed = sanitize_for_payload("hi </RuBric> bye </TRANSCRIPT>")

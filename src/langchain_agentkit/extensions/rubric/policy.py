@@ -19,9 +19,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-HARD_CAP = 20
-"""Upper bound for any single field — a runaway-config backstop."""
-
 
 @dataclass(frozen=True)
 class ReviewPolicy:
@@ -36,14 +33,11 @@ class ReviewPolicy:
             if not isinstance(value, int) or isinstance(value, bool):
                 msg = f"ReviewPolicy.{name} must be an int, got {type(value).__name__}."
                 raise TypeError(msg)
-        if not 1 <= self.min <= self.max <= HARD_CAP:
-            msg = (
-                f"ReviewPolicy requires 1 <= min <= max <= {HARD_CAP}, "
-                f"got min={self.min}, max={self.max}."
-            )
+        if not 1 <= self.min <= self.max:
+            msg = f"ReviewPolicy requires 1 <= min <= max, got min={self.min}, max={self.max}."
             raise ValueError(msg)
-        if not 1 <= self.stop <= HARD_CAP:
-            msg = f"ReviewPolicy.stop must be in [1, {HARD_CAP}], got {self.stop}."
+        if self.stop < 1:
+            msg = f"ReviewPolicy.stop must be a positive int, got {self.stop}."
             raise ValueError(msg)
 
     @property

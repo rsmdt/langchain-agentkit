@@ -5,7 +5,7 @@ from __future__ import annotations
 
 import pytest
 
-from langchain_agentkit.extensions.rubric.policy import HARD_CAP, ReviewPolicy
+from langchain_agentkit.extensions.rubric.policy import ReviewPolicy
 
 
 class TestCoercion:
@@ -46,17 +46,13 @@ class TestValidation:
         with pytest.raises(ValueError, match="min <= max"):
             ReviewPolicy(min=0, max=3)
 
-    def test_max_above_cap_rejected(self):
-        with pytest.raises(ValueError, match="min <= max"):
-            ReviewPolicy(min=1, max=HARD_CAP + 1)
+    def test_large_values_accepted(self):
+        p = ReviewPolicy(min=1, max=100, stop=250)
+        assert (p.max, p.stop) == (100, 250)
 
     def test_stop_below_one_rejected(self):
         with pytest.raises(ValueError, match="stop"):
             ReviewPolicy(stop=0)
-
-    def test_stop_above_cap_rejected(self):
-        with pytest.raises(ValueError, match="stop"):
-            ReviewPolicy(stop=HARD_CAP + 1)
 
     def test_non_int_rejected(self):
         with pytest.raises(TypeError):

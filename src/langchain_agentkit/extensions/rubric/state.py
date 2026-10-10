@@ -57,3 +57,5 @@ class RubricState(TypedDict, total=False):
 
     _rubric_review_requested: Annotated[bool, PrivateStateAttr]
     """Set by ``request_review`` so the next natural stop is graded early."""
+
+    _rubric_criteria: Annotated[list[str], PrivateStateAttr]

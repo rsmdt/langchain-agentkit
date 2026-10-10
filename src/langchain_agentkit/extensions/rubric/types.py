@@ -62,10 +62,22 @@ follows most reliably), but it carries:
 """
 
 
+_CRITERION_NAME_DESCRIPTION = (
+    "Statement of exactly what this criterion checks, specific enough to evaluate "
+    "without re-reading the rubric. When a criteria checklist is provided, reuse its "
+    "wording verbatim."
+)
+
+_CRITERION_GAP_DESCRIPTION = (
+    "Short, actionable description of what is missing or incorrect, specific enough "
+    "to act on without further clarification."
+)
+
+
 class CriterionPass(TypedDict):
     """Per-criterion grader verdict when the criterion passes."""
 
-    name: str
+    name: Annotated[str, Field(description=_CRITERION_NAME_DESCRIPTION)]
     """Short label identifying the criterion (e.g., the rubric bullet)."""
 
     passed: Literal[True]
@@ -75,13 +87,13 @@ class CriterionPass(TypedDict):
 class CriterionFail(TypedDict):
     """Per-criterion grader verdict when the criterion fails."""
 
-    name: str
+    name: Annotated[str, Field(description=_CRITERION_NAME_DESCRIPTION)]
     """Short label identifying the criterion (e.g., the rubric bullet)."""
 
     passed: Literal[False]
     """Discriminator: this verdict variant requires ``gap``."""
 
-    gap: str
+    gap: Annotated[str, Field(description=_CRITERION_GAP_DESCRIPTION)]
     """Short, actionable description of what's missing or incorrect."""
 
 
@@ -121,6 +133,8 @@ class RubricEvaluation(TypedDict):
     criteria: list[CriterionEval]
     """Per-criterion verdicts."""
 
+    unverified: bool
+
 
 class GraderResponse(BaseModel):
     """Structured output the grader sub-agent must emit.
@@ -143,10 +157,10 @@ class GraderResponse(BaseModel):
         ),
     )
     criteria: list[CriterionEval] = Field(
-        default_factory=list,
         description=(
-            "Per-criterion verdicts. Each criterion should appear once with `passed` "
-            "True/False and a `gap` string when failing."
+            "Exactly one entry per rubric criterion, in rubric order. Never omit a "
+            "criterion or merge several into one entry. Each entry carries `passed` "
+            "True/False, plus a `gap` string when failing."
         ),
     )
 

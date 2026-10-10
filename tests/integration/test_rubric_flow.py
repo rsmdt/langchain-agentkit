@@ -42,6 +42,8 @@ def _main_model() -> MagicMock:
 def _verdict(
     *, result: str, explanation: str, criteria: list[dict[str, Any]] | None = None
 ) -> GraderResponse:
+    if criteria is None and result == "satisfied":
+        criteria = [{"name": "criterion", "passed": True}]
     return GraderResponse(result=result, explanation=explanation, criteria=criteria or [])  # type: ignore[arg-type]
 
 
