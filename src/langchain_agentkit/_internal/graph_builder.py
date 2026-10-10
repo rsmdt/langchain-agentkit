@@ -14,6 +14,7 @@ from typing import TYPE_CHECKING, Any
 __all__ = ["build_ephemeral_graph", "build_graph"]
 
 from langgraph.graph import END, StateGraph
+from langgraph.graph.message import add_messages
 from langgraph.prebuilt import ToolNode, ToolRuntime
 
 from langchain_agentkit._internal.hook_runner import HookRunner
@@ -143,9 +144,13 @@ def _process_before_updates(
             state_update = {k: v for k, v in update.items() if k != "jump_to"}
             state_update["_agentkit_jump_to"] = update["jump_to"]
             return state_update
-        handler_state.update(update)
         for k, v in update.items():
-            persisted_before[k] = v
+            if k == "messages":
+                handler_state[k] = add_messages(handler_state.get(k) or [], v)
+                persisted_before[k] = [*persisted_before.get(k, []), *v]
+            else:
+                handler_state[k] = v
+                persisted_before[k] = v
     return None
 
 
