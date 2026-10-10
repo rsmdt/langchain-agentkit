@@ -9,3 +9,6 @@ build/
 *.egg
 .env
 .start/
+.claude/
+.serena/
+.github/repos/
