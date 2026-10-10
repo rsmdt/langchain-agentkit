@@ -1214,8 +1214,10 @@ def _recommended_kit(root: Path) -> Any:
             WebSearchExtension(),
             TeamExtension(agents=[_AgentConfigProxy(cfg)]),
             AgentsExtension(agents=[cfg], default_conciseness=True),
-            HITLExtension(),
+            # Resilience composes outermost in the tool-hook chain, so it must
+            # precede every extension carrying a wrap_tool hook — HITL here.
             ResilienceExtension(),
+            HITLExtension(),
         ],
         model=MODEL_NAME,
         model_resolver=lambda name: ChatOpenAI(model=name, temperature=0),
