@@ -687,3 +687,62 @@ class TestCompileWithProxyTasks:
         # Should compile successfully
         assert compiled is not None
         assert hasattr(compiled, "ainvoke")
+
+
+class TestUnknownArgumentsRejected:
+    @staticmethod
+    async def _run_through_tool_node(ext: TeamExtension, name: str, args: dict) -> list:
+        from langchain_core.messages import AIMessage
+        from langgraph.graph import END, START, MessagesState, StateGraph
+        from langgraph.prebuilt import ToolNode
+
+        graph = StateGraph(MessagesState)
+        graph.add_node("tools", ToolNode(ext.tools))
+        graph.add_edge(START, "tools")
+        graph.add_edge("tools", END)
+        call = AIMessage(content="", tool_calls=[{"name": name, "args": args, "id": "c1"}])
+        result = await graph.compile().ainvoke({"messages": [call]})
+        return list(result["messages"])
+
+    @pytest.mark.asyncio
+    async def test_valid_message_validates_with_injected_args(self):
+        from langchain_core.messages import ToolMessage
+
+        ext = _make_extension_with_active_team(["researcher"])
+
+        messages = await self._run_through_tool_node(
+            ext, "TeamMessage", {"to": "researcher", "message": "go"}
+        )
+
+        tool_msg = next(m for m in messages if isinstance(m, ToolMessage))
+        assert tool_msg.status == "success"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("name", "args", "key"),
+        [
+            ("TeamMessage", {"to": "researcher", "message": "go", "body": "details"}, "body"),
+            ("TeamStatus", {"verbose": True}, "verbose"),
+            ("TeamDissolve", {"force": True}, "force"),
+            (
+                "TeamCreate",
+                {
+                    "name": "t",
+                    "agents": [
+                        {"name": "a", "agent": {"id": "researcher"}, "task": "the real task"}
+                    ],
+                },
+                "task",
+            ),
+        ],
+    )
+    async def test_unknown_key_is_a_tool_error_naming_the_key(self, name, args, key):
+        from langchain_core.messages import ToolMessage
+
+        ext = _make_extension_with_active_team(["researcher"])
+
+        messages = await self._run_through_tool_node(ext, name, args)
+
+        tool_msg = next(m for m in messages if isinstance(m, ToolMessage))
+        assert tool_msg.status == "error"
+        assert f"{key}: " in tool_msg.content

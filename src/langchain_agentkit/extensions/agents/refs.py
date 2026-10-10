@@ -13,17 +13,21 @@ from pathlib import Path
 from typing import Any
 
 from langchain_core.tools import ToolException
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class Predefined(BaseModel):
     """Select a pre-defined agent from the roster."""
+
+    model_config = ConfigDict(extra="forbid")
 
     id: str = Field(description="Agent name from the available roster.")
 
 
 class Dynamic(BaseModel):
     """Create an on-the-fly reasoning agent."""
+
+    model_config = ConfigDict(extra="forbid")
 
     prompt: str = Field(
         description="System prompt defining the agent's role and behavior.",

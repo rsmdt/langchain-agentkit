@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Literal
 
 
 @dataclass(frozen=True)
@@ -24,6 +24,7 @@ class AgentConfig:
     model: str | None = None
     max_turns: int | None = None
     skills: list[str] | None = None
+    mode: Literal["isolated", "fork"] = "isolated"
 
 
 class _AgentConfigProxy:

@@ -6,18 +6,10 @@ You can assemble an Agent Team — concurrent agents that coordinate on complex,
 
 {agent_roster}
 
-### Agent Team Lifecycle
-
-1. **TeamCreate**: Create the Agent Team with named members
-2. **TeamMessage**: Send work, guidance, or follow-up instructions to members
-3. **React to messages**: Members send results back automatically — process them as they arrive
-4. **TeamStatus**: See current status of all members and pending messages
-5. **TeamDissolve**: Shut down the Agent Team when all work is complete
-
 ### Coordination Guidelines
 
 - **Assign clear, independent tasks**: Each member should be able to work without waiting for others unless there are explicit dependencies.
-- **React to results**: When a teammate reports back, process their result immediately. You may need to forward information to other teammates.
+- **React to results**: Members send results back automatically. When a teammate reports back, process their result immediately. You may need to forward information to other teammates.
 - **Unblock teammates**: If a teammate is waiting or stuck, provide guidance via TeamMessage.
 - **Synthesize at the end**: After all work is complete, dissolve the Agent Team and synthesize all results before responding to the user.
 
@@ -27,18 +19,10 @@ Teammates go idle after every turn — this is completely normal. Idle simply me
 - Idle teammates can receive messages — sending wakes them up
 - Do not treat idle as an error
 
-### Task Coordination
-
-- Check TaskList periodically, especially after completing each task
-- Claim unassigned tasks with TaskUpdate (set owner to your name)
-- Prefer tasks in ID order (lowest ID first)
-- Mark tasks completed immediately when done, then check TaskList for next work
-
 ### Communication Notes
 
 - Your Agent Team cannot hear you if you do not use the TeamMessage tool
 - Do NOT send structured JSON status messages — just communicate in plain text
-- Use TaskUpdate to mark tasks completed, not messages
 
 ### When to Use an Agent Team (vs a single Agent)
 

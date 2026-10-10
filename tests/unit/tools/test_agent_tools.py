@@ -454,3 +454,56 @@ class TestCreateAgentTools:
 
         node = ToolNode(tools)
         assert "Agent" in node._injected_args
+
+
+class TestUnknownArgumentsRejected:
+    @staticmethod
+    async def _run_through_tool_node(args: dict, *, ephemeral: bool = False) -> list:
+        from langgraph.graph import END, START, MessagesState, StateGraph
+        from langgraph.prebuilt import ToolNode
+
+        tools = create_agent_tools(
+            agents_by_name={"researcher": _make_mock_agent_graph("researcher", "found it")},
+            compiled_cache={},
+            delegation_timeout=30.0,
+            parent_tools_getter=None,
+            ephemeral=ephemeral,
+            parent_llm_getter=(lambda: MagicMock()) if ephemeral else None,
+        )
+        graph = StateGraph(MessagesState)
+        graph.add_node("tools", ToolNode(tools))
+        graph.add_edge(START, "tools")
+        graph.add_edge("tools", END)
+        call = AIMessage(content="", tool_calls=[{"name": "Agent", "args": args, "id": "c1"}])
+        result = await graph.compile().ainvoke({"messages": [call]})
+        return list(result["messages"])
+
+    @pytest.mark.asyncio
+    async def test_valid_call_validates_with_injected_args(self):
+        from langchain_core.messages import ToolMessage
+
+        messages = await self._run_through_tool_node(
+            {"agent": {"id": "researcher"}, "message": "find info"}
+        )
+
+        tool_msg = next(m for m in messages if isinstance(m, ToolMessage))
+        assert tool_msg.status == "success"
+        assert tool_msg.content == "found it"
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("ephemeral", [False, True])
+    @pytest.mark.parametrize(
+        "args",
+        [
+            {"agent": {"id": "researcher"}, "message": "short label", "prompt": "the real task"},
+            {"agent": {"id": "researcher", "prompt": "the real task"}, "message": "short label"},
+        ],
+    )
+    async def test_unknown_key_is_a_tool_error_naming_the_key(self, ephemeral: bool, args: dict):
+        from langchain_core.messages import ToolMessage
+
+        messages = await self._run_through_tool_node(args, ephemeral=ephemeral)
+
+        tool_msg = next(m for m in messages if isinstance(m, ToolMessage))
+        assert tool_msg.status == "error"
+        assert "prompt: " in tool_msg.content

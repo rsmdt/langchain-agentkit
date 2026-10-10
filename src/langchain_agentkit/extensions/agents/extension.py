@@ -47,6 +47,8 @@ _DYNAMIC_SECTION = (
 
 _PARALLEL_NOTE = "\nMultiple Agent calls issued in the same turn run concurrently."
 
+_FORK_ROSTER_NOTE = " Inherits your conversation, so the message only needs the task itself."
+
 
 def _get_tools_description(agent: Any) -> str:
     from langchain_agentkit.extensions.agents.types import AgentConfig
@@ -363,7 +365,9 @@ class AgentsExtension(Extension):
         for agent_name, agent_obj in self._agents_by_name.items():
             desc = getattr(agent_obj, "description", "") or "No description"
             tools_desc = _get_tools_description(agent_obj)
-            roster_lines.append(f"- **{agent_name}**: {desc} (Tools: {tools_desc})")
+            config = getattr(agent_obj, "_agent_config", None)
+            fork_note = _FORK_ROSTER_NOTE if getattr(config, "mode", None) == "fork" else ""
+            roster_lines.append(f"- **{agent_name}**: {desc} (Tools: {tools_desc}){fork_note}")
         roster = "\n".join(roster_lines)
         dynamic_section = _DYNAMIC_SECTION if self._ephemeral else ""
         result = _agent_delegation_template.format(

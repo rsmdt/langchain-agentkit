@@ -9,7 +9,7 @@ from typing import TYPE_CHECKING, Annotated, Any
 
 from langchain_core.tools import InjectedToolCallId, ToolException
 from langgraph.prebuilt import InjectedState
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 # Pydantic needs these at runtime for Field annotations on _AgentSpec.
 from langchain_agentkit.extensions.agents.refs import Dynamic, Predefined  # noqa: TC001
@@ -33,14 +33,6 @@ on your team:
 
 Just writing a response in text is not visible to others on your team — \
 you MUST use the TeamMessage tool.
-
-# Task Management
-
-You share a task list with your team. Use the standard task tools to coordinate:
-- **TaskList** to see available work
-- **TaskCreate** to add new tasks
-- **TaskUpdate** to claim tasks (set owner), update status, or mark completed
-- **TaskGet** to read full task details
 """
 
 
@@ -51,6 +43,8 @@ You share a task list with your team. Use the standard task tools to coordinate:
 
 class _AgentSpec(BaseModel):
     """Specification for a single team agent."""
+
+    model_config = ConfigDict(extra="forbid")
 
     name: str = Field(description="Unique name for this agent in the team.")
     agent: Predefined | Dynamic = Field(
@@ -63,6 +57,8 @@ class _AgentSpec(BaseModel):
 
 
 class _TeamCreateInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str = Field(description="Name for the team.")
     agents: list[_AgentSpec] = Field(
         description=(
@@ -75,6 +71,8 @@ class _TeamCreateInput(BaseModel):
 
 
 class _TeamMessageInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     to: str = Field(
         description='Recipient: teammate name, or "*" for broadcast to all teammates.',
     )
@@ -88,11 +86,15 @@ class _TeamMessageInput(BaseModel):
 
 
 class _TeamStatusInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     state: Annotated[dict[str, Any], InjectedState]
     tool_call_id: Annotated[str, InjectedToolCallId]
 
 
 class _TeamDissolveInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     timeout: float = Field(
         default=30.0,
         description="Max seconds to wait for graceful shutdown.",

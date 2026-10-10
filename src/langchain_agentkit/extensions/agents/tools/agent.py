@@ -17,9 +17,15 @@ from langgraph.errors import GraphRecursionError
 from langgraph.graph import END
 from langgraph.prebuilt import InjectedState, ToolNode
 from langgraph.types import Command
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from langchain_agentkit._internal.graph_builder import build_ephemeral_graph
+from langchain_agentkit.extensions.agents.fork import (
+    FORK_DELEGATION_REFUSAL,
+    ForkedContextExtension,
+    build_forked_state,
+    is_forked,
+)
 from langchain_agentkit.extensions.agents.refs import (
     Dynamic,
     Predefined,
@@ -40,6 +46,8 @@ _logger = logging.getLogger(__name__)
 
 
 class _AgentInputBase(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
     name: str | None = Field(
         default=None,
         description="Human-readable label for this delegation (shown in UI).",
@@ -47,7 +55,7 @@ class _AgentInputBase(BaseModel):
     message: str = Field(
         description=(
             "Clear, specific task for the agent. Include all necessary "
-            "context — the agent has no access to your conversation history."
+            "context — by default the agent has no access to your conversation history."
         ),
     )
     state: Annotated[dict[str, Any], InjectedState]
@@ -301,6 +309,9 @@ async def _agent_tool(
     parent_soft: int | None = None,
 ) -> Any:
     """Delegate a task to a pre-defined or dynamically created agent."""
+    if is_forked(state):
+        raise ToolException(FORK_DELEGATION_REFUSAL)
+
     agent_ref = agent if isinstance(agent, dict) else agent.model_dump()
 
     if "id" in agent_ref:
@@ -319,6 +330,7 @@ async def _agent_tool(
             strategy_context=strategy_context,
             parent_hard=parent_hard,
             parent_soft=parent_soft,
+            parent_messages=list(state.get("messages") or []),
         )
 
     if "prompt" in agent_ref:
@@ -358,6 +370,7 @@ async def _delegate_predefined(
     strategy_context: Any = None,
     parent_hard: int | None = None,
     parent_soft: int | None = None,
+    parent_messages: list[Any] | None = None,
 ) -> Any:
     """Delegate a task to a named pre-defined agent."""
     target = resolve_agent_by_name(agent_id, agents_by_name)
@@ -379,6 +392,7 @@ async def _delegate_predefined(
             strategy_context=strategy_context,
             parent_hard=parent_hard,
             parent_soft=parent_soft,
+            parent_messages=parent_messages,
         )
 
     compiled = _compile_or_resolve(target, compiled_cache, parent_tools_getter, parent_hard)
@@ -409,6 +423,7 @@ async def _delegate_agent_config(
     strategy_context: Any = None,
     parent_hard: int | None = None,
     parent_soft: int | None = None,
+    parent_messages: list[Any] | None = None,
 ) -> Any:
     """Delegate to an AgentConfig — resolve model, tools, skills, max_turns."""
     if agent_config.model and model_resolver:
@@ -440,6 +455,10 @@ async def _delegate_agent_config(
         agent_config.max_turns, parent_hard, parent_soft
     )
 
+    forked = agent_config.mode == "fork"
+    if forked:
+        inherited_extensions = [*inherited_extensions, ForkedContextExtension()]
+
     try:
         compiled = build_ephemeral_graph(
             name=agent_name,
@@ -452,7 +471,14 @@ async def _delegate_agent_config(
     except Exception as exc:
         raise ToolException(f"Failed to create agent '{agent_name}': {exc}") from exc
 
-    scoped_state = _build_scoped_state(message)
+    if forked:
+        scoped_state = build_forked_state(
+            parent_messages or [],
+            message,
+            metadata_prefix=(strategy_context or _default_strategy_context()).metadata_prefix,
+        )
+    else:
+        scoped_state = _build_scoped_state(message)
 
     return await _run_delegation(
         compiled=compiled,
@@ -514,7 +540,7 @@ async def _delegate_dynamic(
 # ---------------------------------------------------------------------------
 
 
-_AGENT_DESCRIPTION = """Delegate a self-contained task to an agent and wait for its result. Use for focused, isolated work, or to fan out several independent tasks at once — issue multiple calls in one turn and they run concurrently, each agent working alone with no hand-offs between them. The agent sees only the message you send it, none of your conversation."""
+_AGENT_DESCRIPTION = """Delegate a self-contained task to an agent and wait for its result. Use for focused, isolated work, or to fan out several independent tasks at once — issue multiple calls in one turn and they run concurrently, each agent working alone with no hand-offs between them. By default the agent sees only the message you send it, none of your conversation."""
 
 
 # ---------------------------------------------------------------------------
