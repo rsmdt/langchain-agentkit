@@ -47,6 +47,21 @@ _logger = logging.getLogger(__name__)
 
 _VALID_PRESETS: frozenset[str] = frozenset({"full"})
 
+# Envelope wrapping every per-step reminder. Named ``system-reminder`` to
+# match what tool results already emit, and because the name itself carries
+# the attribution the model needs.
+_REMINDER_OPEN = "<system-reminder>"
+_REMINDER_CLOSE = "</system-reminder>"
+
+# Stated once in the durable prompt whenever a reminder is present. The
+# envelope is appended to the *last* message of the conversation — usually
+# the user's — so the model is told plainly that the user did not write it.
+_REMINDER_CONTRACT = (
+    "Text inside <system-reminder> tags is context added by the system, not written "
+    "by the user. Treat it as current and act on it, but never quote it back, thank "
+    "the user for it, or treat it as something the user said."
+)
+
 # Signature-inspection memo for ``_call_prompt``: whether each extension
 # type's ``prompt()`` accepts the ``tools`` kwarg. Keyed by type — a
 # class's signature never changes at runtime, so entries are write-once.
@@ -342,7 +357,7 @@ class AgentKit:
         2. **Reminder** (``.reminder``). Each extension's
            ``dict["reminder"]`` contribution, collected in declaration
            order, separated by blank lines, and wrapped in a single
-           ``<reminder>`` envelope. No per-extension headers — each
+           ``<system-reminder>`` envelope. No per-extension headers — each
            contribution is self-contained prose. Empty when no extension
            contributes one. The graph builder appends it to the *last*
            message of the conversation each step (separated by ``---``),
@@ -387,7 +402,13 @@ class AgentKit:
 
         reminder = ""
         if reminder_sections:
-            reminder = "<reminder>\n" + "\n\n".join(reminder_sections) + "\n</reminder>"
+            reminder = (
+                _REMINDER_OPEN + "\n" + "\n\n".join(reminder_sections) + "\n" + _REMINDER_CLOSE
+            )
+            # The envelope rides inside the user's own message, so without this
+            # the model has no basis to tell it apart from what the user wrote.
+            # Byte-stable, so it stays inside the cached system-prompt prefix.
+            prompt_parts.append(_REMINDER_CONTRACT)
 
         return PromptComposition(prompt="\n\n".join(prompt_parts), reminder=reminder)
 

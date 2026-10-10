@@ -7,7 +7,7 @@ compaction status, skill rosters, turn budgets) reflects the current moment:
   prompt and every extension's ``prompt()`` ``str`` / ``dict["prompt"]``
   return, joined in declaration order. Delivered as the system message.
 - ``reminder`` — per-turn ephemeral guidance assembled from every
-  extension's ``dict["reminder"]`` return, wrapped in a ``<reminder>``
+  extension's ``dict["reminder"]`` return, wrapped in a ``<system-reminder>``
   envelope. Delivered by appending it to the *last* message of the
   conversation each step (separated by ``---``), never persisted to state.
   Empty string when no extension contributes a reminder.

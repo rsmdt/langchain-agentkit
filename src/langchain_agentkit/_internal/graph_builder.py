@@ -28,7 +28,7 @@ if TYPE_CHECKING:
 
 
 def _inject_reminder(handler_state: dict[str, Any], reminder: str) -> dict[str, Any]:
-    """Append the ``<reminder>`` envelope to the last message, ephemerally.
+    """Append the ``<system-reminder>`` envelope to the last message, ephemerally.
 
     Returns a new state dict whose final message carries the reminder as a
     ``---``-separated suffix. The original state is NOT mutated and the

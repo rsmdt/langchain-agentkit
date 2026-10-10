@@ -56,9 +56,9 @@ class TestPromptCompositionDataclass:
 
     def test_prompt_and_reminder_channels(self):
         """PromptComposition carries two independent channels."""
-        comp = PromptComposition(prompt="hello", reminder="<reminder>R</reminder>")
+        comp = PromptComposition(prompt="hello", reminder="<system-reminder>R</system-reminder>")
         assert comp.prompt == "hello"
-        assert comp.reminder == "<reminder>R</reminder>"
+        assert comp.reminder == "<system-reminder>R</system-reminder>"
 
 
 class TestComposeReturnType:
@@ -98,10 +98,11 @@ class TestDictReturn:
         kit = AgentKit(extensions=[_DictExt(prompt="P", reminder="R")], prompt="Base")
         composition = kit.compose({}, None)
         # Durable content stays in the prompt channel; reminder is separate.
-        assert composition.prompt == "Base\n\nP"
+        # The attribution contract follows the durable content.
+        assert composition.prompt.startswith("Base\n\nP")
         assert "R" not in composition.prompt
-        # Reminder is wrapped in a <reminder> envelope — no per-extension header.
-        assert composition.reminder == "<reminder>\nR\n</reminder>"
+        # Reminder is wrapped in a <system-reminder> envelope — no per-extension header.
+        assert composition.reminder == "<system-reminder>\nR\n</system-reminder>"
 
     def test_reminder_without_prompt_contribution(self):
         kit = AgentKit(
@@ -109,8 +110,11 @@ class TestDictReturn:
             prompt="Base",
         )
         composition = kit.compose({}, None)
-        # Base prompt unaffected; reminder lives in its own channel.
-        assert composition.prompt == "Base"
+        # The reminder body stays in its own channel; the durable prompt gains
+        # only the attribution contract, because a reminder is now present.
+        assert composition.prompt.startswith("Base")
+        assert "only-reminder" not in composition.prompt
+        assert "not written by the user" in composition.prompt
         assert "only-reminder" in composition.reminder
 
     def test_multiple_reminders_collected_in_declaration_order(self):
@@ -123,14 +127,35 @@ class TestDictReturn:
         reminder = kit.compose({}, None).reminder
         assert reminder.index("first-reminder") < reminder.index("second-reminder")
         # One envelope wraps all sections, not one per reminder.
-        assert reminder.count("<reminder>") == 1
-        assert reminder.count("</reminder>") == 1
+        assert reminder.count("<system-reminder>") == 1
+        assert reminder.count("</system-reminder>") == 1
 
     def test_reminder_empty_when_no_reminders(self):
         kit = AgentKit(extensions=[_DictExt(prompt="P")])
         composition = kit.compose({}, None)
         assert composition.reminder == ""
-        assert "<reminder>" not in composition.prompt
+        assert "<system-reminder>" not in composition.prompt
+
+    def test_attribution_contract_absent_without_a_reminder(self):
+        # The contract only earns its tokens when something actually rides
+        # the channel it describes.
+        kit = AgentKit(extensions=[_DictExt(prompt="P")])
+        assert "not written by the user" not in kit.compose({}, None).prompt
+
+    def test_attribution_contract_stated_once_for_many_reminders(self):
+        kit = AgentKit(
+            extensions=[_DictExt(reminder="one"), _DictExt(reminder="two")],
+        )
+        prompt = kit.compose({}, None).prompt
+        assert prompt.count("not written by the user") == 1
+
+    def test_attribution_contract_is_byte_stable_across_steps(self):
+        # It sits in the cached system-prompt prefix, so it must not vary
+        # with state — otherwise it busts the prompt cache every turn.
+        kit = AgentKit(extensions=[_DictExt(reminder="r")])
+        first = kit.compose({"messages": []}, None).prompt
+        second = kit.compose({"messages": [1, 2, 3]}, None).prompt
+        assert first == second
 
     def test_dict_unknown_keys_ignored(self):
         class _WeirdExt(Extension):

@@ -94,7 +94,7 @@ class Extension:
             returning a plain ``str``).
           * ``"reminder"`` — collected with other extensions' reminders
             (blank-line separated, no per-extension headers), wrapped in a
-            ``<reminder>`` envelope, and appended (separated by ``---``) to
+            ``<system-reminder>`` envelope, and appended (separated by ``---``) to
             the *last message of the conversation* every step. The reminder
             is ephemeral: it is never persisted to state and is never
             observed by an extension's truncation window.

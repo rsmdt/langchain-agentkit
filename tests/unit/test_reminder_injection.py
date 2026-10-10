@@ -2,7 +2,7 @@
 """Tests for ephemeral reminder injection into the conversation tail.
 
 The reminder channel of ``PromptComposition`` is appended to the *last*
-message each step (``---``-separated, ``<reminder>``-wrapped), seen by the
+message each step (``---``-separated, ``<system-reminder>``-wrapped), seen by the
 LLM but never persisted to state.
 """
 
@@ -17,7 +17,7 @@ from langchain_agentkit import Agent
 from langchain_agentkit._internal.graph_builder import _inject_reminder
 from langchain_agentkit.composition.extension import Extension
 
-_REMINDER = "<reminder>\n### Ext\nbody\n</reminder>"
+_REMINDER = "<system-reminder>\n### Ext\nbody\n</system-reminder>"
 
 
 def _make_llm() -> MagicMock:
@@ -95,10 +95,10 @@ class TestReminderThroughGraph:
         result = await compiled.ainvoke({"messages": [HumanMessage(content="hello")]})
 
         # The LLM saw the reminder appended to the tail message.
-        assert "hello\n\n---\n\n<reminder>" in seen["last"]
+        assert "hello\n\n---\n\n<system-reminder>" in seen["last"]
         assert "TURN-INFO" in seen["last"]
         # Persisted state never contains the reminder envelope.
-        assert all("<reminder>" not in str(m.content) for m in result["messages"])
+        assert all("<system-reminder>" not in str(m.content) for m in result["messages"])
 
     async def test_reminder_rides_the_tail_into_the_tool_loop(self):
         seen: list = []
@@ -140,6 +140,6 @@ class TestReminderThroughGraph:
         await compiled.ainvoke({"messages": [HumanMessage(content="go")]})
 
         # Turn 1: tail is the user message.
-        assert "go\n\n---\n\n<reminder>" in seen[0]
+        assert "go\n\n---\n\n<system-reminder>" in seen[0]
         # Turn 2 (mid-loop): tail is the tool result — reminder follows it there.
-        assert "TOOLRESULT\n\n---\n\n<reminder>" in seen[1]
+        assert "TOOLRESULT\n\n---\n\n<system-reminder>" in seen[1]
