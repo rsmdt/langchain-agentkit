@@ -86,24 +86,30 @@ class TestSymlinks:
 
 
 class TestGlobGrepPermissionDenied:
-    """Traversal-escaping paths return empty results instead of raising.
-
-    ``glob``/``grep`` have no error-result wrapper, so expected
-    LLM-actionable failures degrade to "no matches" — same behavior
-    as the sandbox backends.
-    """
-
-    async def test_glob_symlink_escape_returns_empty(self):
+    async def test_glob_symlink_escape_reports_error(self):
         with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as other:
             backend = OSBackend(tmpdir)
             os.symlink(other, os.path.join(tmpdir, "escape"))
-            assert await backend.glob("*.txt", "/escape") == []
+            result = await backend.glob("*.txt", "/escape")
+            assert result.paths == []
+            assert result.error_message
 
-    async def test_grep_symlink_escape_returns_empty(self):
+    async def test_grep_symlink_escape_reports_error(self):
         with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as other:
             backend = OSBackend(tmpdir)
             os.symlink(other, os.path.join(tmpdir, "escape"))
-            assert await backend.grep("secret", "/escape") == []
+            result = await backend.grep("secret", "/escape")
+            assert result.matches == []
+            assert result.error_message
+
+    async def test_symlinked_file_outside_root_is_not_searched(self):
+        with tempfile.TemporaryDirectory() as tmpdir, tempfile.TemporaryDirectory() as other:
+            secret = os.path.join(other, "secret.txt")
+            with open(secret, "w") as f:
+                f.write("secret\n")
+            backend = OSBackend(tmpdir)
+            os.symlink(secret, os.path.join(tmpdir, "link.txt"))
+            assert (await backend.grep("secret")).matches == []
 
 
 class TestConvenienceMethods:

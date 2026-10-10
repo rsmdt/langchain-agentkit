@@ -10,12 +10,14 @@ from __future__ import annotations
 
 import re
 
-from langchain_agentkit.backends.results import PROBED_TOOLS
+from langchain_agentkit.backends.results import PROBED_TOOLS, ReadResult
 
 __all__ = [
     "BASH_STARTUP_WARNING_RE",
     "ENV_PROBE_SCRIPT",
     "ENV_PROBE_SEPARATOR",
+    "parse_read_window",
+    "read_window_command",
     "shell_quote",
 ]
 
@@ -23,6 +25,25 @@ __all__ = [
 def shell_quote(s: str) -> str:
     """Quote a string for safe shell interpolation (POSIX single-quote escape)."""
     return "'" + s.replace("'", "'\"'\"'") + "'"
+
+
+def read_window_command(path: str, offset: int, limit: int) -> str:
+    quoted = shell_quote(path)
+    count_lines = f"awk 'END {{ print NR }}' {quoted}"
+    if limit <= 0:
+        return count_lines
+    start = max(0, offset) + 1
+    end = start + limit - 1
+    return f"{count_lines} && sed -n '{start},{end}p' {quoted}"
+
+
+def parse_read_window(output: str) -> ReadResult:
+    count, _, content = output.partition("\n")
+    try:
+        total_lines = int(count.strip())
+    except ValueError:
+        return ReadResult(error="io_error", error_message=f"Read failed: {output[:200]!r}")
+    return ReadResult(content=content, total_lines=total_lines)
 
 
 # Strip bash's ``setlocale: LC_ALL: cannot change locale`` startup warnings

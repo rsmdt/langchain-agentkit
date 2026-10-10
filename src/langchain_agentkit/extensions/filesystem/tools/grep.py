@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Any
 
 from langchain_core.tools import StructuredTool
 
+from langchain_agentkit.backends.results import GrepResult
 from langchain_agentkit.extensions.filesystem.tools.common import (
     _FULL_READ_LIMIT,
     _GrepInput,
@@ -116,13 +117,13 @@ async def _grep_multiline(
     path: str | None = None,
     glob: str | None = None,
     ignore_case: bool = False,
-) -> list[dict[str, Any]]:
+) -> GrepResult:
     """Full-file regex search with re.DOTALL for cross-line patterns."""
     flags = re.DOTALL | (re.IGNORECASE if ignore_case else 0)
     regex = re.compile(pattern, flags)
-    file_paths = await backend.glob(glob or "**/*", path=path or "/")
-    results: list[dict[str, Any]] = []
-    for file_path in file_paths:
+    listing = await backend.glob(glob or "**/*", path=path or "/")
+    results: list[Any] = []
+    for file_path in listing.paths:
         rr = await backend.read(file_path, limit=_FULL_READ_LIMIT)
         if rr.error is not None or rr.content is None:
             continue
@@ -138,7 +139,21 @@ async def _grep_multiline(
                         "text": line_text,
                     }
                 )
-    return results
+    return GrepResult(
+        matches=results, truncated=listing.truncated, error_message=listing.error_message
+    )
+
+
+def _append_search_notes(content: str, artifact: dict[str, Any], result: GrepResult) -> str:
+    artifact["truncated"] = result.truncated
+    if result.truncated:
+        content += (
+            "\n(Results are partial: the search stopped early. Narrow it with a more "
+            "specific pattern, path, or glob.)"
+        )
+    if result.error_message:
+        content += f"\n(Some locations could not be searched: {result.error_message})"
+    return content
 
 
 async def _format_grep_with_context(
@@ -298,7 +313,7 @@ def _build_grep(backend: Any) -> BaseTool:
         effective_glob = _resolve_grep_glob(glob, type)
 
         if multiline:
-            results = await _grep_multiline(
+            search = await _grep_multiline(
                 backend,
                 pattern,
                 path=path,
@@ -306,34 +321,42 @@ def _build_grep(backend: Any) -> BaseTool:
                 ignore_case=ignore_case,
             )
         else:
-            results = await backend.grep(
+            cap: dict[str, int] = {}
+            if output_mode == "content" and head_limit > 0:
+                cap["max_matches"] = offset + head_limit
+            search = await backend.grep(
                 pattern,
                 path=path,
                 glob=effective_glob,
                 ignore_case=ignore_case,
+                **cap,
             )
+        results: list[dict[str, Any]] = list(search.matches)  # type: ignore[arg-type]
         if not results:
-            return "No matches found.", {
+            empty: dict[str, Any] = {
                 "mode": output_mode,
                 "numFiles": 0,
                 "filenames": [],
             }
+            return _append_search_notes("No matches found.", empty, search), empty
 
         results = _apply_offset_to_results(results, offset, output_mode)
 
         if output_mode == "files_with_matches":
-            return _grep_files_with_matches(results, head_limit, offset)
-        if output_mode == "count":
-            return _grep_count(results, head_limit, offset)
-        return await _format_content_results(
-            backend,
-            results,
-            effective_before,
-            effective_after,
-            line_numbers,
-            head_limit,
-            offset,
-        )
+            content, artifact = _grep_files_with_matches(results, head_limit, offset)
+        elif output_mode == "count":
+            content, artifact = _grep_count(results, head_limit, offset)
+        else:
+            content, artifact = await _format_content_results(
+                backend,
+                results,
+                effective_before,
+                effective_after,
+                line_numbers,
+                head_limit,
+                offset,
+            )
+        return _append_search_notes(content, artifact, search), artifact
 
     return StructuredTool.from_function(
         coroutine=grep,

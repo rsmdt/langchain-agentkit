@@ -34,6 +34,10 @@ from langchain_agentkit.backends.protocol import SandboxProtocol
 from langchain_agentkit.composition.extension import Extension
 from langchain_agentkit.extensions.filesystem.tools import create_filesystem_tools
 from langchain_agentkit.extensions.filesystem.tools.bash import _build_bash_tool
+from langchain_agentkit.extensions.filesystem.unsupported_content import (
+    restore_original_messages,
+    strip_unsupported_content,
+)
 from langchain_agentkit.permissions.types import (
     PermissionOperation,
     PermissionRuleset,
@@ -41,7 +45,7 @@ from langchain_agentkit.permissions.types import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
     from pathlib import Path
 
     from langchain_core.tools import BaseTool
@@ -67,10 +71,22 @@ _TOOL_TARGET_ARG: dict[str, str] = {
     "Read": "file_path",
     "Write": "file_path",
     "Edit": "file_path",
-    "Glob": "pattern",
-    "Grep": "pattern",
+    "Glob": "path",
+    "Grep": "path",
     "Bash": "command",
 }
+
+_SEARCH_ROOT = "/"
+
+_TOOL_DEFAULT_TARGET: dict[str, str] = {
+    "Glob": _SEARCH_ROOT,
+    "Grep": _SEARCH_ROOT,
+}
+
+_PATHLESS_DENIED_HINT = (
+    f" A search without a path is checked against '{_SEARCH_ROOT}', not the directories "
+    "named in the pattern. Retry with a path inside an allowed directory."
+)
 
 # Specialized file-inspection tools — when present alongside Bash, the
 # prompt steers the model toward them over raw shell equivalents.
@@ -130,16 +146,22 @@ class FilesystemExtension(Extension):
         )
         self._tools_cache: list[BaseTool] | None = None
         self._env: SandboxEnvironment | None = None  # Populated by setup() for SandboxProtocol
+        self._llm_getter: Callable[[], Any] | None = None
 
     @override
     async def setup(  # type: ignore[override]
-        self, *, extensions: list[Extension], **_: Any
+        self,
+        *,
+        extensions: list[Extension],
+        llm_getter: Callable[[], Any] | None = None,
+        **_: Any,
     ) -> None:
         # Async because ``SandboxProtocol.environment`` may issue a one-time
         # shell probe against a remote sandbox.
         from langchain_agentkit.extensions.hitl import HITLExtension
 
         self._hitl_available = any(isinstance(e, HITLExtension) for e in extensions)
+        self._llm_getter = llm_getter
         # Invalidate cached tools so the next access rebuilds them with
         # the correct HITL-aware gating.
         self._tools_cache = None
@@ -200,6 +222,7 @@ class FilesystemExtension(Extension):
                     tool=tool,
                     operation=operation,
                     target_arg=_TOOL_TARGET_ARG.get(tool.name, ""),
+                    default_target=_TOOL_DEFAULT_TARGET.get(tool.name),
                     permissions=self._permissions,
                     hitl_check=lambda: self._hitl_available,
                 )
@@ -238,6 +261,27 @@ class FilesystemExtension(Extension):
             return None
         return "\n\n".join(sections)
 
+    async def wrap_model(
+        self,
+        *,
+        state: Any,
+        handler: Any,
+        runtime: Any,
+    ) -> Any:
+        model = self._llm_getter() if self._llm_getter is not None else None
+        profile = getattr(model, "profile", None)
+        messages = state.get("messages") if isinstance(state, dict) else None
+        if not profile or not messages:
+            return await handler(state)
+
+        filtered, originals = strip_unsupported_content(messages, profile)
+        if not originals:
+            return await handler(state)
+
+        result = await handler({**state, "messages": filtered})
+        restore_original_messages(result, originals)
+        return result
+
 
 # ---------------------------------------------------------------------------
 # Permission wrapper
@@ -250,25 +294,28 @@ def _wrap_with_permission_check(
     target_arg: str,
     permissions: PermissionRuleset,
     hitl_check: Any,
+    default_target: str | None = None,
 ) -> BaseTool:
     original_coro = tool.coroutine  # type: ignore[attr-defined]
 
     async def _checked(**kwargs: Any) -> Any:
-        if not target_arg or target_arg not in kwargs:
+        given = kwargs.get(target_arg) if target_arg else None
+        target = given if given is not None else default_target
+        if target is None:
             raise ToolException(
                 f"Permission check failed: tool '{tool.name}' invoked without "
                 f"a target argument. Expected argument: {target_arg!r}."
             )
-        target = kwargs[target_arg]
         action = check_permission(permissions, operation, str(target))
 
         if action == "allow":
             return await original_coro(**kwargs)
 
         if action == "deny":
+            hint = _PATHLESS_DENIED_HINT if given is None else ""
             raise ToolException(
                 f"Permission denied: {operation} on '{target}' is not allowed "
-                f"by the configured permission ruleset."
+                f"by the configured permission ruleset.{hint}"
             )
 
         # action == "ask"

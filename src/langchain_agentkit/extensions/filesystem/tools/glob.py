@@ -13,7 +13,7 @@ from langchain_agentkit.extensions.filesystem.tools.common import (
 )
 
 _GLOB_DESCRIPTION = """
-Find files by name or path pattern. Use when you know a filename or shape but not where it lives. Returns matching paths only; it does not read file contents or search inside them.
+Find files by name or path pattern. Use when you know a filename or shape but not where it lives. A pattern without a "/" matches file names at any depth. Returns matching paths only; it does not read file contents or search inside them.
 """
 
 if TYPE_CHECKING:
@@ -24,29 +24,26 @@ def _build_glob(backend: Any) -> BaseTool:
     async def glob(pattern: str, path: str | None = None) -> tuple[str, dict[str, Any]]:
         """Find files matching a glob pattern."""
         start = time.monotonic()
-        all_matches = await backend.glob(pattern, path=path or "/")
+        result = await backend.glob(pattern, path=path or "/", max_results=_GLOB_DEFAULT_LIMIT)
         duration_ms = round((time.monotonic() - start) * 1000)
 
-        if not all_matches:
-            return "No files found", {
-                "numFiles": 0,
-                "filenames": [],
-                "truncated": False,
-                "durationMs": duration_ms,
-            }
-
-        truncated = len(all_matches) > _GLOB_DEFAULT_LIMIT
-        matches = all_matches[:_GLOB_DEFAULT_LIMIT]
-        content = "\n".join(matches)
+        matches = result.paths[:_GLOB_DEFAULT_LIMIT]
+        truncated = result.truncated or len(result.paths) > _GLOB_DEFAULT_LIMIT
+        lines = list(matches) if matches else ["No files found"]
         if truncated:
-            content += "\n(Results are truncated. Consider using a more specific path or pattern.)"
+            lines.append(
+                "(Results are truncated and partial. Narrow the search with a more "
+                "specific path or pattern.)"
+            )
+        if result.error_message:
+            lines.append(f"(Some locations could not be searched: {result.error_message})")
         artifact: dict[str, Any] = {
-            "numFiles": len(all_matches),
+            "numFiles": len(matches),
             "filenames": matches,
             "truncated": truncated,
             "durationMs": duration_ms,
         }
-        return content, artifact
+        return "\n".join(lines), artifact
 
     return StructuredTool.from_function(
         coroutine=glob,

@@ -24,7 +24,7 @@ import sys
 import tempfile
 import warnings
 from contextlib import contextmanager
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -514,3 +514,80 @@ class TestDefaultSeccompProgram:
             pytest.raises(ImportError, match="pyseccomp"),
         ):
             default_seccomp_program()
+
+
+def _raw_backend(ws: str, *results: tuple[int, bytes, str]) -> tuple[BubblewrapBackend, AsyncMock]:
+    backend = _make_backend(ws)
+    raw = AsyncMock(side_effect=list(results))
+    backend._shell_raw = raw  # type: ignore[method-assign]
+    return backend, raw
+
+
+class TestSearchOperations:
+    async def test_grep_keeps_earliest_matches_and_flags_truncation(self):
+        records = (
+            b'{"path": "/workspace/a.py", "line": 1, "text": "hit\\n"}\n'
+            b'{"path": "/workspace/a.py", "line": 2, "text": "hit\\n"}\n'
+            b'{"done": true, "truncated": true}\n'
+        )
+        with _workspace() as ws:
+            backend, raw = _raw_backend(ws, (0, records, ""))
+            result = await backend.grep("hit", max_matches=2)
+        assert [(m["path"], m["line"]) for m in result.matches] == [("/a.py", 1), ("/a.py", 2)]
+        assert result.truncated is True
+        raw.assert_awaited_once()
+
+    async def test_output_cap_ends_search_as_truncated(self):
+        partial = b'{"path": "/workspace/a.py"}\n{"path": "/work'
+        with _workspace() as ws:
+            backend, _ = _raw_backend(ws, (-1, partial, "size_limit_exceeded"))
+            result = await backend.glob("*.py")
+        assert result.paths == ["/a.py"]
+        assert result.truncated is True
+        assert result.error_message is None
+
+    async def test_failed_helper_surfaces_error(self):
+        with _workspace() as ws:
+            backend, _ = _raw_backend(ws, (127, b"", "python3: not found"))
+            result = await backend.glob("*.py")
+        assert result.paths == []
+        assert result.error_message is not None
+        assert "python3: not found" in result.error_message
+
+    async def test_traversal_reports_error_without_spawning(self):
+        with _workspace() as ws:
+            backend, raw = _raw_backend(ws)
+            result = await backend.grep("x", path="/../..")
+        assert result.matches == []
+        assert result.error_message
+        raw.assert_not_awaited()
+
+
+class TestReadAndEdit:
+    async def test_read_reports_total_lines(self):
+        with _workspace() as ws:
+            backend, _ = _raw_backend(ws, (0, b"4\nb\nc\n", ""))
+            backend._shell = AsyncMock(  # type: ignore[method-assign]
+                return_value={"output": "F\n", "exit_code": 0}
+            )
+            result = await backend.read("/f.txt", offset=1, limit=2)
+        assert result.content == "b\nc\n"
+        assert result.total_lines == 4
+
+    async def test_edit_rejects_empty_old_string_without_spawning(self):
+        with _workspace() as ws:
+            backend = _make_backend(ws)
+            backend._shell = AsyncMock()  # type: ignore[method-assign]
+            result = await backend.edit("/f.txt", "", "x")
+        assert result.error is not None
+        assert result.error_message
+        backend._shell.assert_not_awaited()
+
+
+async def test_timeout_reports_incomplete_search():
+    with _workspace() as ws:
+        backend, _ = _raw_backend(ws, (-1, b"", "timeout"))
+        result = await backend.grep("x")
+    assert result.matches == []
+    assert result.error_message is not None
+    assert "timeout" in result.error_message

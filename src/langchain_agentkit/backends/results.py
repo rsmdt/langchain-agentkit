@@ -11,7 +11,10 @@ on stable ``Literal`` codes to produce code-aware messages for the LLM.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
+
+if TYPE_CHECKING:
+    from langchain_agentkit.backends.protocol import GrepMatch
 
 # ---------------------------------------------------------------------------
 # Error code vocabulary
@@ -35,6 +38,7 @@ EditError = Literal[
     "io_error",
     "old_string_not_found",
     "ambiguous_match",
+    "empty_old_string",
 ]
 
 
@@ -46,6 +50,7 @@ EditError = Literal[
 @dataclass(slots=True)
 class ReadResult:
     content: str | None = None
+    total_lines: int | None = None
     error: FileError | None = None
     error_message: str | None = None
 
@@ -71,6 +76,20 @@ class EditResult:
     replacements: int | None = None
     occurrences: int | None = None
     error: EditError | None = None
+    error_message: str | None = None
+
+
+@dataclass(slots=True)
+class GlobResult:
+    paths: list[str] = field(default_factory=list)
+    truncated: bool = False
+    error_message: str | None = None
+
+
+@dataclass(slots=True)
+class GrepResult:
+    matches: list[GrepMatch] = field(default_factory=list)
+    truncated: bool = False
     error_message: str | None = None
 
 

@@ -18,16 +18,14 @@ from __future__ import annotations
 
 import asyncio
 import contextlib
-import fnmatch
-import glob as glob_mod
-import itertools
 import os
 import platform
 import re
 import shutil
-from pathlib import Path
-from typing import Any
+import signal
+from typing import TYPE_CHECKING, Any
 
+from langchain_agentkit.backends.edits import empty_old_string_result
 from langchain_agentkit.backends.execution import (
     DEFAULT_MAX_OUTPUT_BYTES,
     DEFAULT_MAX_OUTPUT_LINES,
@@ -43,11 +41,19 @@ from langchain_agentkit.backends.results import (
     EditResult,
     FileDownloadResult,
     FileUploadResult,
+    GlobResult,
+    GrepResult,
     ReadBytesResult,
     ReadResult,
     SandboxEnvironment,
     WriteResult,
 )
+from langchain_agentkit.backends.search import compile_glob_pattern, summarize_search_errors
+
+if TYPE_CHECKING:
+    from collections.abc import Callable, Iterator
+
+_POSIX = os.name == "posix"
 
 
 class OSBackend:
@@ -96,10 +102,17 @@ class OSBackend:
             real_path = self._resolve(path)
         except PermissionError as exc:
             return ReadResult(error="permission_denied", error_message=str(exc))
+        start = max(0, offset)
+        end = start + max(0, limit)
         try:
+            selected: list[str] = []
+            total_lines = 0
             with open(real_path, encoding="utf-8") as f:
-                selected = list(itertools.islice(itertools.islice(f, offset, None), limit))
-            return ReadResult(content="".join(selected))
+                for line in f:
+                    if start <= total_lines < end:
+                        selected.append(line)
+                    total_lines += 1
+            return ReadResult(content="".join(selected), total_lines=total_lines)
         except FileNotFoundError:
             return ReadResult(error="file_not_found", error_message=f"File not found: {path}")
         except IsADirectoryError:
@@ -153,6 +166,8 @@ class OSBackend:
         new_string: str,
         replace_all: bool = False,
     ) -> EditResult:
+        if not old_string:
+            return empty_old_string_result(path)
         try:
             real_path = self._resolve(path)
         except PermissionError as exc:
@@ -202,18 +217,23 @@ class OSBackend:
             return EditResult(path=path, error="io_error", error_message=str(exc))
         return EditResult(path=path, replacements=count)
 
-    async def glob(self, pattern: str, path: str = "/") -> list[str]:
+    async def glob(self, pattern: str, path: str = "/", max_results: int = 1000) -> GlobResult:
         try:
-            real_path = self._resolve(path)
-        except PermissionError:
-            return []
-        full_pattern = os.path.join(real_path, pattern)
-        matches = glob_mod.glob(full_pattern, recursive=True)
-        result: list[str] = []
-        for m in sorted(matches):
-            rel = os.path.relpath(m, self._root)
-            result.append("/" + rel)
-        return result
+            search_root = self._search_root(path)
+        except (PermissionError, NotADirectoryError) as exc:
+            return GlobResult(error_message=str(exc))
+        matches = compile_glob_pattern(pattern)
+        errors: list[str] = []
+        paths: list[str] = []
+        for real_path in self._walk_files(search_root, errors):
+            if not matches(os.path.relpath(real_path, search_root).replace(os.sep, "/")):
+                continue
+            if len(paths) == max_results:
+                return GlobResult(
+                    paths=paths, truncated=True, error_message=summarize_search_errors(errors)
+                )
+            paths.append(self._virtual(real_path))
+        return GlobResult(paths=paths, error_message=summarize_search_errors(errors))
 
     async def grep(
         self,
@@ -221,30 +241,73 @@ class OSBackend:
         path: str | None = None,
         glob: str | None = None,
         ignore_case: bool = False,
-    ) -> list[GrepMatch]:
+        max_matches: int = 1000,
+    ) -> GrepResult:
         try:
-            search_root = Path(self._resolve(path or "/"))
-        except PermissionError:
-            return []
-        backend_root = Path(self._root)
+            regex = re.compile(pattern, re.IGNORECASE if ignore_case else 0)
+        except re.error as exc:
+            return GrepResult(error_message=f"Invalid regex {pattern!r}: {exc}")
+        try:
+            search_root = self._search_root(path or "/")
+        except (PermissionError, NotADirectoryError) as exc:
+            return GrepResult(error_message=str(exc))
+        include: Callable[[str], bool] | None = compile_glob_pattern(glob) if glob else None
+        errors: list[str] = []
         matches: list[GrepMatch] = []
-        flags = re.IGNORECASE if ignore_case else 0
-        regex = re.compile(pattern, flags)
+        for real_path in self._walk_files(search_root, errors):
+            relative = os.path.relpath(real_path, search_root).replace(os.sep, "/")
+            if include is not None and not include(relative):
+                continue
+            virtual_path = self._virtual(real_path)
+            try:
+                with open(real_path, encoding="utf-8") as f:
+                    for line_number, line in enumerate(f, 1):
+                        if not regex.search(line):
+                            continue
+                        if len(matches) == max_matches:
+                            return GrepResult(
+                                matches=matches,
+                                truncated=True,
+                                error_message=summarize_search_errors(errors),
+                            )
+                        matches.append(GrepMatch(path=virtual_path, line=line_number, text=line))
+            except UnicodeDecodeError:
+                continue
+            except OSError as exc:
+                errors.append(f"{exc.strerror or exc}: {virtual_path}")
+        return GrepResult(matches=matches, error_message=summarize_search_errors(errors))
 
-        for dirpath, _dirs, files in search_root.walk():
-            for fname in sorted(files):
-                if glob and not fnmatch.fnmatch(fname, glob):
-                    continue
-                full = dirpath / fname
-                rel = "/" + str(full.relative_to(backend_root))
-                try:
-                    with full.open(encoding="utf-8") as f:
-                        for i, line in enumerate(f, 1):
-                            if regex.search(line):
-                                matches.append(GrepMatch(path=rel, line=i, text=line))
-                except (OSError, UnicodeDecodeError):
-                    continue
-        return matches
+    def _search_root(self, path: str) -> str:
+        search_root = self._resolve(path)
+        if not os.path.isdir(search_root):
+            raise NotADirectoryError(f"Directory not found: {path}")
+        return search_root
+
+    def _virtual(self, real_path: str) -> str:
+        relative = os.path.relpath(real_path, self._root).replace(os.sep, "/")
+        return "/" if relative == "." else "/" + relative
+
+    def _walk_files(self, directory: str, errors: list[str]) -> Iterator[str]:
+        try:
+            with os.scandir(directory) as scanner:
+                entries = sorted(scanner, key=lambda entry: entry.name)
+        except OSError as exc:
+            errors.append(f"{exc.strerror or exc}: {self._virtual(directory)}")
+            return
+        for entry in entries:
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    yield from self._walk_files(entry.path, errors)
+                elif entry.is_file() and self._stays_inside_root(entry):
+                    yield entry.path
+            except OSError as exc:
+                errors.append(f"{exc.strerror or exc}: {self._virtual(entry.path)}")
+
+    def _stays_inside_root(self, entry: os.DirEntry[str]) -> bool:
+        if not entry.is_symlink():
+            return True
+        target = os.path.realpath(entry.path)
+        return target.startswith(self._root.rstrip(os.sep) + os.sep)
 
     # --- SandboxProtocol ---
 
@@ -278,9 +341,11 @@ class OSBackend:
         try:
             proc = await asyncio.create_subprocess_shell(
                 command,
+                stdin=asyncio.subprocess.DEVNULL,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
                 cwd=cwd,
+                start_new_session=_POSIX,
             )
             pump = asyncio.gather(
                 drain_stream_into(proc.stdout, capture.feed_stdout),
@@ -290,7 +355,7 @@ class OSBackend:
             try:
                 await asyncio.wait_for(pump, timeout=timeout)
             except TimeoutError:
-                proc.kill()
+                _kill_process_tree(proc)
                 with contextlib.suppress(TimeoutError, asyncio.CancelledError, Exception):  # noqa: BLE001
                     await asyncio.wait_for(pump, timeout=2.0)
                 stdout_res, stderr_res, spill_path = capture.finalize()
@@ -306,8 +371,7 @@ class OSBackend:
         except BaseException:
             capture.abandon()
             if proc is not None and proc.returncode is None:
-                with contextlib.suppress(Exception):  # noqa: BLE001
-                    proc.kill()
+                _kill_process_tree(proc)
             raise
 
         stdout_res, stderr_res, spill_path = capture.finalize()
@@ -395,3 +459,11 @@ class OSBackend:
             os.remove(real_path)
         elif os.path.isdir(real_path):
             shutil.rmtree(real_path)
+
+
+def _kill_process_tree(proc: asyncio.subprocess.Process) -> None:
+    with contextlib.suppress(ProcessLookupError, PermissionError):
+        if _POSIX:
+            os.killpg(proc.pid, signal.SIGKILL)
+        else:
+            proc.kill()

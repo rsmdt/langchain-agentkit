@@ -7,10 +7,12 @@ import json
 import os
 from typing import TYPE_CHECKING, Any
 
+from langchain_core.messages.content import create_file_block, create_image_block
 from langchain_core.tools import StructuredTool, ToolException
 
 from langchain_agentkit.extensions.filesystem.tools.common import (
     _IMAGE_MIME_MAP,
+    _READ_DEFAULT_LIMIT,
     BINARY_EXTENSIONS,
     FILE_UNCHANGED_STUB,
     IMAGE_EXTENSIONS,
@@ -123,7 +125,9 @@ def _detect_image_dimensions(data: bytes) -> dict[str, int] | None:
         return None
 
 
-async def _read_image(backend: Any, file_path: str, ext: str) -> tuple[str, dict[str, Any]]:
+async def _read_image(
+    backend: Any, file_path: str, ext: str
+) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     """Read an image file and return as multimodal content block."""
     rb = await backend.read_bytes(file_path)
     if rb.error is not None:
@@ -132,18 +136,7 @@ async def _read_image(backend: Any, file_path: str, ext: str) -> tuple[str, dict
     mime_type = _IMAGE_MIME_MAP.get(ext, "application/octet-stream")
     encoded = base64.b64encode(data).decode("ascii")
 
-    content = json.dumps(
-        [
-            {
-                "type": "image",
-                "source": {
-                    "type": "base64",
-                    "data": encoded,
-                    "media_type": mime_type,
-                },
-            }
-        ]
-    )
+    content: list[dict[str, Any]] = [dict(create_image_block(base64=encoded, mime_type=mime_type))]
 
     dimensions = _detect_image_dimensions(data)
     artifact: dict[str, Any] = {
@@ -180,7 +173,7 @@ async def _read_pdf(
     backend: Any,
     file_path: str,
     pages: str | None = None,
-) -> tuple[str, dict[str, Any]]:
+) -> tuple[str | list[dict[str, Any]], dict[str, Any]]:
     """Read a PDF file and return base64 content, optionally extracting pages."""
     rb = await backend.read_bytes(file_path)
     if rb.error is not None:
@@ -190,9 +183,14 @@ async def _read_pdf(
     if pages is not None:
         return _read_pdf_pages(data, file_path, pages)
 
+    return _pdf_document(data, file_path)
+
+
+def _pdf_document(data: bytes, file_path: str) -> tuple[list[dict[str, Any]], dict[str, Any]]:
     encoded = base64.b64encode(data).decode("ascii")
-    size_str = _format_file_size(len(data))
-    content = f"PDF file read: {file_path} ({size_str})"
+    content: list[dict[str, Any]] = [
+        dict(create_file_block(base64=encoded, mime_type="application/pdf"))
+    ]
     artifact: dict[str, Any] = {
         "type": "pdf",
         "filePath": file_path,
@@ -206,23 +204,17 @@ def _read_pdf_pages(
     data: bytes,
     file_path: str,
     pages: str,
-) -> tuple[str, dict[str, Any]]:
+) -> tuple[str | list[dict[str, Any]], dict[str, Any]]:
     """Extract specific pages from a PDF. Requires pymupdf."""
     try:
         import fitz  # type: ignore[import-not-found]  # pymupdf (optional)
     except ImportError:
-        encoded = base64.b64encode(data).decode("ascii")
-        size_str = _format_file_size(len(data))
-        content = (
-            f"PDF file read: {file_path} ({size_str}). "
-            f"Page extraction requires 'pip install pymupdf'."
-        )
-        return content, {
-            "type": "pdf",
-            "filePath": file_path,
-            "base64": encoded,
-            "originalSize": len(data),
+        blocks, artifact = _pdf_document(data, file_path)
+        note = {
+            "type": "text",
+            "text": f"Page selection is unavailable; {file_path} is attached in full.",
         }
+        return [note, *blocks], artifact
 
     start, end = _parse_page_range(pages)
     doc = fitz.open(stream=data, filetype="pdf")
@@ -277,7 +269,7 @@ def _check_file_unchanged(
 def _add_line_numbers(text: str, offset: int) -> str:
     """Add line-number prefixes for LLM display (tool-level presentation)."""
     lines = text.splitlines(keepends=True)
-    return "".join(f"{offset + i + 1}\t{line}" for i, line in enumerate(lines))
+    return "".join(f"{offset + i + 1}  {line}" for i, line in enumerate(lines))
 
 
 async def _read_text(
@@ -303,13 +295,9 @@ async def _read_text(
         )
     text = read_result.content or ""
     num_lines = len(text.splitlines()) if text else 0
-
-    if not text or offset > 0:
-        total_result = await backend.read(file_path, limit=100_000)
-        total_text = total_result.content or "" if total_result.error is None else ""
-        total_lines = len(total_text.splitlines()) if total_text else 0
-    else:
-        total_lines = num_lines
+    total_lines = (
+        read_result.total_lines if read_result.total_lines is not None else offset + num_lines
+    )
 
     if not text:
         if total_lines == 0:
@@ -325,6 +313,12 @@ async def _read_text(
             )
     else:
         content = _add_line_numbers(text, offset)
+        next_offset = offset + num_lines
+        if next_offset < total_lines:
+            content += (
+                f"\n\n(Showing lines {offset + 1}-{next_offset} of {total_lines}. "
+                f"Continue from offset={next_offset}.)"
+            )
 
     cache_key = f"{file_path}:{offset}:{limit}"
     if content_hash:
@@ -350,10 +344,13 @@ def _build_read(backend: Any, read_state: dict[str, str]) -> BaseTool:
     async def read(
         file_path: str,
         offset: int = 0,
-        limit: int = 2000,
+        limit: int = _READ_DEFAULT_LIMIT,
         pages: str | None = None,
-    ) -> tuple[str, dict[str, Any]]:
+    ) -> tuple[str | list[dict[str, Any]], dict[str, Any]]:
         """Read a file with type-aware dispatch."""
+        offset = max(offset, 0)
+        if limit <= 0:
+            limit = _READ_DEFAULT_LIMIT
         ext = os.path.splitext(file_path)[1].lower()
 
         if ext in NOTEBOOK_EXTENSIONS:

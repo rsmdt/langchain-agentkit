@@ -119,21 +119,84 @@ class TestResolve:
 
 
 class TestGlobGrepPermissionDenied:
-    """Traversal-escaping paths return empty results instead of raising.
-
-    Matches the behavior of the other backends (OS, Bubblewrap, Mirage,
-    AgentFS): ``glob``/``grep`` have no error-result wrapper, so expected
-    LLM-actionable failures degrade to "no matches".
-    """
-
-    async def test_glob_traversal_returns_empty(self):
+    async def test_glob_traversal_reports_error(self):
         backend, mock = _make_backend()
-        assert await backend.glob("*.py", "../../etc") == []
+        result = await backend.glob("*.py", "../../etc")
+        assert result.paths == []
+        assert result.error_message
         mock.process.exec.assert_not_called()
 
-    async def test_grep_traversal_returns_empty(self):
+    async def test_grep_traversal_reports_error(self):
         backend, mock = _make_backend()
-        assert await backend.grep("secret", "../../etc") == []
+        result = await backend.grep("secret", "../../etc")
+        assert result.matches == []
+        assert result.error_message
+        mock.process.exec.assert_not_called()
+
+
+class TestSearch:
+    async def test_glob_maps_remote_records_to_virtual_paths(self):
+        backend, mock = _make_backend()
+        mock.process.exec.return_value = SimpleNamespace(
+            result=(
+                '{"path": "/workspace/src/a.py"}\n'
+                '{"error": "Permission denied", "path": "/workspace/locked"}\n'
+                '{"done": true, "truncated": true}\n'
+            ),
+            exit_code=0,
+        )
+        result = await backend.glob("src/**/*.py", max_results=1)
+        assert result.paths == ["/src/a.py"]
+        assert result.truncated is True
+        assert result.error_message == "Permission denied: /locked"
+
+    async def test_glob_failed_helper_surfaces_error(self):
+        backend, mock = _make_backend()
+        mock.process.exec.return_value = SimpleNamespace(
+            result="sh: python3: not found\n", exit_code=127
+        )
+        result = await backend.glob("*.py")
+        assert result.paths == []
+        assert result.error_message is not None
+        assert "python3: not found" in result.error_message
+
+    async def test_grep_maps_remote_records(self):
+        backend, mock = _make_backend()
+        mock.process.exec.return_value = SimpleNamespace(
+            result=(
+                '{"path": "/workspace/a.py", "line": 3, "text": "hit\\n"}\n'
+                '{"done": true, "truncated": false}\n'
+            ),
+            exit_code=0,
+        )
+        result = await backend.grep("hit", glob="*.py")
+        assert result.matches == [{"path": "/a.py", "line": 3, "text": "hit\n"}]
+        assert result.truncated is False
+        assert result.error_message is None
+
+    async def test_grep_invalid_regex_reports_error_without_exec(self):
+        backend, mock = _make_backend()
+        result = await backend.grep("(")
+        assert result.error_message
+        mock.process.exec.assert_not_called()
+
+
+class TestReadAndEdit:
+    async def test_read_reports_total_lines(self):
+        backend, mock = _make_backend()
+        mock.process.exec.side_effect = [
+            SimpleNamespace(result="", exit_code=0),
+            SimpleNamespace(result="4\nb\nc\n", exit_code=0),
+        ]
+        result = await backend.read("/f.txt", offset=1, limit=2)
+        assert result.content == "b\nc\n"
+        assert result.total_lines == 4
+
+    async def test_edit_rejects_empty_old_string_without_exec(self):
+        backend, mock = _make_backend()
+        result = await backend.edit("/f.txt", "", "x")
+        assert result.error is not None
+        assert result.error_message
         mock.process.exec.assert_not_called()
 
 

@@ -17,6 +17,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
+    import asyncio
+
     from langchain_core.tools import BaseTool
 
 from langchain_agentkit.extensions.filesystem.tools.edit import _build_edit
@@ -39,10 +41,11 @@ def create_filesystem_tools(backend: Any) -> list[BaseTool]:
     # Per-backend read-state cache (not module-level) to prevent
     # cross-instance cache pollution in multi-agent scenarios.
     read_state: dict[str, str] = {}
+    write_locks: dict[str, asyncio.Lock] = {}
     return [
         _build_read(backend, read_state),
-        _build_write(backend),
-        _build_edit(backend),
+        _build_write(backend, write_locks),
+        _build_edit(backend, write_locks),
         _build_glob(backend),
         _build_grep(backend),
     ]

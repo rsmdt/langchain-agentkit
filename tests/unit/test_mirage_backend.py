@@ -160,57 +160,99 @@ class TestMapExc:
         assert _map_exc(RuntimeError("weird")) == "io_error"
 
 
-# ---------------------------------------------------------------------------
-# glob() command translation — branch coverage without booting a workspace
-# ---------------------------------------------------------------------------
+_LISTING = "\n".join(
+    [
+        "/workspace/top.md",
+        "/workspace/skills/foo/SKILL.md",
+        "/workspace/skills/bar/baz/SKILL.md",
+        "/workspace/skills/quux/notes.md",
+        "/workspace/src/a.py",
+    ]
+)
 
 
-class TestGlobCommandTranslation:
-    """Assert which ``find`` flavor each pattern shape emits.
+class TestGlob:
+    async def test_lists_with_plain_find(self) -> None:
+        ws = _ListingWorkspace(_LISTING)
+        await MirageBackend(workspace=ws, workdir="/workspace").glob("**/SKILL.md")
+        assert ws.last_cmd == "find '/workspace' -type f"
 
-    Behavioral coverage of the recursive-basename fix lives in
-    ``tests/integration/test_backend_protocol.py::TestGlobRecursiveBasename``
-    (which needs a real ``RAMResource`` to exercise ``find -path`` /
-    ``-name`` evaluation under a sub-path mount). These tests cover the
-    branch fork: the regex short-circuit must take ``**/<basename>``
-    patterns to ``-name`` and leave compound recursive patterns
-    (``**/skills/*.md``) on the ``-path`` branch.
-    """
+    async def test_recursive_basename(self) -> None:
+        backend = MirageBackend(workspace=_ListingWorkspace(_LISTING), workdir="/workspace")
+        result = await backend.glob("**/SKILL.md")
+        assert result.paths == ["/skills/bar/baz/SKILL.md", "/skills/foo/SKILL.md"]
 
-    async def test_basename_recursive_uses_find_name(self) -> None:
-        ws = _CommandCapturingWorkspace()
+    async def test_bare_pattern_matches_any_depth(self) -> None:
+        backend = MirageBackend(workspace=_ListingWorkspace(_LISTING), workdir="/workspace")
+        result = await backend.glob("*.md")
+        assert result.paths == [
+            "/skills/bar/baz/SKILL.md",
+            "/skills/foo/SKILL.md",
+            "/skills/quux/notes.md",
+            "/top.md",
+        ]
+
+    async def test_compound_pattern_relative_to_search_root(self) -> None:
+        backend = MirageBackend(workspace=_ListingWorkspace(_LISTING), workdir="/workspace")
+        result = await backend.glob("**/foo/*.md", path="/skills")
+        assert result.paths == ["/skills/foo/SKILL.md"]
+
+    async def test_cap_keeps_earliest(self) -> None:
+        backend = MirageBackend(workspace=_ListingWorkspace(_LISTING), workdir="/workspace")
+        result = await backend.glob("*.md", max_results=1)
+        assert result.paths == ["/skills/bar/baz/SKILL.md"]
+        assert result.truncated is True
+
+    async def test_find_failure_surfaces_error(self) -> None:
+        ws = _ListingWorkspace("", stderr="find: /workspace/nope: No such file", exit_code=1)
+        result = await MirageBackend(workspace=ws, workdir="/workspace").glob("*", path="/nope")
+        assert result.paths == []
+        assert result.error_message == "find: /workspace/nope: No such file"
+
+    async def test_traversal_reports_error(self) -> None:
+        ws = _ListingWorkspace(_LISTING)
+        result = await MirageBackend(workspace=ws, workdir="/workspace").glob("*", path="/../..")
+        assert result.paths == []
+        assert result.error_message
+        assert ws.last_cmd is None
+
+
+class TestGrep:
+    async def test_include_glob_cap_and_case(self) -> None:
+        ws = _ListingWorkspace(
+            _LISTING,
+            files={
+                "/workspace/src/a.py": b"Hit\nmiss\nhit\n",
+                "/workspace/top.md": b"hit\n",
+            },
+        )
         backend = MirageBackend(workspace=ws, workdir="/workspace")
-        await backend.glob("**/SKILL.md")
-        assert ws.last_cmd is not None
-        assert "-name 'SKILL.md'" in ws.last_cmd
-        assert "-path" not in ws.last_cmd
+        result = await backend.grep("hit", glob="src/*.py", ignore_case=True, max_matches=1)
+        assert result.matches == [{"path": "/src/a.py", "line": 1, "text": "Hit\n"}]
+        assert result.truncated is True
 
-    async def test_basename_glob_extension_uses_find_name(self) -> None:
-        ws = _CommandCapturingWorkspace()
-        backend = MirageBackend(workspace=ws, workdir="/workspace")
-        await backend.glob("**/*.md")
-        assert ws.last_cmd is not None
-        assert "-name '*.md'" in ws.last_cmd
-        assert "-path" not in ws.last_cmd
+    async def test_unreadable_file_surfaces_error(self) -> None:
+        ws = _ListingWorkspace(
+            "/workspace/a.txt\n/workspace/b.txt", files={"/workspace/b.txt": b"x\n"}
+        )
+        result = await MirageBackend(workspace=ws, workdir="/workspace").grep("x")
+        assert [m["path"] for m in result.matches] == ["/b.txt"]
+        assert result.error_message
 
-    async def test_compound_recursive_keeps_find_path(self) -> None:
-        # (d) Regression: compound recursive patterns must keep the
-        # existing ``-path`` translation rather than being miscaptured
-        # by the new ``**/<basename>`` short-circuit.
-        ws = _CommandCapturingWorkspace()
-        backend = MirageBackend(workspace=ws, workdir="/workspace")
-        await backend.glob("**/skills/*.md")
-        assert ws.last_cmd is not None
-        assert "-path '/workspace/*/skills/*.md'" in ws.last_cmd
-        assert "-name" not in ws.last_cmd
 
-    async def test_flat_pattern_uses_find_name(self) -> None:
-        ws = _CommandCapturingWorkspace()
-        backend = MirageBackend(workspace=ws, workdir="/workspace")
-        await backend.glob("*.py")
-        assert ws.last_cmd is not None
-        assert "-name '*.py'" in ws.last_cmd
-        assert "-path" not in ws.last_cmd
+class TestReadAndEdit:
+    async def test_read_total_lines_and_window_clamping(self) -> None:
+        ws = _ListingWorkspace("", files={"/f.txt": b"a\nb\nc"})
+        backend = MirageBackend(workspace=ws)
+        result = await backend.read("/f.txt", offset=-1, limit=0)
+        assert result.content == ""
+        assert result.total_lines == 3
+
+    async def test_edit_rejects_empty_old_string(self) -> None:
+        ws = _ListingWorkspace("", files={"/f.txt": b"abc"})
+        result = await MirageBackend(workspace=ws).edit("/f.txt", "", "X")
+        assert result.error is not None
+        assert ws.files["/f.txt"] == b"abc"
 
 
 # ---------------------------------------------------------------------------
@@ -229,23 +271,43 @@ class _FakeWorkspace:
     """
 
 
-class _CommandCapturingWorkspace:
-    """Stand-in for :class:`mirage.Workspace` that records ``execute`` calls.
-
-    Returns an empty stdout so ``glob()`` short-circuits to ``[]`` — we
-    only care about the emitted command string, not the result. Keeps
-    these unit tests fast and SDK-free while still exercising the
-    branch fork in :meth:`MirageBackend.glob`.
-    """
-
-    def __init__(self) -> None:
+class _ListingWorkspace:
+    def __init__(
+        self,
+        stdout: str,
+        *,
+        stderr: str = "",
+        exit_code: int = 0,
+        files: dict[str, bytes] | None = None,
+    ) -> None:
         self.last_cmd: str | None = None
+        self.files = dict(files or {})
+        self._io = _StaticIO(stdout, stderr, exit_code)
+        self.ops = _FakeOps(self.files)
 
-    async def execute(self, cmd: str) -> _EmptyIO:
+    async def execute(self, cmd: str) -> _StaticIO:
         self.last_cmd = cmd
-        return _EmptyIO()
+        return self._io
 
 
-class _EmptyIO:
+class _StaticIO:
+    def __init__(self, stdout: str, stderr: str, exit_code: int) -> None:
+        self._stdout = stdout
+        self._stderr = stderr
+        self.exit_code = exit_code
+
     async def stdout_str(self) -> str:
-        return ""
+        return self._stdout
+
+    async def stderr_str(self) -> str:
+        return self._stderr
+
+
+class _FakeOps:
+    def __init__(self, files: dict[str, bytes]) -> None:
+        self._files = files
+
+    async def read(self, path: str) -> bytes:
+        if path not in self._files:
+            raise PermissionError(f"denied: {path}")
+        return self._files[path]

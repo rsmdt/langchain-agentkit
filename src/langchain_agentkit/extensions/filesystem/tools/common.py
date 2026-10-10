@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
 import difflib
+import posixpath
 from typing import Any, Literal
 
 from pydantic import BaseModel, Field
@@ -146,6 +148,8 @@ _IMAGE_MIME_MAP: dict[str, str] = {
 
 _GLOB_DEFAULT_LIMIT = 100
 
+_READ_DEFAULT_LIMIT = 2000
+
 FILE_UNCHANGED_STUB = (
     "<system-reminder>The file has not changed since your last read.</system-reminder>"
 )
@@ -166,7 +170,7 @@ class _ReadInput(BaseModel):
         ),
     )
     limit: int = Field(
-        default=2000,
+        default=_READ_DEFAULT_LIMIT,
         description=(
             "The number of lines to read. Only provide if the file is too large to read at once."
         ),
@@ -344,3 +348,7 @@ def _compute_structured_patch(  # noqa: C901
 
 
 _FULL_READ_LIMIT = 100_000
+
+
+def _path_lock(locks: dict[str, asyncio.Lock], file_path: str) -> asyncio.Lock:
+    return locks.setdefault(posixpath.normpath(file_path), asyncio.Lock())

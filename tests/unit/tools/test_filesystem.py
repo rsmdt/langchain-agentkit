@@ -55,9 +55,9 @@ class TestReadTool:
 
         result = await tool.ainvoke({"file_path": "/test.txt"})
 
-        assert "1\tline one" in result
-        assert "2\tline two" in result
-        assert "3\tline three" in result
+        assert "1  line one" in result
+        assert "2  line two" in result
+        assert "3  line three" in result
 
     async def test_offset_and_limit(self):
         backend, _ = await _make_backend_with_files({"/test.txt": "a\nb\nc\nd\ne\n"})
@@ -65,9 +65,9 @@ class TestReadTool:
 
         result = await tool.ainvoke({"file_path": "/test.txt", "offset": 1, "limit": 2})
 
-        assert "2\tb" in result
-        assert "3\tc" in result
-        assert "1\ta" not in result
+        assert "2  b" in result
+        assert "3  c" in result
+        assert "1  a" not in result
 
     async def test_unicode_content(self):
         backend, _ = await _make_backend_with_files({"/f.txt": "日本語\n中文\nعربي"})
@@ -85,7 +85,7 @@ class TestReadTool:
 
         result = await tool.ainvoke({"file_path": "/f.txt"})
 
-        assert "1\tonly line" in result
+        assert "1  only line" in result
 
     async def test_truncated_read_returns_partial_content(self):
         lines = "\n".join(f"line {i}" for i in range(100))
@@ -168,7 +168,7 @@ class TestReadTool:
 
         import base64
 
-        assert base64.b64encode(data).decode() in result
+        assert result[0]["base64"] == base64.b64encode(data).decode()
 
     async def test_reads_jpg_as_base64(self):
         backend, tmpdir = await _make_backend_with_files({})
@@ -180,7 +180,7 @@ class TestReadTool:
 
         import base64
 
-        assert base64.b64encode(data).decode() in result
+        assert result[0]["base64"] == base64.b64encode(data).decode()
 
     async def test_reads_jpeg_as_base64(self):
         backend, tmpdir = await _make_backend_with_files({})
@@ -192,11 +192,11 @@ class TestReadTool:
 
         import base64
 
-        assert base64.b64encode(data).decode() in result
+        assert result[0]["base64"] == base64.b64encode(data).decode()
 
     # --- PDF carve-out ---
 
-    async def test_reads_pdf_with_metadata_message(self):
+    async def test_reads_pdf_as_file_block(self):
         backend, tmpdir = await _make_backend_with_files({})
         data = b"%PDF-1.4 fake content"
         await backend.write("/doc.pdf", data)
@@ -204,13 +204,14 @@ class TestReadTool:
 
         result = await tool.ainvoke({"file_path": "/doc.pdf"})
 
-        assert "PDF file read:" in result
-        assert "/doc.pdf" in result
+        import base64
+
+        assert result[0]["type"] == "file"
+        assert result[0]["base64"] == base64.b64encode(data).decode()
 
     # --- Notebook carve-out ---
 
     async def test_reads_notebook_cells(self):
-        import json
 
         notebook = {
             "nbformat": 4,
@@ -963,20 +964,18 @@ class TestStructuredOutput:
         await backend.write("/img.png", b"\x89PNG\r\n\x1a\n")
         tool = create_filesystem_tools(backend)[0]
         content, _ = await self._call_raw(tool, {"file_path": "/img.png"})
-        # Content should be JSON with image block structure
-        parsed = json.loads(content)
-        assert isinstance(parsed, list)
-        assert parsed[0]["type"] == "image"
-        assert parsed[0]["source"]["type"] == "base64"
-        assert parsed[0]["source"]["media_type"] == "image/png"
+        assert isinstance(content, list)
+        assert content[0]["type"] == "image"
+        assert content[0]["mime_type"] == "image/png"
+        assert content[0]["base64"]
 
-    async def test_read_pdf_message_format(self):
+    async def test_read_pdf_is_file_content_block(self):
         backend, _ = await _make_backend_with_files({})
         await backend.write("/doc.pdf", b"%PDF-1.4")
         tool = create_filesystem_tools(backend)[0]
         content, _ = await self._call_raw(tool, {"file_path": "/doc.pdf"})
-        assert content.startswith("PDF file read:")
-        assert "/doc.pdf" in content
+        assert content[0]["type"] == "file"
+        assert content[0]["mime_type"] == "application/pdf"
 
     async def test_read_empty_file_warning(self):
         backend, _ = await _make_backend_with_files({"/empty.txt": ""})

@@ -59,6 +59,7 @@ from typing import TYPE_CHECKING
 # first use.
 from mirage import Workspace  # noqa: TC002
 
+from langchain_agentkit.backends.edits import empty_old_string_result
 from langchain_agentkit.backends.execution import (
     DEFAULT_MAX_OUTPUT_BYTES,
     DEFAULT_MAX_OUTPUT_LINES,
@@ -69,14 +70,19 @@ from langchain_agentkit.backends.results import (
     EditResult,
     FileDownloadResult,
     FileUploadResult,
+    GlobResult,
+    GrepResult,
     ReadBytesResult,
     ReadResult,
     SandboxEnvironment,
     WriteResult,
 )
+from langchain_agentkit.backends.search import compile_glob_pattern, summarize_search_errors
 from langchain_agentkit.backends.shell import shell_quote
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from langchain_agentkit.backends.results import FileError
 
 
@@ -265,8 +271,9 @@ class MirageBackend:
                 error_message=f"File is not valid UTF-8: {path} ({exc.reason})",
             )
         lines = text.splitlines(keepends=True)
-        selected = lines[offset : offset + limit]
-        return ReadResult(content="".join(selected))
+        start = max(0, offset)
+        selected = lines[start : start + max(0, limit)]
+        return ReadResult(content="".join(selected), total_lines=len(lines))
 
     async def write(self, path: str, content: str | bytes) -> WriteResult:
         try:
@@ -297,6 +304,8 @@ class MirageBackend:
         error vocabulary (``old_string_not_found``, ``ambiguous_match``)
         is consistent across backends.
         """
+        if not old_string:
+            return empty_old_string_result(path)
         try:
             real_path = self._resolve(path)
         except PermissionError as exc:
@@ -342,58 +351,31 @@ class MirageBackend:
             return EditResult(error=_map_exc(exc), error_message=str(exc))
         return EditResult(path=path, replacements=replacements)
 
-    async def glob(self, pattern: str, path: str = "/") -> list[str]:
-        """Find files matching ``pattern`` via Mirage's built-in ``find``.
+    async def glob(self, pattern: str, path: str = "/", max_results: int = 1000) -> GlobResult:
+        """Find files matching ``pattern`` under ``path``.
 
-        Recursive basename patterns (``**/<basename>`` — e.g.
-        ``**/SKILL.md``, ``**/*.md``) translate to ``find -name`` so
-        they cross arbitrary directory depths reliably. Mirage's
-        ``find -path`` predicate doesn't treat ``*`` as crossing ``/``
-        boundaries the way GNU find does, so a ``-path`` translation
-        for ``**/<basename>`` silently returns nothing on sub-path
-        mounts. Compound recursive patterns (``**/skills/*.md``) still
-        use ``find -path`` — that branch handles intra-pattern slashes
-        Mirage *does* match. Flat patterns (``*.py``) use ``-name``.
-        Matches :meth:`DaytonaBackend.glob` so the LLM gets identical
-        results regardless of which backend is wired in.
+        Mirage's built-in ``find`` lists every regular file (a plain
+        ``-type f`` walk, which Mirage evaluates reliably across mounts
+        and sub-path workdirs); the shared glob matcher then filters
+        the listing so the LLM gets identical results regardless of
+        which backend is wired in.
         """
         try:
-            real_path = self._resolve(path)
-        except PermissionError:
-            return []
-        basename_match = re.match(r"^\*\*/([^/]+)$", pattern)
-        if basename_match is not None:
-            basename = basename_match.group(1)
-            cmd = (
-                f"find {shell_quote(real_path)}"
-                f" -name {shell_quote(basename)}"
-                f" -type f 2>/dev/null | sort"
-            )
-        elif "**" in pattern or "/" in pattern:
-            find_pattern = pattern.replace("**", "*")
-            full_pattern = f"{real_path.rstrip('/')}/{find_pattern}"
-            cmd = (
-                f"find {shell_quote(real_path)}"
-                f" -path {shell_quote(full_pattern)}"
-                f" -type f 2>/dev/null | sort"
-            )
-        else:
-            cmd = (
-                f"find {shell_quote(real_path)}"
-                f" -name {shell_quote(pattern)}"
-                f" -type f 2>/dev/null | sort"
-            )
-        io = await self._workspace.execute(cmd)
-        output = await io.stdout_str()
-        if not output.strip():
-            return []
-        matches: list[str] = []
-        for line in output.strip().splitlines():
-            rel = line.removeprefix(self._workdir) if self._workdir != "/" else line
-            if not rel.startswith("/"):
-                rel = "/" + rel
-            matches.append(rel)
-        return matches
+            real_root = self._resolve(path)
+        except PermissionError as exc:
+            return GlobResult(error_message=str(exc))
+        files, errors = await self._list_files(real_root)
+        matches = compile_glob_pattern(pattern)
+        paths: list[str] = []
+        for real_path in files:
+            if not matches(_relative_to(real_root, real_path)):
+                continue
+            if len(paths) == max_results:
+                return GlobResult(
+                    paths=paths, truncated=True, error_message=summarize_search_errors(errors)
+                )
+            paths.append(self._to_virtual(real_path))
+        return GlobResult(paths=paths, error_message=summarize_search_errors(errors))
 
     async def grep(
         self,
@@ -401,43 +383,61 @@ class MirageBackend:
         path: str | None = None,
         glob: str | None = None,
         ignore_case: bool = False,
-    ) -> list[GrepMatch]:
-        """Search file contents for ``pattern`` via Mirage's ``grep``.
+        max_matches: int = 1000,
+    ) -> GrepResult:
+        """Search file contents for ``pattern`` (a Python regex).
 
-        Mirage's grep follows POSIX exit-code semantics: ``0`` if at
-        least one match, ``1`` if none. Either case is non-fatal here —
-        we parse stdout regardless and return an empty list when there
-        are no lines, which is what the protocol requires.
+        Candidate files come from the same ``find`` listing as
+        :meth:`glob`; each is read through ``ws.ops`` and matched line
+        by line, so regex dialect and include-glob semantics match the
+        other backends. Files that are not valid UTF-8 are skipped.
         """
         try:
-            real_path = self._resolve(path or "/")
-        except PermissionError:
-            return []
-        flags = "-rn"
-        if ignore_case:
-            flags += "i"
-        cmd = f"grep {flags} {shell_quote(pattern)} {shell_quote(real_path)}"
-        if glob:
-            cmd += f" --include={shell_quote(glob)}"
-        cmd += " 2>/dev/null || true"
-        io = await self._workspace.execute(cmd)
-        output = await io.stdout_str()
-        if not output.strip():
-            return []
+            regex = re.compile(pattern, re.IGNORECASE if ignore_case else 0)
+        except re.error as exc:
+            return GrepResult(error_message=f"Invalid regex {pattern!r}: {exc}")
+        try:
+            real_root = self._resolve(path or "/")
+        except PermissionError as exc:
+            return GrepResult(error_message=str(exc))
+        files, errors = await self._list_files(real_root)
+        include: Callable[[str], bool] | None = compile_glob_pattern(glob) if glob else None
         matches: list[GrepMatch] = []
-        for line in output.strip().splitlines():
-            parts = line.split(":", 2)
-            if len(parts) < 3:
+        for real_path in files:
+            if include is not None and not include(_relative_to(real_root, real_path)):
                 continue
-            file_path = parts[0].removeprefix(self._workdir) if self._workdir != "/" else parts[0]
-            if not file_path.startswith("/"):
-                file_path = "/" + file_path
+            virtual_path = self._to_virtual(real_path)
             try:
-                line_num = int(parts[1])
-            except ValueError:
+                text = (await self._workspace.ops.read(real_path)).decode("utf-8")
+            except UnicodeDecodeError:
                 continue
-            matches.append(GrepMatch(path=file_path, line=line_num, text=parts[2]))
-        return matches
+            except Exception as exc:  # noqa: BLE001
+                errors.append(f"{exc}: {virtual_path}")
+                continue
+            for line_number, line in enumerate(text.splitlines(keepends=True), 1):
+                if not regex.search(line):
+                    continue
+                if len(matches) == max_matches:
+                    return GrepResult(
+                        matches=matches,
+                        truncated=True,
+                        error_message=summarize_search_errors(errors),
+                    )
+                matches.append(GrepMatch(path=virtual_path, line=line_number, text=line))
+        return GrepResult(matches=matches, error_message=summarize_search_errors(errors))
+
+    async def _list_files(self, real_root: str) -> tuple[list[str], list[str]]:
+        io = await self._workspace.execute(f"find {shell_quote(real_root)} -type f")
+        output = await io.stdout_str()
+        stderr = (await io.stderr_str()).strip()
+        errors = [line for line in stderr.splitlines() if line.strip()]
+        if io.exit_code != 0 and not errors:
+            errors.append(f"find exited with code {io.exit_code}")
+        return sorted(line for line in output.splitlines() if line.strip()), errors
+
+    def _to_virtual(self, real_path: str) -> str:
+        relative = real_path.removeprefix(self._workdir) if self._workdir != "/" else real_path
+        return relative if relative.startswith("/") else "/" + relative
 
     # --- SandboxProtocol ---
 
@@ -630,3 +630,7 @@ class MirageBackend:
                 continue
             results.append(FileDownloadResult(path=path, content=content))
         return results
+
+
+def _relative_to(root: str, real_path: str) -> str:
+    return real_path.removeprefix(root.rstrip("/") + "/")

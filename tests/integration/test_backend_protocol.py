@@ -97,10 +97,10 @@ def _agentfs_available() -> bool:
     SQLite-backed virtual FS, and the fixture spins up a temp .db.
     """
     try:
-        import agentfs_sdk  # noqa: F401
+        import agentfs_sdk
     except ImportError:
         return False
-    return True
+    return not getattr(agentfs_sdk, "__agentkit_test_stub__", False)
 
 
 # ---------------------------------------------------------------------------
@@ -246,6 +246,25 @@ class TestProtocolTiers:
 
 
 class TestRead:
+    async def test_reports_total_lines(self, backend):
+        await backend.write("/test.txt", "a\nb\nc\nd")
+        result = await backend.read("/test.txt", offset=1, limit=2)
+        assert result.content == "b\nc\n"
+        assert result.total_lines == 4
+
+    async def test_negative_offset_clamps_to_start(self, backend):
+        await backend.write("/test.txt", "a\nb\n")
+        result = await backend.read("/test.txt", offset=-3, limit=1)
+        assert result.error is None
+        assert result.content == "a\n"
+
+    async def test_non_positive_limit_is_empty_read(self, backend):
+        await backend.write("/test.txt", "a\nb\n")
+        result = await backend.read("/test.txt", limit=0)
+        assert result.error is None
+        assert result.content == ""
+        assert result.total_lines == 2
+
     async def test_write_and_read_roundtrip(self, backend):
         await backend.write("/test.txt", "hello world")
         result = await backend.read("/test.txt")
@@ -348,6 +367,13 @@ class TestWrite:
 
 
 class TestEdit:
+    async def test_empty_old_string_rejected(self, backend):
+        await backend.write("/test.txt", "abc")
+        result = await backend.edit("/test.txt", "", "X", replace_all=True)
+        assert result.error is not None
+        assert result.error_message
+        assert (await backend.read("/test.txt")).content == "abc"
+
     async def test_single_replacement(self, backend):
         await backend.write("/test.txt", "hello world")
         result = await backend.edit("/test.txt", "hello", "goodbye")
@@ -392,13 +418,38 @@ class TestGlob:
         await backend.write("/src/a.py", "a")
         await backend.write("/src/b.py", "b")
         await backend.write("/src/c.txt", "c")
-        matches = await backend.glob("**/*.py")
-        py_files = [m for m in matches if m.endswith(".py")]
-        assert len(py_files) >= 2
+        result = await backend.glob("**/*.py", path="/src")
+        assert result.paths == ["/src/a.py", "/src/b.py"]
 
     async def test_no_matches(self, backend):
-        matches = await backend.glob("*.xyz")
-        assert matches == []
+        result = await backend.glob("*.xyz")
+        assert result.paths == []
+        assert result.truncated is False
+
+    async def test_bare_pattern_matches_at_any_depth(self, backend):
+        await backend.write("/g/top.py", "t")
+        await backend.write("/g/src/pkg/deep.py", "d")
+        result = await backend.glob("*.py", path="/g")
+        assert result.paths == ["/g/src/pkg/deep.py", "/g/top.py"]
+
+    async def test_globstar_spans_zero_directories(self, backend):
+        await backend.write("/g/src/a.py", "a")
+        await backend.write("/g/src/pkg/b.py", "b")
+        await backend.write("/g/lib/c.py", "c")
+        result = await backend.glob("src/**/*.py", path="/g")
+        assert result.paths == ["/g/src/a.py", "/g/src/pkg/b.py"]
+
+    async def test_cap_keeps_earliest_results(self, backend):
+        for name in ("a", "b", "c"):
+            await backend.write(f"/g/{name}.txt", name)
+        result = await backend.glob("*.txt", path="/g", max_results=2)
+        assert result.paths == ["/g/a.txt", "/g/b.txt"]
+        assert result.truncated is True
+
+    async def test_missing_directory_reports_error(self, backend):
+        result = await backend.glob("*", path="/does-not-exist")
+        assert result.paths == []
+        assert result.error_message
 
 
 # ---------------------------------------------------------------------------
@@ -406,15 +457,9 @@ class TestGlob:
 # ---------------------------------------------------------------------------
 #
 # Mirage-specific regression: ``**/<basename>`` patterns
-# (``**/SKILL.md``, ``**/*.md``) on a sub-path mount used to translate to
-# ``find -path`` with ``*`` substituted for ``**``. Mirage's curated
-# ``find -path`` doesn't treat ``*`` as crossing ``/`` boundaries the way
-# GNU find does, so those patterns silently returned ``[]`` — breaking
-# downstream skill-discovery (agentkit's ``SkillsExtension``) for any
-# agent whose skills live under a sub-path mount. The fix translates
-# recursive-basename patterns to ``find -name`` directly; compound
-# recursive patterns (``**/skills/*.md``) keep the existing ``-path``
-# translation.
+# (``**/SKILL.md``, ``**/*.md``) on a sub-path mount must find files at
+# every depth — skill discovery depends on it. Mirage lists files with a
+# plain ``find -type f`` and matches them with the shared glob matcher.
 #
 # These cases need a sub-path mount to reproduce, so they run only
 # against a dedicated Mirage workspace — not the shared backend matrix
@@ -468,8 +513,8 @@ class TestGlobRecursiveBasename:
         await mirage_subpath_backend.write("/skills/foo/SKILL.md", "foo skill")
         await mirage_subpath_backend.write("/skills/bar/baz/SKILL.md", "bar skill")
         await mirage_subpath_backend.write("/skills/quux/notes.md", "not a skill")
-        matches = await mirage_subpath_backend.glob("**/SKILL.md")
-        assert sorted(matches) == [
+        result = await mirage_subpath_backend.glob("**/SKILL.md")
+        assert sorted(result.paths) == [
             "/skills/bar/baz/SKILL.md",
             "/skills/foo/SKILL.md",
         ]
@@ -480,16 +525,16 @@ class TestGlobRecursiveBasename:
         # required at least one intermediate directory and missed them.
         await mirage_subpath_backend.write("/top.md", "top-level note")
         await mirage_subpath_backend.write("/notes/deep/extra.md", "deep note")
-        matches = await mirage_subpath_backend.glob("**/*.md")
-        assert sorted(matches) == ["/notes/deep/extra.md", "/top.md"]
+        result = await mirage_subpath_backend.glob("**/*.md")
+        assert sorted(result.paths) == ["/notes/deep/extra.md", "/top.md"]
 
     async def test_root_mount_basename_regression(self, mirage_root_backend):
         # (c) Root-mount regression: ``**/SKILL.md`` keeps working when
         # the workspace is mounted at ``/`` (the pre-fix happy path).
         await mirage_root_backend.write("/skills/foo/SKILL.md", "x")
         await mirage_root_backend.write("/skills/bar/SKILL.md", "y")
-        matches = await mirage_root_backend.glob("**/SKILL.md")
-        assert sorted(matches) == ["/skills/bar/SKILL.md", "/skills/foo/SKILL.md"]
+        result = await mirage_root_backend.glob("**/SKILL.md")
+        assert sorted(result.paths) == ["/skills/bar/SKILL.md", "/skills/foo/SKILL.md"]
 
 
 # ---------------------------------------------------------------------------
@@ -500,24 +545,41 @@ class TestGlobRecursiveBasename:
 class TestGrep:
     async def test_finds_pattern(self, backend):
         await backend.write("/test.txt", "line one\nline two\nline three")
-        matches = await backend.grep("two", path="/")
-        assert len(matches) >= 1
+        result = await backend.grep("two", path="/")
+        assert ("/test.txt", 2) in [(m["path"], m["line"]) for m in result.matches]
 
     async def test_ignore_case(self, backend):
         await backend.write("/f.txt", "Hello World\ngoodbye")
-        matches = await backend.grep("hello", ignore_case=True)
-        assert len(matches) == 1
-        assert "Hello World" in matches[0]["text"]
+        result = await backend.grep("hello", ignore_case=True)
+        assert len(result.matches) == 1
+        assert "Hello World" in result.matches[0]["text"]
 
     async def test_case_sensitive_by_default(self, backend):
         await backend.write("/f.txt", "Hello World")
-        matches = await backend.grep("hello")
-        assert len(matches) == 0
+        result = await backend.grep("hello")
+        assert result.matches == []
 
     async def test_no_matches(self, backend):
         await backend.write("/f.txt", "nothing here")
-        matches = await backend.grep("missing")
-        assert len(matches) == 0
+        result = await backend.grep("missing")
+        assert result.matches == []
+        assert result.truncated is False
+
+    async def test_include_glob_uses_shared_semantics(self, backend):
+        await backend.write("/g/src/a.py", "hit")
+        await backend.write("/g/src/pkg/b.py", "hit")
+        await backend.write("/g/src/c.txt", "hit")
+        await backend.write("/g/lib/d.py", "hit")
+        result = await backend.grep("hit", path="/g", glob="src/**/*.py")
+        assert sorted(m["path"] for m in result.matches) == ["/g/src/a.py", "/g/src/pkg/b.py"]
+        result = await backend.grep("hit", path="/g", glob="*.py")
+        assert len(result.matches) == 3
+
+    async def test_cap_keeps_earliest_matches(self, backend):
+        await backend.write("/g/f.txt", "hit\n" * 5)
+        result = await backend.grep("hit", path="/g", max_matches=2)
+        assert [m["line"] for m in result.matches] == [1, 2]
+        assert result.truncated is True
 
 
 # ---------------------------------------------------------------------------

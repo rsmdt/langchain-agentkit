@@ -13,6 +13,7 @@ from langchain_agentkit.extensions.filesystem.tools.common import (
     _FULL_READ_LIMIT,
     _compute_structured_patch,
     _EditInput,
+    _path_lock,
 )
 
 _EDIT_DESCRIPTION = """
@@ -20,6 +21,8 @@ Replace an exact piece of text within an existing file. Use when changing part o
 """
 
 if TYPE_CHECKING:
+    import asyncio
+
     from langchain_core.tools import BaseTool
 
 # ---------------------------------------------------------------------------
@@ -187,14 +190,23 @@ async def _handle_empty_old_string(
 # ---------------------------------------------------------------------------
 
 
-def _build_edit(backend: Any) -> BaseTool:  # noqa: C901
-    async def edit(  # noqa: C901
+def _build_edit(backend: Any, locks: dict[str, asyncio.Lock]) -> BaseTool:  # noqa: C901
+    async def edit(
         file_path: str,
         old_string: str,
         new_string: str,
         replace_all: bool = False,
     ) -> tuple[str, dict[str, Any]]:
         """Perform exact string replacement in a file."""
+        async with _path_lock(locks, file_path):
+            return await _edit(file_path, old_string, new_string, replace_all)
+
+    async def _edit(  # noqa: C901
+        file_path: str,
+        old_string: str,
+        new_string: str,
+        replace_all: bool,
+    ) -> tuple[str, dict[str, Any]]:
         if old_string == "":
             return await _handle_empty_old_string(backend, file_path, new_string)
 

@@ -33,6 +33,8 @@ if TYPE_CHECKING:
         EditResult,
         FileDownloadResult,
         FileUploadResult,
+        GlobResult,
+        GrepResult,
         ReadBytesResult,
         ReadResult,
         SandboxEnvironment,
@@ -102,8 +104,9 @@ class FilesystemProtocol(Protocol):
     helper); they're not surfaced as LLM tools.
 
     Methods that may fail in expected, LLM-actionable ways return result
-    dataclasses with optional ``error`` codes. ``glob`` and ``grep`` have
-    no per-call error semantics worth a wrapper and return lists directly.
+    dataclasses with optional ``error`` codes. ``glob`` and ``grep`` return
+    partial results with ``truncated`` set when a cap or time bound stops
+    them, and ``error_message`` when part of the search failed.
     """
 
     async def read(self, path: str, offset: int = 0, limit: int = 2000) -> ReadResult: ...
@@ -120,7 +123,7 @@ class FilesystemProtocol(Protocol):
         replace_all: bool = False,
     ) -> EditResult: ...
 
-    async def glob(self, pattern: str, path: str = "/") -> list[str]: ...
+    async def glob(self, pattern: str, path: str = "/", max_results: int = 1000) -> GlobResult: ...
 
     async def grep(
         self,
@@ -128,7 +131,8 @@ class FilesystemProtocol(Protocol):
         path: str | None = None,
         glob: str | None = None,
         ignore_case: bool = False,
-    ) -> list[GrepMatch]: ...
+        max_matches: int = 1000,
+    ) -> GrepResult: ...
 
     async def upload(self, files: list[tuple[str, bytes]]) -> list[FileUploadResult]: ...
 

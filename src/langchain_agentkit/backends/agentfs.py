@@ -38,24 +38,29 @@ Usage::
 
 from __future__ import annotations
 
-import fnmatch
 import posixpath
 import re
 from typing import TYPE_CHECKING
 
 from agentfs_sdk.errors import ErrnoException
 
+from langchain_agentkit.backends.edits import empty_old_string_result
 from langchain_agentkit.backends.protocol import GrepMatch
 from langchain_agentkit.backends.results import (
     EditResult,
     FileDownloadResult,
     FileUploadResult,
+    GlobResult,
+    GrepResult,
     ReadBytesResult,
     ReadResult,
     WriteResult,
 )
+from langchain_agentkit.backends.search import compile_glob_pattern, summarize_search_errors
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator, Callable
+
     from agentfs_sdk import AgentFS
 
     from langchain_agentkit.backends.results import FileError
@@ -177,8 +182,9 @@ class AgentFSBackend:
 
         # Slice by line to match OSBackend semantics.
         lines = content.splitlines(keepends=True)
-        selected = lines[offset : offset + limit]
-        return ReadResult(content="".join(selected))
+        start = max(0, offset)
+        selected = lines[start : start + max(0, limit)]
+        return ReadResult(content="".join(selected), total_lines=len(lines))
 
     async def read_bytes(self, path: str) -> ReadBytesResult:
         try:
@@ -214,6 +220,8 @@ class AgentFSBackend:
         new_string: str,
         replace_all: bool = False,
     ) -> EditResult:
+        if not old_string:
+            return empty_old_string_result(path)
         try:
             real_path = self._resolve(path)
         except PermissionError as exc:
@@ -262,30 +270,31 @@ class AgentFSBackend:
             return EditResult(path=path, error=_map_errno(exc), error_message=str(exc))
         return EditResult(path=path, replacements=occurrences if replace_all else 1)
 
-    async def glob(self, pattern: str, path: str = "/") -> list[str]:
+    async def glob(self, pattern: str, path: str = "/", max_results: int = 1000) -> GlobResult:
         """Find files matching a glob pattern.
 
-        Walks the virtual tree via ``readdir`` and applies ``fnmatch``
-        for the pattern. The agentfs-sdk has no native path-pattern
+        Walks the virtual tree via ``readdir`` and applies the shared
+        glob matcher. The agentfs-sdk has no native path-pattern
         method; the underlying SQLite schema *could* support a
         recursive-CTE optimization via ``agent.get_database()`` for
         large trees, but that's deferred until benchmarks show pain.
         """
         try:
-            real_root = self._resolve(path)
-        except PermissionError:
-            return []
-
-        all_files = await self._walk_files(real_root)
-
-        matches: list[str] = []
-        for abs_path in all_files:
-            rel = (
-                abs_path[len(real_root) :].lstrip("/") if real_root != "/" else abs_path.lstrip("/")
-            )
-            if fnmatch.fnmatch(rel, pattern):
-                matches.append(self._strip_workdir(abs_path))
-        return sorted(matches)
+            real_root = await self._search_root(path)
+        except (PermissionError, NotADirectoryError) as exc:
+            return GlobResult(error_message=str(exc))
+        matches = compile_glob_pattern(pattern)
+        errors: list[str] = []
+        paths: list[str] = []
+        async for abs_path in self._walk_files(real_root, errors):
+            if not matches(self._relative_to(real_root, abs_path)):
+                continue
+            if len(paths) == max_results:
+                return GlobResult(
+                    paths=paths, truncated=True, error_message=summarize_search_errors(errors)
+                )
+            paths.append(self._strip_workdir(abs_path))
+        return GlobResult(paths=paths, error_message=summarize_search_errors(errors))
 
     async def grep(
         self,
@@ -293,37 +302,52 @@ class AgentFSBackend:
         path: str | None = None,
         glob: str | None = None,
         ignore_case: bool = False,
-    ) -> list[GrepMatch]:
+        max_matches: int = 1000,
+    ) -> GrepResult:
         """Search file contents for a regex pattern."""
         try:
-            real_root = self._resolve(path or "/")
-        except PermissionError:
-            return []
-
-        flags = re.IGNORECASE if ignore_case else 0
+            regex = re.compile(pattern, re.IGNORECASE if ignore_case else 0)
+        except re.error as exc:
+            return GrepResult(error_message=f"Invalid regex {pattern!r}: {exc}")
         try:
-            regex = re.compile(pattern, flags)
-        except re.error:
-            return []
-
+            real_root = await self._search_root(path or "/")
+        except (PermissionError, NotADirectoryError) as exc:
+            return GrepResult(error_message=str(exc))
+        include: Callable[[str], bool] | None = compile_glob_pattern(glob) if glob else None
+        errors: list[str] = []
         matches: list[GrepMatch] = []
-        all_files = await self._walk_files(real_root)
-        for abs_path in all_files:
-            if glob and not fnmatch.fnmatch(posixpath.basename(abs_path), glob):
+        async for abs_path in self._walk_files(real_root, errors):
+            if include is not None and not include(self._relative_to(real_root, abs_path)):
                 continue
+            virtual_path = self._strip_workdir(abs_path)
             try:
                 content = await self._agent.fs.read_file(abs_path)
-            except ErrnoException:
+            except ErrnoException as exc:
+                errors.append(f"{exc}: {virtual_path}")
                 continue
             except UnicodeDecodeError:
                 continue
-            if not isinstance(content, str):
-                continue
-            virtual_path = self._strip_workdir(abs_path)
-            for i, line in enumerate(content.splitlines(keepends=True), start=1):
-                if regex.search(line):
-                    matches.append(GrepMatch(path=virtual_path, line=i, text=line))
-        return matches
+            if isinstance(content, str) and not _collect_matches(
+                regex, virtual_path, content, matches, max_matches
+            ):
+                return GrepResult(
+                    matches=matches, truncated=True, error_message=summarize_search_errors(errors)
+                )
+        return GrepResult(matches=matches, error_message=summarize_search_errors(errors))
+
+    async def _search_root(self, path: str) -> str:
+        real_root = self._resolve(path)
+        try:
+            st = await self._agent.fs.stat(real_root)
+        except ErrnoException as exc:
+            raise NotADirectoryError(f"Directory not found: {path}") from exc
+        if not st.is_directory():
+            raise NotADirectoryError(f"Directory not found: {path}")
+        return real_root
+
+    @staticmethod
+    def _relative_to(root: str, abs_path: str) -> str:
+        return abs_path[len(root) :].lstrip("/") if root != "/" else abs_path.lstrip("/")
 
     # --- FilesystemProtocol: bulk transfer (host-side) ---
     #
@@ -360,8 +384,8 @@ class AgentFSBackend:
 
     # --- Internal helpers ---
 
-    async def _walk_files(self, root: str) -> list[str]:
-        """Recursively collect all regular-file paths under ``root``.
+    async def _walk_files(self, root: str, errors: list[str]) -> AsyncIterator[str]:
+        """Yield regular-file paths under ``root`` in sorted path order.
 
         Uses ``fs.readdir`` + ``fs.stat`` to classify entries.
         Symlinks are skipped (AgentFS schema declares them but ops
@@ -369,18 +393,35 @@ class AgentFSBackend:
         """
         try:
             entries = await self._agent.fs.readdir(root)
-        except ErrnoException:
-            return []
+        except ErrnoException as exc:
+            errors.append(f"{exc}: {self._strip_workdir(root)}")
+            return
 
-        files: list[str] = []
-        for name in entries:
+        for name in sorted(entries):
             child = "/" + name if root == "/" else root + "/" + name
             try:
                 st = await self._agent.fs.stat(child)
-            except ErrnoException:
+            except ErrnoException as exc:
+                errors.append(f"{exc}: {self._strip_workdir(child)}")
                 continue
             if st.is_directory():
-                files.extend(await self._walk_files(child))
+                async for nested in self._walk_files(child, errors):
+                    yield nested
             elif st.is_file():
-                files.append(child)
-        return files
+                yield child
+
+
+def _collect_matches(
+    regex: re.Pattern[str],
+    virtual_path: str,
+    content: str,
+    matches: list[GrepMatch],
+    max_matches: int,
+) -> bool:
+    for line_number, line in enumerate(content.splitlines(keepends=True), start=1):
+        if not regex.search(line):
+            continue
+        if len(matches) == max_matches:
+            return False
+        matches.append(GrepMatch(path=virtual_path, line=line_number, text=line))
+    return True

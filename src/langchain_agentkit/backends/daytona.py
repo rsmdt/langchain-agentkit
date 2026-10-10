@@ -29,32 +29,41 @@ from __future__ import annotations
 import base64
 import json
 import posixpath
+import re
 from typing import TYPE_CHECKING
 
 from daytona_sdk import FileDownloadRequest, FileUpload
 
+from langchain_agentkit.backends.edits import edit_result_from_script, empty_old_string_result
 from langchain_agentkit.backends.execution import (
     DEFAULT_MAX_OUTPUT_BYTES,
     DEFAULT_MAX_OUTPUT_LINES,
     BoundedCapture,
 )
-from langchain_agentkit.backends.protocol import (
-    ExecuteResponse,
-    GrepMatch,
-)
+from langchain_agentkit.backends.protocol import ExecuteResponse
 from langchain_agentkit.backends.results import (
     EditResult,
     FileDownloadResult,
     FileUploadResult,
+    GlobResult,
+    GrepResult,
     ReadBytesResult,
     ReadResult,
     SandboxEnvironment,
     WriteResult,
 )
+from langchain_agentkit.backends.search import (
+    parse_remote_glob,
+    parse_remote_grep,
+    remote_glob_command,
+    remote_grep_command,
+)
 from langchain_agentkit.backends.shell import (
     BASH_STARTUP_WARNING_RE,
     ENV_PROBE_SCRIPT,
     ENV_PROBE_SEPARATOR,
+    parse_read_window,
+    read_window_command,
     shell_quote,
 )
 
@@ -341,16 +350,13 @@ class DaytonaBackend:
                     error="is_directory", error_message=f"Path is a directory: {path}"
                 )
             return ReadResult(error="file_not_found", error_message=f"File not found: {path}")
-        start = offset + 1
-        end = offset + limit
-        cmd = f"sed -n '{start},{end}p' {shell_quote(real_path)}"
-        result = await self._exec_raw(cmd)
+        result = await self._exec_raw(read_window_command(real_path, offset, limit))
         if result["exit_code"] != 0:
             return ReadResult(
                 error="io_error",
                 error_message=f"Read failed: {result.get('stderr') or result.get('output')}",
             )
-        return ReadResult(content=result["output"])
+        return parse_read_window(result["output"])
 
     async def write(self, path: str, content: str | bytes) -> WriteResult:
         try:
@@ -378,6 +384,8 @@ class DaytonaBackend:
         new_string: str,
         replace_all: bool = False,
     ) -> EditResult:
+        if not old_string:
+            return empty_old_string_result(path)
         try:
             real_path = self._resolve(path)
         except PermissionError as exc:
@@ -405,76 +413,21 @@ class DaytonaBackend:
                 error="io_error",
                 error_message=f"Edit produced invalid output: {result['output']!r}",
             )
-        if "error" in data:
-            err = data["error"]
-            if err == "file_not_found":
-                return EditResult(error="file_not_found", error_message=f"File not found: {path}")
-            if err == "is_directory":
-                return EditResult(
-                    error="is_directory", error_message=f"Path is a directory: {path}"
-                )
-            if err == "decode_error":
-                return EditResult(
-                    error="decode_error",
-                    error_message=f"File is not valid UTF-8: {path}",
-                )
-            if err == "old_string_not_found":
-                return EditResult(
-                    path=path,
-                    error="old_string_not_found",
-                    error_message=f"old_string not found in {path}",
-                )
-            if err == "ambiguous_match":
-                occ = data.get("occurrences")
-                return EditResult(
-                    path=path,
-                    occurrences=occ,
-                    error="ambiguous_match",
-                    error_message=(
-                        f"old_string appears {occ} times in {path}. "
-                        "Pass replace_all=True or extend old_string for uniqueness."
-                    ),
-                )
-            return EditResult(
-                error="io_error",
-                error_message=data.get("message") or f"Edit failed: {err}",
-            )
-        return EditResult(path=path, replacements=data["replacements"])
+        return edit_result_from_script(data, path)
 
-    async def glob(self, pattern: str, path: str = "/") -> list[str]:
-        """Find files matching a glob pattern.
-
-        Supports recursive patterns like ``**/*.py`` by translating them
-        to ``find -path`` predicates, matching ``OSBackend.glob()`` semantics.
-        """
+    async def glob(self, pattern: str, path: str = "/", max_results: int = 1000) -> GlobResult:
+        """Find files matching a glob pattern with the shared matcher, walked in-sandbox."""
         try:
             real_path = self._resolve(path)
-        except PermissionError:
-            return []
-        if "**" in pattern or "/" in pattern:
-            find_pattern = pattern.replace("**", "*")
-            full_pattern = f"{real_path}/{find_pattern}"
-            cmd = (
-                f"find {shell_quote(real_path)}"
-                f" -path {shell_quote(full_pattern)}"
-                f" -type f 2>/dev/null | sort"
-            )
-        else:
-            cmd = (
-                f"find {shell_quote(real_path)}"
-                f" -name {shell_quote(pattern)}"
-                f" -type f 2>/dev/null | sort"
-            )
-        result = await self._exec_raw(cmd)
-        if result["exit_code"] != 0 or not result["output"].strip():
-            return []
-        matches = []
-        for line in result["output"].strip().splitlines():
-            rel = line.removeprefix(self._workdir)
-            if not rel.startswith("/"):
-                rel = "/" + rel
-            matches.append(rel)
-        return matches
+        except PermissionError as exc:
+            return GlobResult(error_message=str(exc))
+        result = await self._exec_raw(remote_glob_command(real_path, pattern, max_results))
+        return parse_remote_glob(
+            result["output"],
+            failure_detail=_failure_detail(result),
+            cut_short=False,
+            to_virtual=self._to_virtual,
+        )
 
     async def grep(
         self,
@@ -482,36 +435,29 @@ class DaytonaBackend:
         path: str | None = None,
         glob: str | None = None,
         ignore_case: bool = False,
-    ) -> list[GrepMatch]:
-        """Search file contents for a regex pattern."""
+        max_matches: int = 1000,
+    ) -> GrepResult:
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            return GrepResult(error_message=f"Invalid regex {pattern!r}: {exc}")
         try:
             real_path = self._resolve(path or "/")
-        except PermissionError:
-            return []
-        flags = "-rn"
-        if ignore_case:
-            flags += "i"
-        cmd = f"grep {flags} {shell_quote(pattern)} {shell_quote(real_path)}"
-        if glob:
-            cmd += f" --include={shell_quote(glob)}"
-        cmd += " 2>/dev/null || true"
-        result = await self._exec_raw(cmd)
-        if not result["output"].strip():
-            return []
-        matches: list[GrepMatch] = []
-        for line in result["output"].strip().splitlines():
-            parts = line.split(":", 2)
-            if len(parts) < 3:
-                continue
-            file_path = parts[0].removeprefix(self._workdir)
-            if not file_path.startswith("/"):
-                file_path = "/" + file_path
-            try:
-                line_num = int(parts[1])
-            except ValueError:
-                continue
-            matches.append(GrepMatch(path=file_path, line=line_num, text=parts[2]))
-        return matches
+        except PermissionError as exc:
+            return GrepResult(error_message=str(exc))
+        result = await self._exec_raw(
+            remote_grep_command(real_path, pattern, glob, ignore_case, max_matches)
+        )
+        return parse_remote_grep(
+            result["output"],
+            failure_detail=_failure_detail(result),
+            cut_short=False,
+            to_virtual=self._to_virtual,
+        )
+
+    def _to_virtual(self, real_path: str) -> str:
+        relative = real_path.removeprefix(self._workdir)
+        return relative if relative.startswith("/") else "/" + relative
 
     # --- FilesystemProtocol: bulk transfer (host-side) ---
     #
@@ -620,3 +566,7 @@ class DaytonaBackend:
                     )
                 )
         return results
+
+
+def _failure_detail(result: ExecuteResponse) -> str:
+    return f"exit code {result['exit_code']}: {result.get('stderr') or result.get('output', '')}"

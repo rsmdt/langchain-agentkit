@@ -85,10 +85,14 @@ async def discover_from_backend[T](
     """
     from langchain_agentkit._internal.frontmatter import parse_frontmatter_string
 
-    matches = await backend.glob(file_pattern, path=path)
+    glob_result = await backend.glob(file_pattern, path=path)
+    if glob_result.error_message is not None:
+        logger.warning("Incomplete %s scan of %s: %s", label, path, glob_result.error_message)
+    if glob_result.truncated:
+        logger.warning("Truncated %s scan of %s: result cap reached", label, path)
     configs: list[T] = []
     seen_names: set[str] = set()
-    for match in sorted(matches):
+    for match in sorted(glob_result.paths):
         read_result = await backend.read(match, limit=100_000)
         if read_result.error is not None or read_result.content is None:
             logger.warning(

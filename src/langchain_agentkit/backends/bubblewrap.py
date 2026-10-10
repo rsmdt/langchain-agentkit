@@ -100,32 +100,44 @@ import contextlib
 import json
 import os
 import posixpath
+import re
 import resource
 import shutil
 import warnings
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from langchain_agentkit.backends.edits import edit_result_from_script, empty_old_string_result
 from langchain_agentkit.backends.execution import (
     DEFAULT_MAX_OUTPUT_BYTES,
     DEFAULT_MAX_OUTPUT_LINES,
     BoundedCapture,
     drain_stream_into,
 )
-from langchain_agentkit.backends.protocol import ExecuteResponse, GrepMatch
+from langchain_agentkit.backends.protocol import ExecuteResponse
 from langchain_agentkit.backends.results import (
     EditResult,
     FileDownloadResult,
     FileUploadResult,
+    GlobResult,
+    GrepResult,
     ReadBytesResult,
     ReadResult,
     SandboxEnvironment,
     WriteResult,
 )
+from langchain_agentkit.backends.search import (
+    parse_remote_glob,
+    parse_remote_grep,
+    remote_glob_command,
+    remote_grep_command,
+)
 from langchain_agentkit.backends.shell import (
     BASH_STARTUP_WARNING_RE,
     ENV_PROBE_SCRIPT,
     ENV_PROBE_SEPARATOR,
+    parse_read_window,
+    read_window_command,
     shell_quote,
 )
 
@@ -150,10 +162,11 @@ _DEFAULT_MAX_EDIT_BYTES = 50 * 1024 * 1024  # 50 MiB
 # Default tmpfs size for /tmp inside the sandbox.
 _DEFAULT_TMPFS_SIZE = 128 * 1024 * 1024  # 128 MiB
 
-# Glob output cap — bypasses the BoundedCapture 256 KiB tail because
-# silent truncation corrupts the parsed list (a real bug also present
-# in the upstream DaytonaBackend.glob).
-_DEFAULT_MAX_GLOB_OUTPUT = 16 * 1024 * 1024  # 16 MiB
+# Glob/grep output cap — bypasses the BoundedCapture 256 KiB tail because
+# a tail window drops the earliest results; the raw capture keeps the head.
+_DEFAULT_MAX_SEARCH_OUTPUT = 16 * 1024 * 1024  # 16 MiB
+
+_CUT_SHORT_MARKER = "size_limit_exceeded"
 
 # Host-path prefixes that must never be bind-mounted into the sandbox.
 # Each exposes either kernel state (PIDs/devices), runtime sockets
@@ -360,9 +373,10 @@ class BubblewrapBackend:
         max_edit_file_bytes: Hard cap on ``edit`` input-file size,
             enforced inside the sandbox before the file is read into
             memory.
-        max_glob_output_bytes: Cap on ``glob`` output bytes. Higher
-            than ``max_output_bytes`` because glob bypasses
-            BoundedCapture (silent truncation would corrupt results).
+        max_search_output_bytes: Cap on ``glob``/``grep`` output bytes.
+            Higher than ``max_output_bytes`` because search bypasses
+            BoundedCapture; output past the cap ends the search with
+            ``truncated=True``.
 
     Raises:
         FileNotFoundError: If ``bwrap`` isn't on PATH and no
@@ -395,7 +409,7 @@ class BubblewrapBackend:
         max_output_lines: int = DEFAULT_MAX_OUTPUT_LINES,
         max_binary_read_bytes: int = _DEFAULT_MAX_BINARY_BYTES,
         max_edit_file_bytes: int = _DEFAULT_MAX_EDIT_BYTES,
-        max_glob_output_bytes: int = _DEFAULT_MAX_GLOB_OUTPUT,
+        max_search_output_bytes: int = _DEFAULT_MAX_SEARCH_OUTPUT,
     ) -> None:
         bwrap = bwrap_path or shutil.which("bwrap")
         if bwrap is None:
@@ -444,7 +458,7 @@ class BubblewrapBackend:
         self._max_output_lines = max_output_lines
         self._max_binary_read_bytes = max_binary_read_bytes
         self._max_edit_file_bytes = max_edit_file_bytes
-        self._max_glob_output_bytes = max_glob_output_bytes
+        self._max_search_output_bytes = max_search_output_bytes
         self._workdir = _SANDBOX_WORKSPACE
         self._env_cache: SandboxEnvironment | None = None
 
@@ -912,14 +926,15 @@ class BubblewrapBackend:
             return ReadResult(error="file_not_found", error_message=f"File not found: {path}")
         if kind == "D":
             return ReadResult(error="is_directory", error_message=f"Path is a directory: {path}")
-        start, end = offset + 1, offset + limit
-        result = await self._shell(f"sed -n '{start},{end}p' {q}")
-        if result["exit_code"] != 0:
+        exit_code, content, stderr = await self._shell_raw(
+            read_window_command(sb_path, offset, limit), max_bytes=self._max_binary_read_bytes
+        )
+        if exit_code != 0:
             return ReadResult(
                 error="io_error",
-                error_message=f"Read failed: {result.get('stderr') or result.get('output')}",
+                error_message=f"Read failed: {stderr or 'unknown error'}",
             )
-        return ReadResult(content=result["output"])
+        return parse_read_window(_strip_locale(content.decode("utf-8", errors="replace")))
 
     async def read_bytes(self, path: str) -> ReadBytesResult:
         try:
@@ -986,6 +1001,8 @@ class BubblewrapBackend:
         new_string: str,
         replace_all: bool = False,
     ) -> EditResult:
+        if not old_string:
+            return empty_old_string_result(path)
         try:
             sb_path = self._resolve(path)
         except PermissionError as exc:
@@ -1013,76 +1030,29 @@ class BubblewrapBackend:
                 error="io_error",
                 error_message=f"Edit produced invalid output: {result['output']!r}",
             )
-        if "error" in data:
-            err = data["error"]
-            if err == "file_not_found":
-                return EditResult(error="file_not_found", error_message=f"File not found: {path}")
-            if err == "is_directory":
-                return EditResult(
-                    error="is_directory", error_message=f"Path is a directory: {path}"
-                )
-            if err == "decode_error":
-                return EditResult(
-                    error="decode_error",
-                    error_message=f"File is not valid UTF-8: {path}",
-                )
-            if err == "old_string_not_found":
-                return EditResult(
-                    path=path,
-                    error="old_string_not_found",
-                    error_message=f"old_string not found in {path}",
-                )
-            if err == "ambiguous_match":
-                occ = data.get("occurrences")
-                return EditResult(
-                    path=path,
-                    occurrences=occ,
-                    error="ambiguous_match",
-                    error_message=(
-                        f"old_string appears {occ} times in {path}. "
-                        "Pass replace_all=True or extend old_string for uniqueness."
-                    ),
-                )
-            return EditResult(
-                error="io_error",
-                error_message=data.get("message") or f"Edit failed: {err}",
-            )
-        return EditResult(path=path, replacements=data["replacements"])
+        return edit_result_from_script(data, path)
 
-    async def glob(self, pattern: str, path: str = "/") -> list[str]:
+    async def glob(self, pattern: str, path: str = "/", max_results: int = 1000) -> GlobResult:
         """Find files matching a glob pattern.
 
-        Bypasses ``BoundedCapture`` via ``_shell_raw`` so a large repo
-        doesn't get its result list silently truncated past 256 KiB.
-        Cap is configurable via ``max_glob_output_bytes`` (16 MiB
-        default — large enough for tens of thousands of paths).
+        Bypasses ``BoundedCapture`` via ``_shell_raw`` so the earliest
+        results survive; output past ``max_search_output_bytes`` ends
+        the search with ``truncated=True``.
         """
         try:
             sb_path = self._resolve(path)
-        except PermissionError:
-            return []
-        q = shell_quote(sb_path)
-        if "**" in pattern or "/" in pattern:
-            find_pattern = pattern.replace("**", "*")
-            full_pattern = f"{sb_path}/{find_pattern}"
-            cmd = f"find {q} -path {shell_quote(full_pattern)} -type f 2>/dev/null | sort"
-        else:
-            cmd = f"find {q} -name {shell_quote(pattern)} -type f 2>/dev/null | sort"
-        exit_code, content_bytes, _ = await self._shell_raw(
-            cmd, max_bytes=self._max_glob_output_bytes
+        except PermissionError as exc:
+            return GlobResult(error_message=str(exc))
+        exit_code, output, stderr = await self._shell_raw(
+            remote_glob_command(sb_path, pattern, max_results),
+            max_bytes=self._max_search_output_bytes,
         )
-        if exit_code != 0:
-            return []
-        text = content_bytes.decode("utf-8", errors="replace")
-        if not text.strip():
-            return []
-        matches: list[str] = []
-        for line in text.strip().splitlines():
-            rel = line.removeprefix(self._workdir)
-            if not rel.startswith("/"):
-                rel = "/" + rel
-            matches.append(rel)
-        return matches
+        return parse_remote_glob(
+            output.decode("utf-8", errors="replace"),
+            failure_detail=f"exit code {exit_code}: {stderr}",
+            cut_short=stderr == _CUT_SHORT_MARKER,
+            to_virtual=self._to_virtual,
+        )
 
     async def grep(
         self,
@@ -1090,33 +1060,30 @@ class BubblewrapBackend:
         path: str | None = None,
         glob: str | None = None,
         ignore_case: bool = False,
-    ) -> list[GrepMatch]:
+        max_matches: int = 1000,
+    ) -> GrepResult:
+        try:
+            re.compile(pattern)
+        except re.error as exc:
+            return GrepResult(error_message=f"Invalid regex {pattern!r}: {exc}")
         try:
             sb_path = self._resolve(path or "/")
-        except PermissionError:
-            return []
-        flags = "-rni" if ignore_case else "-rn"
-        cmd = f"grep {flags} {shell_quote(pattern)} {shell_quote(sb_path)}"
-        if glob:
-            cmd += f" --include={shell_quote(glob)}"
-        cmd += " 2>/dev/null || true"
-        result = await self._shell(cmd)
-        if not result["output"].strip():
-            return []
-        matches: list[GrepMatch] = []
-        for line in result["output"].strip().splitlines():
-            parts = line.split(":", 2)
-            if len(parts) < 3:
-                continue
-            file_path = parts[0].removeprefix(self._workdir)
-            if not file_path.startswith("/"):
-                file_path = "/" + file_path
-            try:
-                line_num = int(parts[1])
-            except ValueError:
-                continue
-            matches.append(GrepMatch(path=file_path, line=line_num, text=parts[2]))
-        return matches
+        except PermissionError as exc:
+            return GrepResult(error_message=str(exc))
+        exit_code, output, stderr = await self._shell_raw(
+            remote_grep_command(sb_path, pattern, glob, ignore_case, max_matches),
+            max_bytes=self._max_search_output_bytes,
+        )
+        return parse_remote_grep(
+            output.decode("utf-8", errors="replace"),
+            failure_detail=f"exit code {exit_code}: {stderr}",
+            cut_short=stderr == _CUT_SHORT_MARKER,
+            to_virtual=self._to_virtual,
+        )
+
+    def _to_virtual(self, sandbox_path: str) -> str:
+        relative = sandbox_path.removeprefix(self._workdir)
+        return relative if relative.startswith("/") else "/" + relative
 
     # ----- FilesystemProtocol: bulk transfer (host-side) -----------------
 

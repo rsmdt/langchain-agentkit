@@ -9,6 +9,7 @@ from langchain_core.tools import StructuredTool, ToolException
 from langchain_agentkit.extensions.filesystem.tools.common import (
     _FULL_READ_LIMIT,
     _compute_structured_patch,
+    _path_lock,
     _WriteInput,
 )
 
@@ -17,14 +18,20 @@ Create a new file, or replace an existing file's contents entirely. Use when wri
 """
 
 if TYPE_CHECKING:
+    import asyncio
+
     from langchain_core.tools import BaseTool
 
     from langchain_agentkit.backends.protocol import FilesystemProtocol
 
 
-def _build_write(backend: FilesystemProtocol) -> BaseTool:
+def _build_write(backend: FilesystemProtocol, locks: dict[str, asyncio.Lock]) -> BaseTool:
     async def write(file_path: str, content: str) -> tuple[str, dict[str, Any]]:
         """Write content to a file."""
+        async with _path_lock(locks, file_path):
+            return await _write(file_path, content)
+
+    async def _write(file_path: str, content: str) -> tuple[str, dict[str, Any]]:
         read_result = await backend.read(file_path, limit=_FULL_READ_LIMIT)
 
         is_new = False
