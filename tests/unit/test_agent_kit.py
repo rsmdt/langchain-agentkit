@@ -482,3 +482,37 @@ class TestAgentKitCompile:
         kit = AgentKit(extensions=[])
 
         assert isinstance(kit.hooks, HookRunner)
+
+
+class TestPresetOverride:
+    def test_user_extension_replaces_seeded_extension_of_same_type(self):
+        from langchain_agentkit.extensions.tasks import TasksExtension
+
+        custom = TasksExtension(tools=[_make_tool("TaskCreate", "custom")])
+
+        kit = AgentKit(preset="full", extensions=[custom])
+
+        tasks_exts = [e for e in kit.extensions if isinstance(e, TasksExtension)]
+        assert tasks_exts == [custom]
+
+    def test_replacement_keeps_seeded_position(self):
+        from langchain_agentkit.extensions.core_behavior import CoreBehaviorExtension
+        from langchain_agentkit.extensions.tasks import TasksExtension
+
+        extra = StubExtension(tools=[_make_tool("extra")])
+        custom_core = CoreBehaviorExtension()
+
+        kit = AgentKit(preset="full", extensions=[extra, custom_core])
+
+        assert kit.extensions[0] is custom_core
+        assert isinstance(kit.extensions[1], TasksExtension)
+        assert kit.extensions[2] is extra
+
+    def test_replacement_tools_win(self):
+        from langchain_agentkit.extensions.tasks import TasksExtension
+
+        custom_tool = _make_tool("TaskCreate", "custom")
+
+        kit = AgentKit(preset="full", extensions=[TasksExtension(tools=[custom_tool])])
+
+        assert next(t for t in kit.tools if t.name == "TaskCreate") is custom_tool

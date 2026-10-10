@@ -87,7 +87,9 @@ class AgentKit:
         preset: Optional preset that seeds a curated extension stack.
             When ``"full"``, the kit prepends
             ``[CoreBehaviorExtension(), TasksExtension()]`` ahead of
-            any user-supplied ``extensions=[...]``. ``None`` (default)
+            any user-supplied ``extensions=[...]``. A supplied extension
+            of the same type as a seeded one replaces it in its seeded
+            slot. ``None`` (default)
             leaves the extension list untouched. Unknown preset
             strings raise :class:`ValueError`.
         stream_tool_results: When ``False``, the outbound stream
@@ -131,8 +133,7 @@ class AgentKit:
         stream_tool_results: bool = True,
         max_turns: int | None = None,
     ) -> None:
-        seeded = _seed_preset_extensions(preset)
-        combined: list[Extension] = [*seeded, *(extensions or [])]
+        combined = _merge_preset_extensions(_seed_preset_extensions(preset), extensions or [])
         self._extensions = self._resolve_dependencies(combined)
         self._prompt = _load_prompt(prompt)
         self._user_tools: list[BaseTool] = list(tools or [])
@@ -459,6 +460,18 @@ def _seed_preset_extensions(preset: str | None) -> list[Any]:
             TasksExtension(),
         ]
     return []  # pragma: no cover — guarded by _VALID_PRESETS
+
+
+def _merge_preset_extensions(seeded: list[Any], supplied: list[Any]) -> list[Any]:
+    merged = list(seeded)
+    seeded_slots = {type(ext): index for index, ext in enumerate(seeded)}
+    for ext in supplied:
+        slot = seeded_slots.pop(type(ext), None)
+        if slot is None:
+            merged.append(ext)
+        else:
+            merged[slot] = ext
+    return merged
 
 
 async def run_extension_setup(kit: AgentKit) -> None:
