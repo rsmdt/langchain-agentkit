@@ -16,7 +16,7 @@ classifiers = [
     "Typing :: Typed",
 ]
 dependencies = [
-    "langchain-core>=0.3",
+    "langchain-core>=1.2.10",
     "langgraph>=0.4",
     "pyyaml>=6.0",
 ]

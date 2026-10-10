@@ -7,14 +7,16 @@ entire history with a single synthetic summary so the next LLM call
 runs against a fresh context window. A leading ``SystemMessage`` is
 preserved verbatim (it's the agent's persona, not part of history).
 
-Summaries chain across compaction rounds via ``previous_summary``
-plumbing inside :func:`summarizer.generate_summary` so the structured
-checkpoint accumulates rather than degrading round after round.
+Summaries chain across compaction rounds: the previous round's summary is
+read back from the summary message already present in the conversation and
+passed as ``previous_summary`` to :func:`summarizer.generate_summary`, so
+the structured checkpoint accumulates rather than degrading round after
+round. The strategy instance holds no per-conversation state, so one
+instance is safe to share across threads and concurrent subagents.
 """
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
@@ -41,6 +43,13 @@ _logger = logging.getLogger(__name__)
 
 DEFAULT_CONTEXT_WINDOW: int = 128_000
 DEFAULT_RESERVE_TOKENS: int = 16_384
+
+_ENVELOPE_OPEN = "<compaction-summary>\n"
+_ENVELOPE_PREAMBLE = (
+    "The earlier conversation was summarized to conserve context. "
+    "Treat the following as authoritative history.\n\n"
+)
+_ENVELOPE_CLOSE = "\n</compaction-summary>"
 
 
 class CompactionStrategy:
@@ -79,9 +88,7 @@ class CompactionStrategy:
         self._custom_instructions = custom_instructions
         self._summarizer_llm = summarizer_llm
         self._llm_getter: Callable[[], BaseChatModel] | None = None
-        self._last_summary: str | None = None
         self._resolved_context_window: int | None = None
-        self._lock = asyncio.Lock()
 
     async def setup(
         self,
@@ -100,7 +107,9 @@ class CompactionStrategy:
         usage = estimate_context_tokens(messages)
         if not should_compact(usage.tokens, ctx_window, self._reserve_tokens):
             return messages
+        return await self.compact(messages, runtime=runtime)
 
+    async def compact(self, messages: list[Any], *, runtime: Any) -> list[Any]:
         if _is_system_message(messages[0]):
             system_head = [messages[0]]
             body = messages[1:]
@@ -111,22 +120,23 @@ class CompactionStrategy:
         if not body:
             return messages
 
-        async with self._lock:
-            llm = self._resolve_summarizer_llm()
-            summary_body = await generate_summary(
-                body,
-                llm,
-                previous_summary=self._last_summary,
-                custom_instructions=self._custom_instructions,
-            )
+        previous_summary = _read_summary(body[0])
+        if previous_summary is not None:
+            body = body[1:]
 
-            ops = extract_file_ops(body)
-            read_files, modified_files = compute_file_lists(ops)
-            summary_body += format_file_operations(read_files, modified_files)
+        llm = self._resolve_summarizer_llm()
+        summary_body = await generate_summary(
+            body,
+            llm,
+            previous_summary=previous_summary,
+            custom_instructions=self._custom_instructions,
+        )
 
-            self._last_summary = summary_body
-            envelope = self._render_envelope(summary_body)
-            return [*system_head, HumanMessage(content=envelope)]
+        ops = extract_file_ops(body)
+        read_files, modified_files = compute_file_lists(ops)
+        summary_body += format_file_operations(read_files, modified_files)
+
+        return [*system_head, HumanMessage(content=_render_envelope(summary_body))]
 
     def _resolve_context_window(self) -> int:
         if self._resolved_context_window is not None:
@@ -151,12 +161,16 @@ class CompactionStrategy:
             )
         return self._llm_getter()
 
-    @staticmethod
-    def _render_envelope(body: str) -> str:
-        return (
-            "<compaction-summary>\n"
-            "The earlier conversation was summarized to conserve context. "
-            "Treat the following as authoritative history.\n\n"
-            f"{body}\n"
-            "</compaction-summary>"
-        )
+
+def _render_envelope(body: str) -> str:
+    return f"{_ENVELOPE_OPEN}{_ENVELOPE_PREAMBLE}{body}{_ENVELOPE_CLOSE}"
+
+
+def _read_summary(message: Any) -> str | None:
+    if not isinstance(message, HumanMessage) or not isinstance(message.content, str):
+        return None
+    content = message.content
+    if not (content.startswith(_ENVELOPE_OPEN) and content.endswith(_ENVELOPE_CLOSE)):
+        return None
+    inner = content[len(_ENVELOPE_OPEN) : -len(_ENVELOPE_CLOSE)]
+    return inner.removeprefix(_ENVELOPE_PREAMBLE)

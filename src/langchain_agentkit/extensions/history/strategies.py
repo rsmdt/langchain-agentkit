@@ -33,6 +33,10 @@ class HistoryStrategy(Protocol):
     * ``async setup(*, llm_getter)`` — receive a handle to the kit's
       main LLM at compile time. Strategies that need an LLM (e.g.
       :class:`CompactionStrategy`) implement this.
+    * ``async compact(messages, *, runtime)`` — shrink the history
+      unconditionally. Called after the model rejects a request for
+      exceeding its context window; the call is retried once with the
+      result when it is strictly smaller.
     """
 
     async def transform(self, messages: list[Any], *, runtime: Any) -> list[Any]: ...

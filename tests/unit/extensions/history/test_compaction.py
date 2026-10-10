@@ -40,6 +40,16 @@ class _FakeLlm:
         return AIMessage(content=self._reply)
 
 
+def _overflowing_history(tag: str) -> list[Any]:
+    return [
+        HumanMessage(content=f"q-{tag}-" + "x" * 400),
+        AIMessage(
+            content=f"a-{tag}-" + "x" * 400,
+            usage_metadata={"input_tokens": 150, "output_tokens": 0, "total_tokens": 150},
+        ),
+    ]
+
+
 # ---------------------------------------------------------------------------
 # Token accounting helper
 # ---------------------------------------------------------------------------
@@ -205,29 +215,37 @@ class TestCompactionStrategy:
         assert "SUMMARY" in str(out[1].content)
 
     @pytest.mark.asyncio
-    async def test_last_summary_chains_into_next_compaction(self) -> None:
-        """Second compaction passes the prior summary via UPDATE prompt."""
-        fake = _FakeLlm(reply="SUMMARY-N")
+    async def test_previous_summary_chains_from_conversation(self) -> None:
+        fake = _FakeLlm(reply="SUMMARY-ROUND-1")
         strategy = CompactionStrategy(
             summarizer_llm=fake,
             reserve_tokens=50,
             context_window_resolver=lambda: 100,
         )
-        history = [
-            HumanMessage(content="q1-" + "x" * 400),
-            AIMessage(
-                content="a1-" + "x" * 400,
-                usage_metadata={"input_tokens": 150, "output_tokens": 0, "total_tokens": 150},
-            ),
-            HumanMessage(content="q2"),
-            AIMessage(content="r2"),
-        ]
-        await strategy.transform(history, runtime=None)
-        await strategy.transform(history, runtime=None)
+        round_one = await strategy.transform(_overflowing_history("a"), runtime=None)
 
-        # On the second call the user prompt should reference the prior summary.
-        second_call_user_msg = fake.calls[1][-1]
-        assert "<previous-summary>" in str(second_call_user_msg.content)
+        fake._reply = "SUMMARY-ROUND-2"
+        await strategy.transform([*round_one, *_overflowing_history("b")], runtime=None)
+
+        second_call_user_msg = str(fake.calls[1][-1].content)
+        assert "<previous-summary>\nSUMMARY-ROUND-1" in second_call_user_msg
+        assert "<compaction-summary>" not in second_call_user_msg
+
+    @pytest.mark.asyncio
+    async def test_shared_instance_never_leaks_summary_across_conversations(self) -> None:
+        fake = _FakeLlm(reply="SUMMARY-OF-A")
+        strategy = CompactionStrategy(
+            summarizer_llm=fake,
+            reserve_tokens=50,
+            context_window_resolver=lambda: 100,
+        )
+        await strategy.transform(_overflowing_history("a"), runtime=None)
+        fake._reply = "SUMMARY-OF-B"
+        await strategy.transform(_overflowing_history("b"), runtime=None)
+
+        second_call_user_msg = str(fake.calls[1][-1].content)
+        assert "<previous-summary>" not in second_call_user_msg
+        assert "SUMMARY-OF-A" not in second_call_user_msg
 
     @pytest.mark.asyncio
     async def test_setup_supplies_llm_when_not_constructor_provided(self) -> None:

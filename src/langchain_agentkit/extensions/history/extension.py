@@ -16,6 +16,11 @@ Or supply any object implementing :class:`HistoryStrategy`.
 Rewrites are persisted to graph state via :class:`ReplaceMessages`, so
 the checkpointer stays in sync with what the LLM sees. There is no
 "transparent" mode — every strategy is destructive.
+
+When the model call fails with :class:`ContextOverflowError` and the
+strategy offers ``compact()``, the history is compacted and the call is
+retried once — only if the compacted request is strictly smaller than the
+one that overflowed. Otherwise the error propagates.
 """
 
 from __future__ import annotations
@@ -23,8 +28,11 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, override
 
+from langchain_core.exceptions import ContextOverflowError
+
 from langchain_agentkit.composition.extension import Extension
 from langchain_agentkit.extensions.history.state import ReplaceMessages
+from langchain_agentkit.extensions.history.token_accounting import estimate_tokens
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -105,10 +113,30 @@ class HistoryExtension(Extension):
         original = list(state.get("messages", []))
         transformed = await self._strategy.transform(original, runtime=runtime)
 
-        result = await handler({**state, "messages": transformed})
+        try:
+            result = await handler({**state, "messages": transformed})
+        except ContextOverflowError:
+            compacted = await self._compact_after_overflow(transformed, runtime)
+            if compacted is None:
+                raise
+            transformed = compacted
+            result = await handler({**state, "messages": transformed})
 
         if isinstance(result, dict):
             new_messages = result.get("messages", [])
             result["messages"] = ReplaceMessages(list(transformed) + list(new_messages))
 
         return result
+
+    async def _compact_after_overflow(self, failed: list[Any], runtime: Any) -> list[Any] | None:
+        compact = getattr(self._strategy, "compact", None)
+        if not callable(compact):
+            return None
+        compacted: list[Any] = await compact(failed, runtime=runtime)
+        if _estimated_size(compacted) >= _estimated_size(failed):
+            return None
+        return compacted
+
+
+def _estimated_size(messages: list[Any]) -> int:
+    return sum(estimate_tokens(m) for m in messages)
