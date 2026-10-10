@@ -493,3 +493,94 @@ class TestOrderingEnforcement:
 
         ext = ResilienceExtension()
         ext.setup(extensions=[PlainExtension(), ext, self._wrapping_extension()])
+
+
+class TestInvalidToolCallRepair:
+    @staticmethod
+    def _ai_with_invalid_call(call_id: str, name: str) -> AIMessage:
+        return AIMessage(
+            content="",
+            invalid_tool_calls=[
+                {
+                    "id": call_id,
+                    "name": name,
+                    "args": '{"query": "trunc',
+                    "error": "malformed",
+                    "type": "invalid_tool_call",
+                }
+            ],
+        )
+
+    async def _captured(self, ext: ResilienceExtension, messages: list) -> list:
+        captured: list = []
+
+        async def handler(state):
+            captured.append(state["messages"])
+            return {"messages": []}
+
+        await ext.wrap_model(state={"messages": messages}, handler=handler, runtime=None)
+        return captured[0]
+
+    async def test_repairs_unanswered_invalid_tool_call(self):
+        ext = ResilienceExtension()
+        messages = [
+            HumanMessage(content="hi"),
+            self._ai_with_invalid_call("bad_1", "search"),
+            HumanMessage(content="next"),
+        ]
+
+        repaired = await self._captured(ext, messages)
+
+        assert len(repaired) == 4
+        synthetic = repaired[2]
+        assert isinstance(synthetic, ToolMessage)
+        assert synthetic.tool_call_id == "bad_1"
+        assert synthetic.name == "search"
+        assert synthetic.status == "error"
+        assert synthetic.additional_kwargs["agentkit"] == {
+            "synthesized": True,
+            "reason": "invalid_tool_call",
+        }
+
+    async def test_invalid_call_message_differs_from_orphan_message(self):
+        ext = ResilienceExtension()
+        messages = [
+            AIMessage(
+                content="",
+                tool_calls=[{"id": "ok_1", "name": "a", "args": {}, "type": "tool_call"}],
+                invalid_tool_calls=[
+                    {
+                        "id": "bad_1",
+                        "name": "b",
+                        "args": "{",
+                        "error": None,
+                        "type": "invalid_tool_call",
+                    }
+                ],
+            ),
+        ]
+
+        repaired = await self._captured(ext, messages)
+
+        by_id = {m.tool_call_id: m for m in repaired if isinstance(m, ToolMessage)}
+        assert set(by_id) == {"ok_1", "bad_1"}
+        assert by_id["ok_1"].content != by_id["bad_1"].content
+
+    async def test_answered_invalid_tool_call_left_alone(self):
+        ext = ResilienceExtension()
+        messages = [
+            self._ai_with_invalid_call("bad_1", "search"),
+            ToolMessage(content="err", tool_call_id="bad_1", name="search"),
+        ]
+
+        repaired = await self._captured(ext, messages)
+
+        assert repaired == messages
+
+    async def test_repair_event_emitted_for_invalid_tool_call(self):
+        events: list[OrphanRepairEvent] = []
+        ext = ResilienceExtension(on_orphan_repaired=events.append)
+
+        await self._captured(ext, [self._ai_with_invalid_call("bad_1", "search")])
+
+        assert [e.tool_call_id for e in events] == ["bad_1"]

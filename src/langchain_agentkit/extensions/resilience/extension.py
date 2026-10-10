@@ -76,6 +76,10 @@ if TYPE_CHECKING:
 
 _logger = logging.getLogger(__name__)
 
+_INVALID_TOOL_CALL_REPAIR_MESSAGE = (
+    "[tool not run — the call had malformed or truncated arguments and no result was recorded]"
+)
+
 
 # Deliberately short and deterministic so model behaviour is predictable
 # across failures. The real exception details go to logs and telemetry,
@@ -246,11 +250,14 @@ class ResilienceExtension(Extension):
 
             out.append(msg)
 
-            if not (isinstance(msg, AIMessage) and msg.tool_calls):
+            if not isinstance(msg, AIMessage):
                 continue
 
             synthesized_here: list[ToolMessage] = []
-            for tc in msg.tool_calls:
+            calls = [(tc, "orphan") for tc in msg.tool_calls] + [
+                (tc, "invalid_tool_call") for tc in msg.invalid_tool_calls
+            ]
+            for tc, reason in calls:
                 call_id = tc.get("id") or ""
                 if not call_id or call_id in satisfied:
                     continue
@@ -261,14 +268,18 @@ class ResilienceExtension(Extension):
                     continue
                 tool_name = tc.get("name") or ""
                 synthetic = ToolMessage(
-                    content=self._orphan_message,
+                    content=(
+                        self._orphan_message
+                        if reason == "orphan"
+                        else _INVALID_TOOL_CALL_REPAIR_MESSAGE
+                    ),
                     name=tool_name,
                     tool_call_id=call_id,
                     status="error",
                     additional_kwargs={
                         "agentkit": {
                             "synthesized": True,
-                            "reason": "orphan",
+                            "reason": reason,
                         }
                     },
                 )
