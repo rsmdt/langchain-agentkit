@@ -754,12 +754,14 @@ class TestSkillDisambiguation:
 @pytest.mark.skipif(not _HAS_OPENAI, reason=SKIP_REASON)
 class TestMemoryContentInfluencesResponse:
     def test_metric_preference_reflected(self, memory_fixture: Path) -> None:
-        from langchain_agentkit.extensions.memory import MemoryExtension
+        from langchain_agentkit.extensions.memory import CuratedMemory, MemoryExtension
 
         def trial() -> tuple[bool, str]:
             kit = _make_kit(
                 extensions=[
-                    MemoryExtension(path=memory_fixture, project_discovery=False),
+                    MemoryExtension(
+                        strategy=CuratedMemory(path=memory_fixture, project_discovery=False)
+                    ),
                 ],
             )
             msg = _run(_invoke_once(kit, "What's 100km in a familiar unit?"))
@@ -791,12 +793,16 @@ def irrelevant_memory_fixture(tmp_path: Path) -> Path:
 @pytest.mark.skipif(not _HAS_OPENAI, reason=SKIP_REASON)
 class TestMemoryIrrelevantContentDoesNotInterfere:
     def test_irrelevant_memory_does_not_leak(self, irrelevant_memory_fixture: Path) -> None:
-        from langchain_agentkit.extensions.memory import MemoryExtension
+        from langchain_agentkit.extensions.memory import CuratedMemory, MemoryExtension
 
         def trial() -> tuple[bool, str]:
             kit = _make_kit(
                 extensions=[
-                    MemoryExtension(path=irrelevant_memory_fixture, project_discovery=False),
+                    MemoryExtension(
+                        strategy=CuratedMemory(
+                            path=irrelevant_memory_fixture, project_discovery=False
+                        )
+                    ),
                 ],
             )
             msg = _run(_invoke_once(kit, "What is 2 + 2?"))
@@ -1183,7 +1189,7 @@ def _recommended_kit(root: Path) -> Any:
     from langchain_agentkit.extensions.agents.types import _AgentConfigProxy
     from langchain_agentkit.extensions.core_behavior import CoreBehaviorExtension
     from langchain_agentkit.extensions.env.extension import EnvExtension
-    from langchain_agentkit.extensions.memory import MemoryExtension
+    from langchain_agentkit.extensions.memory import CuratedMemory, MemoryExtension
     from langchain_agentkit.extensions.skills.types import SkillConfig
 
     (root / "pyproject.toml").write_text('[project]\nname = "demo"\n')
@@ -1206,7 +1212,7 @@ def _recommended_kit(root: Path) -> Any:
     return _make_kit(
         extensions=[
             CoreBehaviorExtension(),
-            MemoryExtension(path=root, project_discovery=False),
+            MemoryExtension(strategy=CuratedMemory(path=root, project_discovery=False)),
             EnvExtension(),
             FilesystemExtension(root=str(root)),
             SkillsExtension(skills=[skill]),

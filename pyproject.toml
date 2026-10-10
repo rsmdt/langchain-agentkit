@@ -26,6 +26,9 @@ web = [
     "markdownify>=0.11",
     "readabilipy>=0.2",
 ]
+memory = [
+    "langmem>=0.0.30",
+]
 dev = [
     "poethepoet>=0.32",
     "pytest>=8.0",
@@ -126,6 +129,8 @@ module = [
     "mirage.*",
     "agentfs_sdk",
     "agentfs_sdk.*",
+    "langmem",
+    "langmem.*",
     "readabilipy",
     "readabilipy.*",
 ]

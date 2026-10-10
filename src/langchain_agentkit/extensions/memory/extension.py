@@ -1,96 +1,78 @@
-"""MemoryExtension — surface persistent memory content to the agent each turn.
+"""MemoryExtension — surface persistent memory to the agent each turn.
 
-Reads a memory file from a configurable location and contributes its
-contents to the system prompt.  Discovery mirrors a per-project layout
-by default: ``<path>/<sanitized-cwd>/<filename>``.  Custom layouts are
-supported via ``project_key_fn``.
+The extension owns *framing* — a header, a staleness caveat, and any
+caller-supplied extra sources — and delegates *sourcing* to a
+:class:`MemoryStrategy`.
 
-Two modes:
+The default strategy,
+:class:`~langchain_agentkit.extensions.memory.curated.CuratedMemory`,
+injects an operator-authored markdown document into the durable system
+prompt::
 
-1. **Local filesystem** (``backend=None``) — reads synchronously inside
-   ``prompt()`` via ``pathlib.Path``. No async setup needed.
-2. **Backend-driven** (``backend=<FilesystemProtocol>``) — reads
-   asynchronously. An initial load runs in ``setup()``; each turn's
-   ``before_model`` hook refreshes a cached body that ``prompt()``
-   returns synchronously.
+    MemoryExtension()  # ~/.agents/memory/<project-key>/MEMORY.md
 
-Missing files are not errors; they simply contribute nothing.
+:class:`~langchain_agentkit.extensions.memory.recalled.RecalledMemory`
+instead gives the agent a store it writes and searches itself::
+
+    MemoryExtension(strategy=RecalledMemory(namespace=("memories",)))
+
+The two compose by declaring the extension twice — a curated document that
+is always present, alongside a learned store the agent queries on demand.
+
+Content routes to whichever prompt channel suits it: a strategy's
+``body()`` joins the cacheable durable region, while its ``reminder()``
+rides the tail of the conversation. The staleness caveat is stated once,
+on whichever channel carries content.
 """
 
 from __future__ import annotations
 
-import hashlib
 import logging
-import os
-import re
 from dataclasses import dataclass, field
-from pathlib import Path
 from typing import TYPE_CHECKING, Any, override
 
 from langchain_agentkit.composition.extension import Extension
+from langchain_agentkit.extensions.memory.curated import CuratedMemory
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from langchain_agentkit.backends.protocol import FilesystemProtocol
+    from langchain_agentkit.extensions.memory.strategy import MemoryStrategy
 
 logger = logging.getLogger(__name__)
-
-_SANITIZE_RE = re.compile(r"[^a-zA-Z0-9]")
-_TRUNCATED_MARKER = "... [truncated]"
-
-
-# Port of the reference harness ``sanitizePath()``.
-def sanitize_path(name: str, *, max_length: int = 200) -> str:
-    replaced = _SANITIZE_RE.sub("-", name)
-    if len(replaced) <= max_length:
-        return replaced
-    digest = hashlib.sha256(name.encode("utf-8")).hexdigest()[:12]
-    return replaced[:max_length] + "-" + digest
-
-
-def _default_project_key_fn(cwd: Path) -> str:
-    return sanitize_path(str(cwd))
 
 
 @dataclass(kw_only=True)
 class MemoryExtension(Extension):
-    """Contribute persistent memory content to the agent's system prompt.
-
-    All parameters are keyword-only and defaulted.  See module docstring
-    for resolution order.
+    """Contribute persistent memory to the agent's prompt.
 
     Args:
-        backend: Optional :class:`FilesystemProtocol` for remote filesystem
-            reads. When provided, ``setup()`` performs the initial async
-            load and ``before_model`` refreshes the cached body every
-            turn. When ``None``, ``prompt()`` reads the local filesystem
-            synchronously each turn.
+        strategy: Where memory comes from. Defaults to a
+            :class:`CuratedMemory` document.
+        header: Heading for the durable memory section.
+        trust_footer: Staleness caveat, emitted once alongside whichever
+            channel carries memory content.
+        extra_sources: Callables contributing additional durable text.
+            A source that returns ``None``/``""`` or raises is skipped.
     """
 
-    path: str | Path = "~/.agents/memory"
-    filename: str = "MEMORY.md"
-    project_discovery: bool = True
-    project_key_fn: Callable[[Path], str] | None = None
-    project_key_max_length: int = 200
-    max_lines: int = 200
-    max_bytes: int = 25_000
+    strategy: MemoryStrategy = field(default_factory=CuratedMemory)
     header: str = "# Memory"
-    extra_sources: list[Callable[[], str | None]] = field(default_factory=list)
     trust_footer: str = (
         "Memory records may be stale. Verify facts against current state before acting on them."
     )
-    backend: FilesystemProtocol | None = None
-
-    def __post_init__(self) -> None:
-        self._cached_body: str | None = None
+    extra_sources: list[Callable[[], str | None]] = field(default_factory=list)
 
     # --- Extension protocol ---
 
+    @property
+    @override
+    def tools(self) -> list[Any]:
+        return self.strategy.tools
+
     @override
     async def setup(self, **_: Any) -> None:  # type: ignore[override]
-        if self.backend is not None:
-            self._cached_body = await self._load_body_async()
+        await self.strategy.setup()
 
     async def before_model(
         self,
@@ -98,8 +80,16 @@ class MemoryExtension(Extension):
         state: dict[str, Any],
         runtime: Any,
     ) -> None:
-        if self.backend is not None:
-            self._cached_body = await self._load_body_async()
+        await self.strategy.refresh(state=state, runtime=runtime)
+        return None
+
+    async def after_run(
+        self,
+        *,
+        state: dict[str, Any],
+        runtime: Any,
+    ) -> None:
+        await self.strategy.after_turn(state=state, runtime=runtime)
         return None
 
     @override
@@ -109,8 +99,28 @@ class MemoryExtension(Extension):
         runtime: Any | None = None,
         *,
         tools: frozenset[str] = frozenset(),
-    ) -> str | None:
-        body = self._get_body()
+    ) -> dict[str, str] | None:
+        durable = self._compose_durable()
+        reminder = self.strategy.reminder()
+
+        if durable is None and reminder is None:
+            return None
+
+        out: dict[str, str] = {}
+        if durable is not None:
+            out["prompt"] = durable
+        if reminder is not None:
+            # The caveat belongs with memory content wherever it lands, but
+            # only once — the durable section already carries it when present.
+            if durable is None:
+                reminder = reminder + "\n\n" + self.trust_footer
+            out["reminder"] = reminder
+        return out
+
+    # --- Internals ---
+
+    def _compose_durable(self) -> str | None:
+        body = self.strategy.body()
         extras = self._collect_extras()
 
         if body is None and not extras:
@@ -126,98 +136,6 @@ class MemoryExtension(Extension):
         sections.append("")
         sections.append(self.trust_footer)
         return "\n".join(sections)
-
-    # --- Internals ---
-
-    def _get_body(self) -> str | None:
-        if self.backend is not None:
-            return self._cached_body
-        return self._load_body_sync()
-
-    def _resolve_base_path(self) -> Path:
-        raw = str(self.path)
-        expanded = os.path.expandvars(os.path.expanduser(raw))
-        return Path(expanded)
-
-    def _resolve_project_key(self) -> str | None:
-        if not self.project_discovery:
-            return None
-        fn = self.project_key_fn or _default_project_key_fn
-        try:
-            key = fn(Path.cwd())
-        except Exception:
-            logger.debug("MemoryExtension: project_key_fn raised; falling back", exc_info=True)
-            return None
-        if not isinstance(key, str):
-            logger.debug("MemoryExtension: project_key_fn returned non-string; falling back")
-            return None
-        # Directory-traversal guard: reject separators.  This is a real
-        # error, not a silent fallback — a key fn producing path
-        # separators is a bug or an attempted escape.
-        if "/" in key or "\\" in key:
-            raise ValueError(f"project_key_fn returned a key containing path separators: {key!r}")
-        stripped = key.strip()
-        if not stripped:
-            return None
-        return stripped
-
-    def _candidate_paths(self) -> list[Path]:
-        base = self._resolve_base_path()
-        key = self._resolve_project_key()
-        candidates: list[Path] = []
-        if key is not None:
-            candidates.append(base / key / self.filename)
-        candidates.append(base / self.filename)
-        return candidates
-
-    def _load_body_sync(self) -> str | None:
-        for candidate in self._candidate_paths():
-            if not candidate.is_file():
-                continue
-            try:
-                raw = candidate.read_text(encoding="utf-8")
-            except OSError:
-                logger.debug("MemoryExtension: failed to read %s", candidate, exc_info=True)
-                continue
-            if raw:
-                return self._apply_caps(raw)
-        return None
-
-    async def _load_body_async(self) -> str | None:
-        assert self.backend is not None  # guarded by callers
-        for candidate in self._candidate_paths():
-            result = await self.backend.read(str(candidate), limit=self.max_lines + 1)
-            if result.error is not None:
-                if result.error != "file_not_found":
-                    logger.debug(
-                        "MemoryExtension: backend read failed for %s (%s)",
-                        candidate,
-                        result.error,
-                    )
-                continue
-            if result.content:
-                return self._apply_caps(result.content)
-        return None
-
-    def _apply_caps(self, text: str) -> str:
-        truncated = False
-
-        lines = text.splitlines()
-        if len(lines) > self.max_lines:
-            lines = lines[: self.max_lines]
-            truncated = True
-        capped = "\n".join(lines)
-
-        encoded = capped.encode("utf-8")
-        if len(encoded) > self.max_bytes:
-            encoded = encoded[: self.max_bytes]
-            # Decode defensively — may drop a trailing partial multibyte char.
-            capped = encoded.decode("utf-8", errors="ignore")
-            truncated = True
-
-        if truncated:
-            capped = capped.rstrip("\n") + "\n" + _TRUNCATED_MARKER
-        return capped
 
     def _collect_extras(self) -> list[str]:
         out: list[str] = []

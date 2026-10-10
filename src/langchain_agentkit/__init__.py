@@ -114,6 +114,11 @@ from langchain_agentkit.extensions.history import (
 )
 from langchain_agentkit.extensions.hitl import Option, Question
 from langchain_agentkit.extensions.hitl.tools import create_ask_user_tool
+from langchain_agentkit.extensions.memory import (
+    CuratedMemory,
+    MemoryStrategy,
+    RecalledMemory,
+)
 from langchain_agentkit.extensions.skills import SkillConfig, build_skill_tool
 from langchain_agentkit.extensions.tasks import Task, TasksState, TaskStatus, create_task_tools
 from langchain_agentkit.extensions.teams import TeamState
@@ -168,6 +173,7 @@ __all__ = [
     "CompactionStrategy",
     "CoreBehaviorExtension",
     "CountStrategy",
+    "CuratedMemory",
     "DuckDuckGoSearchProvider",
     "EnvExtension",
     "FilesystemExtension",
@@ -175,8 +181,10 @@ __all__ = [
     "HistoryExtension",
     "HistoryStrategy",
     "MemoryExtension",
+    "MemoryStrategy",
     "MessagePersistenceExtension",
     "QwantSearchProvider",
+    "RecalledMemory",
     "ResilienceExtension",
     "RubricExtension",
     "SearchProvider",
