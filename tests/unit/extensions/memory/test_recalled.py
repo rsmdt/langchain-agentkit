@@ -165,6 +165,25 @@ async def test_auto_recall_searches_and_formats_hits(fake_langmem: types.ModuleT
 
 
 @pytest.mark.asyncio
+async def test_auto_recall_unwraps_extracted_memories(fake_langmem: types.ModuleType) -> None:
+    store = _FakeStore(
+        [
+            _Item({"kind": "Memory", "content": {"content": "likes espresso"}}),
+            _Item({"kind": "Profile", "content": {"city": "Berlin"}}),
+        ]
+    )
+    strategy = RecalledMemory(auto_recall=2)
+    state = {"messages": [HumanMessage("what coffee should I get?")]}
+
+    await strategy.refresh(state=state, runtime=_Runtime(store))
+
+    reminder = strategy.reminder()
+    assert reminder is not None
+    assert "- likes espresso" in reminder
+    assert '- {"city": "Berlin"}' in reminder
+
+
+@pytest.mark.asyncio
 async def test_auto_recall_reuses_hits_for_unchanged_query(fake_langmem: types.ModuleType) -> None:
     # Within one user turn the loop calls before_model repeatedly. The
     # reminder must stay byte-stable rather than re-searching each step.
