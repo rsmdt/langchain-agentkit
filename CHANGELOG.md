@@ -9,6 +9,39 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.35.0] — 2026-10-21
+
+### Added
+
+- **`before_tools` hook** — runs once per tool step in its own graph node, between the model and the ToolNode. A hook may `interrupt()` replay-safely and answer tool calls with `ToolMessage`s before any tool executes. Replaces the private `_agentkit_pretools_gate` seam.
+- **`InterruptConfig`** gains `when` (a sync or async predicate deciding per call whether to hold it for approval), `redact` (hide argument values from the approval question) and `context` (extra payload on the question).
+- **`HandoffStrategy`** for `HistoryExtension` — when context fills, replace the conversation with a brief toward the latest user request, followed by that request.
+- The Agent tool takes `resume=<agent id>` to continue an earlier subagent conversation. Each subagent runs in its own checkpoint namespace when the parent has a checkpointer.
+- `RecalledMemory`: list, approve and reject staged memories, and consolidate.
+- `MemoryExtension` strategy seam with `CuratedMemory` and `RecalledMemory`.
+- Skills can be pinned. Long skill descriptions produce a warning.
+- Agents: fork mode and strict tool inputs. Subagents and teams inherit the parent turn budget.
+- `web_search`: structured results, a single-provider default (DuckDuckGo) and an opt-in HTML SERP mode.
+- Backends: bounded, uniform glob/grep with truncation and error reporting. `read()` reports the total line count. Read returns real image and PDF content blocks.
+- System reminders are wrapped in `<system-reminder>` with attribution.
+
+### Changed
+
+- **BREAKING**: `HITLExtension` records every decision as a `ToolMessage` (`artifact={"decision": ...}`) answering the gated call, instead of keeping decisions in private state. `extensions/hitl/state.py` is removed. Calls already answered in the current tool step are not gated again, and `wrap_tool` returns that answer instead of running the tool.
+- **BREAKING**: `TurnBudgetExtension` keeps its count in a private `budget` channel, reset at the start of every run.
+- Delegated tasks and forks are marked as coming from the delegating agent, not the user. Interrupts raised inside a subagent surface at the parent graph.
+
+### Fixed
+
+- Resilience repairs orphaned `invalid_tool_calls` and enforces outermost ordering at setup.
+- Supplied extensions replace preset-seeded ones.
+- Rubric requires full criterion coverage and settles its status before emitting.
+- History scopes compaction summaries per conversation and recovers from context overflow.
+- `before_model` messages are appended to the handler view.
+- Task updates behave the same through the tool and the router.
+- `DaytonaBackend.execute` output is bounded. glob/grep return empty for paths that escape the root.
+- `RubricExtension` is exported from the top-level package.
+
 ## [0.34.1] — 2026-06-07
 
 ### Documentation
