@@ -156,7 +156,7 @@ class CompactionStrategy:
             return self._summarizer_llm
         if self._llm_getter is None:
             raise RuntimeError(
-                "CompactionStrategy requires either summarizer_llm= at "
+                f"{type(self).__name__} requires either summarizer_llm= at "
                 "construction or a kit-level LLM (wired via setup())."
             )
         return self._llm_getter()

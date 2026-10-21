@@ -109,6 +109,7 @@ from langchain_agentkit.extensions.filesystem.tools import create_filesystem_too
 from langchain_agentkit.extensions.history import (
     CompactionStrategy,
     CountStrategy,
+    HandoffStrategy,
     HistoryStrategy,
     TokenStrategy,
 )
@@ -178,6 +179,7 @@ __all__ = [
     "EnvExtension",
     "FilesystemExtension",
     "HITLExtension",
+    "HandoffStrategy",
     "HistoryExtension",
     "HistoryStrategy",
     "MemoryExtension",

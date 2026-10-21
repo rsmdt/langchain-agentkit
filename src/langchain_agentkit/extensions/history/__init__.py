@@ -1,8 +1,8 @@
 """History extension — rewrite ``state["messages"]`` via a pluggable strategy.
 
-See :class:`HistoryExtension` for the overall mechanism and the three
+See :class:`HistoryExtension` for the overall mechanism and the four
 built-in strategies (:class:`CountStrategy`, :class:`TokenStrategy`,
-:class:`CompactionStrategy`).
+:class:`CompactionStrategy`, :class:`HandoffStrategy`).
 """
 
 from langchain_agentkit.extensions.history.compaction import (
@@ -16,6 +16,9 @@ from langchain_agentkit.extensions.history.compaction import (
 )
 from langchain_agentkit.extensions.history.extension import (
     HistoryExtension as HistoryExtension,
+)
+from langchain_agentkit.extensions.history.handoff import (
+    HandoffStrategy as HandoffStrategy,
 )
 from langchain_agentkit.extensions.history.state import (
     ReplaceMessages as ReplaceMessages,
@@ -35,6 +38,7 @@ __all__ = [
     "DEFAULT_RESERVE_TOKENS",
     "CompactionStrategy",
     "CountStrategy",
+    "HandoffStrategy",
     "HistoryExtension",
     "HistoryStrategy",
     "ReplaceMessages",

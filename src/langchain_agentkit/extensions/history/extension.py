@@ -4,12 +4,15 @@ This extension owns one thing: rewriting ``state["messages"]`` before
 each LLM call. *What* the rewrite looks like is delegated entirely to
 the strategy.
 
-Three built-in strategies cover the common cases:
+Four built-in strategies cover the common cases:
 
 * :class:`CountStrategy` — roll-over: keep the last N messages.
 * :class:`TokenStrategy` — roll-over: keep the tail within a token budget.
 * :class:`CompactionStrategy` — collapse: when context fills, replace
   the conversation with one LLM-generated summary message.
+* :class:`HandoffStrategy` — collapse: when context fills, replace the
+  conversation with an LLM-generated brief toward the latest user
+  request, followed by that request verbatim.
 
 Or supply any object implementing :class:`HistoryStrategy`.
 
