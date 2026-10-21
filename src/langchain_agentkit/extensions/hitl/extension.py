@@ -7,13 +7,14 @@ Two capabilities:
    human's decision (approve / edit / reject / respond) before any tool runs.
 2. **AskUser tool** — lets the LLM ask the user structured questions.
 
-The approval interrupt lives in its own node (not a per-tool ``wrap_tool``) so a
-single batched interrupt covers all gated calls in a step: this is replay-safe —
-the model call sits in an earlier super-step and is not re-run — and avoids the
-per-tool interrupt-id collision that misroutes resume values. Because
-``ToolNode`` executes every call on the ``AIMessage``, reject/respond are
-recorded in the ``hitl_decisions`` channel and substituted by ``wrap_tool``
-rather than executed; approve runs as-is and edit rewrites the call's args.
+The approval interrupt runs in the ``before_tools`` hook (its own node, not a
+per-tool ``wrap_tool``) so a single batched interrupt covers all gated calls in
+a step: this is replay-safe — the model call sits in an earlier super-step and
+is not re-run — and avoids the per-tool interrupt-id collision that misroutes
+resume values. Reject and respond become the call's ``ToolMessage`` right there,
+carrying the decision in ``artifact``; because ``ToolNode`` executes every call
+on the ``AIMessage``, ``wrap_tool`` returns that existing message instead of
+running the tool. Approve runs as-is and edit rewrites the call's args.
 
 Resume with ``answers`` keyed by each gated call's position in the step::
 
@@ -27,24 +28,22 @@ A missing or unrecognized answer denies the call.
 
 from __future__ import annotations
 
+import inspect
 from typing import TYPE_CHECKING, Any, Literal, cast, override
 
 from langchain_core.messages import AIMessage, ToolCall, ToolMessage
 from langgraph.types import interrupt
 
 from langchain_agentkit.composition.extension import Extension
-from langchain_agentkit.extensions.hitl.state import HITLState
 from langchain_agentkit.extensions.hitl.tools import create_ask_user_tool
 from langchain_agentkit.extensions.hitl.types import Option, Question
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Awaitable, Callable, Sequence
 
     from langchain_core.tools import BaseTool
 
 DecisionType = Literal["approve", "edit", "reject", "respond"]
-
-_GATE_NODE = "hitl_approval"
 
 _DECISION_OPTIONS: dict[DecisionType, Option] = {
     "approve": Option(label="Approve", description="Execute the tool call as-is"),
@@ -74,18 +73,33 @@ class InterruptConfig:
         question: Static string or callable that generates the question text.
             Callable receives ``(tool_call,)``. Defaults to a summary of the
             tool name and arguments.
+        when: Optional predicate ``(tool_call, state) -> bool`` (sync or
+            async). The call is held for approval only when it returns true;
+            otherwise it runs without asking.
+        redact: Optional ``(args) -> args`` applied to the arguments shown in
+            the question and its context, never to the arguments the tool runs
+            with.
+        context: Optional ``(tool_call) -> dict`` merged into the question's
+            ``context`` so a client can render the request (e.g. a connect
+            prompt) without parsing the question text.
     """
 
-    __slots__ = ("options", "question")
+    __slots__ = ("context", "options", "question", "redact", "when")
 
     def __init__(
         self,
         *,
         options: list[DecisionType],
         question: str | Callable[..., str] | None = None,
+        when: Callable[[ToolCall, dict[str, Any]], bool | Awaitable[bool]] | None = None,
+        redact: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
+        context: Callable[[ToolCall], dict[str, Any]] | None = None,
     ) -> None:
         self.options = options
         self.question = question
+        self.when = when
+        self.redact = redact
+        self.context = context
 
 
 class HITLExtension(Extension):
@@ -149,6 +163,9 @@ class HITLExtension(Extension):
                 resolved[tool_name] = InterruptConfig(
                     options=config["options"],
                     question=config.get("question"),
+                    when=config.get("when"),
+                    redact=config.get("redact"),
+                    context=config.get("context"),
                 )
             # False or unrecognized values are silently ignored — only
             # whitelisted tools get interrupted.
@@ -168,74 +185,47 @@ class HITLExtension(Extension):
                 self._tools_cache = [create_ask_user_tool()]
         return self._tools_cache
 
-    @property
-    @override
-    def state_schema(self) -> type | None:
-        return HITLState
-
     # ------------------------------------------------------------------
-    # Graph wiring — insert the approval gate node before the ToolNode
+    # Approval — one batched interrupt over every gated call, before tools run
     # ------------------------------------------------------------------
 
-    def graph_modifier(self, workflow: Any, node_name: str) -> Any:
-        """Insert the approval node when any tool is gated.
-
-        The node is registered as the pre-tools gate so ``build_graph`` routes
-        ``agent → hitl_approval → tools``. With no ``interrupt_on`` entries
-        there is nothing to gate, so the graph is left untouched.
-        """
-        if not self.interrupt_on:
-            return workflow
-
-        async def _approval(state: dict[str, Any]) -> dict[str, Any]:
-            return await self._run_approval(state)
-
-        workflow.add_node(_GATE_NODE, _approval)
-        workflow._agentkit_pretools_gate = _GATE_NODE
-        return workflow
-
-    # ------------------------------------------------------------------
-    # Approval node — one batched interrupt over every gated call
-    # ------------------------------------------------------------------
-
-    async def _run_approval(self, state: dict[str, Any]) -> dict[str, Any]:
+    async def before_tools(self, *, state: dict[str, Any], runtime: Any) -> dict[str, Any] | None:
         messages = state.get("messages", [])
         last_ai = next(
             (m for m in reversed(messages) if isinstance(m, AIMessage) and m.tool_calls),
             None,
         )
         if last_ai is None:
-            return {"hitl_decisions": {}}
-
-        gated = [
-            (tc, config)
-            for tc in last_ai.tool_calls
-            if (config := self.interrupt_on.get(tc["name"])) is not None
-        ]
+            return None
+        gated = await self._gated_calls(last_ai, state)
         if not gated:
-            return {"hitl_decisions": {}}
+            return None
 
-        decisions: dict[str, dict[str, Any]] = {}  # call_id -> non-executing decision
-        edits: dict[str, dict[str, Any]] = {}  # call_id -> new args
+        answers: list[ToolMessage] = []
+        edits: dict[str, dict[str, Any]] = {}
         questions: list[Question] = []
         interrupt_calls: list[tuple[ToolCall, InterruptConfig]] = []
 
         for tc, config in gated:
             options = [_DECISION_OPTIONS[d] for d in config.options if d in _DECISION_OPTIONS]
             if len(options) < 2:
-                # A single allowed decision needs no human input — apply it.
                 self._apply_decision(
-                    config.options[0] if config.options else "reject", tc, decisions, edits
+                    {"type": config.options[0] if config.options else "reject"},
+                    tc,
+                    answers,
+                    edits,
                 )
                 continue
+            shown_args = config.redact(tc["args"]) if config.redact else tc["args"]
             questions.append(
                 Question(
-                    question=self._question_text(tc, config),
+                    question=self._question_text({**tc, "args": shown_args}, config),
                     header=tc["name"][:12],
                     options=options,
                     context={
+                        **(config.context(tc) if config.context else {}),
                         "tool": tc["name"],
-                        "args": tc["args"],
+                        "args": shown_args,
                         "allowed": list(config.options),
                     },
                 )
@@ -249,19 +239,20 @@ class HITLExtension(Extension):
                     "questions": [q.model_dump() for q in questions],
                 }
             )
-            answers = response.get("answers") or {} if isinstance(response, dict) else {}
+            given = response.get("answers") or {} if isinstance(response, dict) else {}
             for i, (tc, config) in enumerate(interrupt_calls):
-                decision = self._coerce_decision(answers.get(str(i)), config)
-                self._apply_decision(decision, tc, decisions, edits)
+                decision = self._coerce_decision(given.get(str(i)), config)
+                self._apply_decision(decision, tc, answers, edits)
 
-        result: dict[str, Any] = {"hitl_decisions": decisions}
+        result: list[Any] = []
         if edits:
             last_ai.tool_calls = [
                 cast("ToolCall", {**tc, "args": edits[tc["id"]]}) if tc["id"] in edits else tc
                 for tc in last_ai.tool_calls
             ]
-            result["messages"] = [last_ai]
-        return result
+            result.append(last_ai)
+        result.extend(answers)
+        return {"messages": result} if result else None
 
     # ------------------------------------------------------------------
     # Tool execution — substitute results for non-executing decisions
@@ -280,30 +271,10 @@ class HITLExtension(Extension):
             tool_call.get("id") if isinstance(tool_call, dict) else getattr(tool_call, "id", None)
         )
         graph_state = getattr(request, "state", None) or {}
-        decisions = graph_state.get("hitl_decisions") or {}
-        decision = decisions.get(call_id)
-        if decision is None:
-            return await handler(request)
-
-        tool_name = (
-            tool_call.get("name", "")
-            if isinstance(tool_call, dict)
-            else getattr(tool_call, "name", "")
-        )
-        if decision["type"] == "respond":
-            return ToolMessage(
-                content=decision.get("message", ""),
-                name=tool_name,
-                tool_call_id=call_id,
-                status="success",
-            )
-        # reject (the only other non-executing decision recorded here)
-        return ToolMessage(
-            content=decision.get("message") or f"User rejected the {tool_name} tool call.",
-            name=tool_name,
-            tool_call_id=call_id,
-            status="error",
-        )
+        existing = _answers_to_last_request(graph_state.get("messages", [])).get(str(call_id))
+        if existing is not None:
+            return existing
+        return await handler(request)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -324,32 +295,69 @@ class HITLExtension(Extension):
                 return {"type": decision}
         return {"type": "reject", "message": "(no response)"}
 
+    async def _gated_calls(
+        self, last_ai: AIMessage, state: dict[str, Any]
+    ) -> list[tuple[ToolCall, InterruptConfig]]:
+        answered = _answers_to_last_request(state.get("messages", []))
+        gated: list[tuple[ToolCall, InterruptConfig]] = []
+        for tc in last_ai.tool_calls:
+            config = self.interrupt_on.get(tc["name"])
+            if config is None or tc["id"] in answered:
+                continue
+            if await self._holds(config, tc, state):
+                gated.append((tc, config))
+        return gated
+
+    async def _holds(
+        self, config: InterruptConfig, tool_call: ToolCall, state: dict[str, Any]
+    ) -> bool:
+        if config.when is None:
+            return True
+        held = config.when(tool_call, state)
+        if inspect.isawaitable(held):
+            held = await held
+        return bool(held)
+
     def _apply_decision(
         self,
-        decision: dict[str, Any] | DecisionType,
+        decision: dict[str, Any],
         tool_call: ToolCall,
-        decisions: dict[str, dict[str, Any]],
+        answers: list[ToolMessage],
         edits: dict[str, dict[str, Any]],
     ) -> None:
-        """Route a decision: edit rewrites args, reject/respond are recorded, approve is a no-op."""
-        dtype = decision if isinstance(decision, str) else decision.get("type", "reject")
-        data = {} if isinstance(decision, str) else decision
+        """Route a decision: edit rewrites args, reject/respond answer the call."""
+        dtype = decision.get("type", "reject")
         call_id = cast("str", tool_call["id"])
         if dtype == "approve":
             return
         if dtype == "edit":
             edits[call_id] = (
-                data.get("args") or data.get("edited_action", {}).get("args") or tool_call["args"]
+                decision.get("args")
+                or decision.get("edited_action", {}).get("args")
+                or tool_call["args"]
             )
             return
         if dtype == "respond":
-            decisions[call_id] = {"type": "respond", "message": data.get("message", "")}
+            answers.append(
+                ToolMessage(
+                    content=decision.get("message", ""),
+                    name=tool_call["name"],
+                    tool_call_id=call_id,
+                    status="success",
+                    artifact={"decision": {"type": "respond"}},
+                )
+            )
             return
-        # reject (default)
-        decisions[call_id] = {
-            "type": "reject",
-            "message": data.get("message") or f"User rejected the {tool_call['name']} tool call.",
-        }
+        answers.append(
+            ToolMessage(
+                content=decision.get("message")
+                or f"User rejected the {tool_call['name']} tool call.",
+                name=tool_call["name"],
+                tool_call_id=call_id,
+                status="error",
+                artifact={"decision": {"type": "reject"}},
+            )
+        )
 
     def _question_text(self, tool_call: ToolCall, config: InterruptConfig) -> str:
         if config.question is None:
@@ -357,3 +365,15 @@ class HITLExtension(Extension):
         if callable(config.question):
             return config.question(tool_call)
         return config.question
+
+
+def _answers_to_last_request(messages: list[Any]) -> dict[str, ToolMessage]:
+    start = next(
+        (
+            i
+            for i in range(len(messages) - 1, -1, -1)
+            if isinstance(messages[i], AIMessage) and messages[i].tool_calls
+        ),
+        -1,
+    )
+    return {m.tool_call_id: m for m in messages[start + 1 :] if isinstance(m, ToolMessage)}

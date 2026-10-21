@@ -14,8 +14,10 @@ budget from *inside* the graph instead, and stops the loop **gracefully**:
   exception.
 
 A "turn" is one model call (one handler invocation). ``max_turns=10`` permits
-at most ten model calls. The count lives in graph state
-(``_turn_budget_used``), so it is checkpointed and survives resumption.
+at most ten model calls per run. The count lives in the private ``budget``
+state key: ``before_run`` resets it at the start of every run, so a thread's
+earlier runs never eat into a new run's budget, while a run resumed after an
+``interrupt()`` continues the count it paused with.
 
 The budget is a *ceiling*, not a floor: if the model finishes early (a
 response with no tool calls), the loop ends normally and the budget never
@@ -96,10 +98,10 @@ class TurnBudgetExtension(Extension):
         *,
         tools: frozenset[str] = frozenset(),
     ) -> dict[str, str]:
-        # ``_turn_budget_used`` holds the turns completed *before* this call,
-        # so the turn about to run is ``used + 1``.
+        # ``budget`` holds the turns completed *before* this call, so the turn
+        # about to run is ``used + 1``.
         budget = _BUDGET_PROMPT.format(max_turns=self._max_turns)
-        used = state.get("_turn_budget_used", 0) or 0
+        used = state.get("budget", 0) or 0
         remaining = self._max_turns - (used + 1)
         if remaining <= 0:
             return {"prompt": budget, "reminder": _FINAL_REMINDER}
@@ -107,12 +109,15 @@ class TurnBudgetExtension(Extension):
         reminder = f"There {verb} {remaining} {noun} left before you must provide a final answer."
         return {"prompt": budget, "reminder": reminder}
 
+    async def before_run(self, *, state: dict[str, Any], runtime: Any) -> dict[str, Any]:
+        return {"budget": 0}
+
     async def after_model(self, *, state: dict[str, Any], runtime: Any) -> dict[str, Any]:
-        # Returns either a ``+1`` increment or a ``jump_to: end``. On the final
-        # turn the increment is moot — the loop is ending and the count is no
+        # Returns either the new absolute count or a ``jump_to: end``. On the
+        # final turn the count is moot — the loop is ending and the count is no
         # longer read — so the terminal update carries only the routing
         # directive.
-        used = state.get("_turn_budget_used", 0) or 0
+        used = state.get("budget", 0) or 0
         if used + 1 >= self._max_turns:
             return {"jump_to": "end"}
-        return {"_turn_budget_used": 1}
+        return {"budget": used + 1}

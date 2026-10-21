@@ -30,6 +30,7 @@ _NAMED_HOOK_METHODS: dict[str, tuple[str, str]] = {
     "before_model": ("before", "model"),
     "after_model": ("after", "model"),
     "wrap_model": ("wrap", "model"),
+    "before_tools": ("before", "tools"),
     "before_tool": ("before", "tool"),
     "after_tool": ("after", "tool"),
     "wrap_tool": ("wrap", "tool"),

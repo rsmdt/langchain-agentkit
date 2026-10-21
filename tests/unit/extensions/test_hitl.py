@@ -164,12 +164,8 @@ class TestExtensionProtocol:
 
         assert ext.prompt({}, _TEST_RUNTIME) is None
 
-    def test_state_schema_returns_hitl_state(self):
-        from langchain_agentkit.extensions.hitl.state import HITLState
-
-        ext = HITLExtension()
-
-        assert ext.state_schema is HITLState
+    def test_state_schema_is_none(self):
+        assert HITLExtension().state_schema is None
 
     def test_has_wrap_tool_hook(self):
         ext = HITLExtension(interrupt_on={"send_email": True})
@@ -183,27 +179,28 @@ class TestExtensionProtocol:
         hooks = HITLExtension._get_named_hooks()
         assert ("wrap", "tool") in hooks
 
+    def test_before_tools_discovered_as_named_hook(self):
+        assert ("before", "tools") in HITLExtension._get_named_hooks()
+
 
 # ------------------------------------------------------------------
-# wrap_tool — substitutes results for non-executing decisions (no interrupt)
+# wrap_tool — returns the decision ToolMessage already in state
 # ------------------------------------------------------------------
 
 
-def _tool_request(tool_name="send_email", args=None, cid="call_1", decisions=None):
-    """A ToolNode wrap request whose ``state`` carries the approval decisions."""
+def _tool_request(tool_name="send_email", args=None, cid="call_1", messages=None):
+    """A ToolNode wrap request whose ``state`` carries the conversation so far."""
     request = MagicMock()
     request.tool_call = {"name": tool_name, "args": args or {"to": "a@b.com"}, "id": cid}
-    request.state = {"hitl_decisions": decisions or {}}
+    request.state = {"messages": messages or []}
     return request
 
 
 class TestWrapToolSubstitution:
-    """wrap_tool no longer interrupts — it applies the approval node's decisions."""
-
     @pytest.mark.asyncio
-    async def test_no_decision_executes_normally(self):
+    async def test_unanswered_call_executes_normally(self):
         ext = HITLExtension(interrupt_on={"send_email": True})
-        request = _tool_request(decisions={})
+        request = _tool_request()
         expected = ToolMessage(content="sent", tool_call_id="call_1")
         handler = AsyncMock(return_value=expected)
 
@@ -225,43 +222,27 @@ class TestWrapToolSubstitution:
         handler.assert_called_once_with(request)
 
     @pytest.mark.asyncio
-    async def test_reject_decision_substitutes_error_without_executing(self):
+    async def test_answered_call_returns_existing_message_without_executing(self):
         ext = HITLExtension(interrupt_on={"send_email": True})
-        request = _tool_request(
-            decisions={
-                "call_1": {"type": "reject", "message": "User rejected the send_email tool call."}
-            }
+        answered = ToolMessage(
+            content="User rejected the send_email tool call.",
+            tool_call_id="call_1",
+            status="error",
+            artifact={"decision": {"type": "reject"}},
         )
+        request = _tool_request(messages=[answered])
         handler = AsyncMock()
 
         result = await ext.wrap_tool(state=request, handler=handler, runtime=_TEST_RUNTIME)
 
         handler.assert_not_called()
-        assert isinstance(result, ToolMessage)
-        assert result.status == "error"
-        assert result.content == "User rejected the send_email tool call."
+        assert result is answered
 
     @pytest.mark.asyncio
-    async def test_respond_decision_substitutes_success_without_executing(self):
+    async def test_answer_for_other_call_does_not_affect_this_one(self):
         ext = HITLExtension(interrupt_on={"send_email": True})
         request = _tool_request(
-            decisions={"call_1": {"type": "respond", "message": "already handled"}}
-        )
-        handler = AsyncMock()
-
-        result = await ext.wrap_tool(state=request, handler=handler, runtime=_TEST_RUNTIME)
-
-        handler.assert_not_called()
-        assert isinstance(result, ToolMessage)
-        assert result.status == "success"
-        assert result.content == "already handled"
-
-    @pytest.mark.asyncio
-    async def test_decision_for_other_call_does_not_affect_this_one(self):
-        ext = HITLExtension(interrupt_on={"send_email": True})
-        request = _tool_request(
-            cid="call_1",
-            decisions={"call_2": {"type": "reject", "message": "x"}},
+            cid="call_1", messages=[ToolMessage(content="x", tool_call_id="call_2")]
         )
         expected = ToolMessage(content="sent", tool_call_id="call_1")
         handler = AsyncMock(return_value=expected)
@@ -273,7 +254,7 @@ class TestWrapToolSubstitution:
 
 
 # ------------------------------------------------------------------
-# Approval node — one batched interrupt over every gated call
+# before_tools — one batched interrupt over every gated call
 # ------------------------------------------------------------------
 
 
@@ -287,22 +268,38 @@ def _call(name="send_email", args=None, cid="call_1"):
     return {"name": name, "args": args or {"to": "a@b.com"}, "id": cid, "type": "tool_call"}
 
 
-class TestApprovalNode:
-    """`_run_approval` emits a single batched interrupt and records decisions."""
+async def _approve(ext, state):
+    return await ext.before_tools(state=state, runtime=_TEST_RUNTIME)
 
+
+def _answers(result):
+    return {
+        m.tool_call_id: m for m in (result or {}).get("messages", []) if isinstance(m, ToolMessage)
+    }
+
+
+class TestBeforeTools:
     @pytest.mark.asyncio
-    async def test_no_ai_message_returns_empty_decisions(self):
+    async def test_no_ai_message_returns_nothing(self):
         ext = HITLExtension(interrupt_on={"send_email": True})
-        result = await ext._run_approval({"messages": []})
-        assert result == {"hitl_decisions": {}}
+        assert await _approve(ext, {"messages": []}) is None
 
     @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
     async def test_unconfigured_call_does_not_interrupt(self, mock_interrupt):
         ext = HITLExtension(interrupt_on={"send_email": True})
-        result = await ext._run_approval(_state_with_calls(_call(name="search", args={"q": "x"})))
+        result = await _approve(ext, _state_with_calls(_call(name="search", args={"q": "x"})))
         mock_interrupt.assert_not_called()
-        assert result == {"hitl_decisions": {}}
+        assert result is None
+
+    @pytest.mark.asyncio
+    @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
+    async def test_already_answered_call_is_not_asked_again(self, mock_interrupt):
+        ext = HITLExtension(interrupt_on={"send_email": True})
+        state = _state_with_calls(_call())
+        state["messages"].append(ToolMessage(content="done", tool_call_id="call_1"))
+        assert await _approve(ext, state) is None
+        mock_interrupt.assert_not_called()
 
     @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
@@ -310,11 +307,12 @@ class TestApprovalNode:
         mock_interrupt.return_value = {"answers": {"0": "Approve", "1": "Reject"}}
         ext = HITLExtension(interrupt_on={"send_email": True})
 
-        await ext._run_approval(
+        await _approve(
+            ext,
             _state_with_calls(
                 _call(cid="call_a", args={"to": "a"}),
                 _call(cid="call_b", args={"to": "b"}),
-            )
+            ),
         )
 
         mock_interrupt.assert_called_once()
@@ -328,16 +326,17 @@ class TestApprovalNode:
         mock_interrupt.return_value = {"answers": {"0": "Approve", "1": "Reject"}}
         ext = HITLExtension(interrupt_on={"send_email": True})
 
-        result = await ext._run_approval(
+        result = await _approve(
+            ext,
             _state_with_calls(
                 _call(cid="call_a", args={"to": "a"}),
                 _call(cid="call_b", args={"to": "b"}),
-            )
+            ),
         )
 
-        # call_a approved -> no recorded decision (executes); call_b rejected.
-        assert "call_a" not in result["hitl_decisions"]
-        assert result["hitl_decisions"]["call_b"]["type"] == "reject"
+        answers = _answers(result)
+        assert "call_a" not in answers
+        assert answers["call_b"].status == "error"
 
     @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
@@ -345,7 +344,7 @@ class TestApprovalNode:
         mock_interrupt.return_value = {"answers": {"0": "Approve"}}
         ext = HITLExtension(interrupt_on={"send_email": True})
 
-        await ext._run_approval(_state_with_calls(_call()))
+        await _approve(ext, _state_with_calls(_call()))
 
         q = mock_interrupt.call_args[0][0]["questions"][0]
         assert "question" in q
@@ -360,7 +359,7 @@ class TestApprovalNode:
         mock_interrupt.return_value = {"answers": {"0": "Approve"}}
         ext = HITLExtension(interrupt_on={"send_email": True})
 
-        await ext._run_approval(_state_with_calls(_call()))
+        await _approve(ext, _state_with_calls(_call()))
 
         q = mock_interrupt.call_args[0][0]["questions"][0]
         assert [o["label"] for o in q["options"]] == ["Approve", "Edit", "Reject", "Respond"]
@@ -371,43 +370,42 @@ class TestApprovalNode:
         mock_interrupt.return_value = {"answers": {"0": "Approve"}}
         ext = HITLExtension(interrupt_on={"send_email": {"options": ["approve", "reject"]}})
 
-        await ext._run_approval(_state_with_calls(_call()))
+        await _approve(ext, _state_with_calls(_call()))
 
         q = mock_interrupt.call_args[0][0]["questions"][0]
         assert [o["label"] for o in q["options"]] == ["Approve", "Reject"]
 
     @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
-    async def test_approve_records_no_decision(self, mock_interrupt):
+    async def test_approve_answers_nothing(self, mock_interrupt):
         mock_interrupt.return_value = {"answers": {"0": "Approve"}}
         ext = HITLExtension(interrupt_on={"send_email": True})
 
-        result = await ext._run_approval(_state_with_calls(_call()))
-
-        assert result["hitl_decisions"] == {}
-        assert "messages" not in result
+        assert await _approve(ext, _state_with_calls(_call())) is None
 
     @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
-    async def test_reject_records_reject_decision(self, mock_interrupt):
+    async def test_reject_answers_with_error_message_and_decision_artifact(self, mock_interrupt):
         mock_interrupt.return_value = {"answers": {"0": "Reject"}}
         ext = HITLExtension(interrupt_on={"send_email": True})
 
-        result = await ext._run_approval(_state_with_calls(_call()))
+        answer = _answers(await _approve(ext, _state_with_calls(_call())))["call_1"]
 
-        decision = result["hitl_decisions"]["call_1"]
-        assert decision["type"] == "reject"
-        assert decision["message"] == "User rejected the send_email tool call."
+        assert answer.status == "error"
+        assert answer.content == "User rejected the send_email tool call."
+        assert answer.artifact == {"decision": {"type": "reject"}}
 
     @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
-    async def test_respond_records_respond_decision(self, mock_interrupt):
+    async def test_respond_answers_with_the_given_message(self, mock_interrupt):
         mock_interrupt.return_value = {"answers": {"0": {"type": "respond", "message": "done"}}}
         ext = HITLExtension(interrupt_on={"send_email": True})
 
-        result = await ext._run_approval(_state_with_calls(_call()))
+        answer = _answers(await _approve(ext, _state_with_calls(_call())))["call_1"]
 
-        assert result["hitl_decisions"]["call_1"] == {"type": "respond", "message": "done"}
+        assert answer.status == "success"
+        assert answer.content == "done"
+        assert answer.artifact == {"decision": {"type": "respond"}}
 
     @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
@@ -417,10 +415,9 @@ class TestApprovalNode:
         }
         ext = HITLExtension(interrupt_on={"send_email": True})
 
-        result = await ext._run_approval(_state_with_calls(_call()))
+        result = await _approve(ext, _state_with_calls(_call()))
 
-        # No non-executing decision; the call's args are rewritten in place.
-        assert result["hitl_decisions"] == {}
+        assert _answers(result) == {}
         revised = result["messages"][0].tool_calls[0]
         assert revised["args"] == {"to": "new@b.com"}
         assert revised["id"] == "call_1"
@@ -431,29 +428,29 @@ class TestApprovalNode:
         mock_interrupt.return_value = {"answers": {}}
         ext = HITLExtension(interrupt_on={"send_email": True})
 
-        result = await ext._run_approval(_state_with_calls(_call()))
+        answer = _answers(await _approve(ext, _state_with_calls(_call())))["call_1"]
 
-        assert result["hitl_decisions"]["call_1"]["type"] == "reject"
+        assert answer.status == "error"
 
     @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
     async def test_single_approve_option_auto_resolves_without_interrupt(self, mock_interrupt):
         ext = HITLExtension(interrupt_on={"send_email": InterruptConfig(options=["approve"])})
 
-        result = await ext._run_approval(_state_with_calls(_call()))
+        result = await _approve(ext, _state_with_calls(_call()))
 
         mock_interrupt.assert_not_called()
-        assert result == {"hitl_decisions": {}}
+        assert result is None
 
     @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
     async def test_single_reject_option_auto_resolves_without_interrupt(self, mock_interrupt):
         ext = HITLExtension(interrupt_on={"send_email": InterruptConfig(options=["reject"])})
 
-        result = await ext._run_approval(_state_with_calls(_call()))
+        result = await _approve(ext, _state_with_calls(_call()))
 
         mock_interrupt.assert_not_called()
-        assert result["hitl_decisions"]["call_1"]["type"] == "reject"
+        assert _answers(result)["call_1"].status == "error"
 
     @pytest.mark.asyncio
     @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
@@ -465,7 +462,7 @@ class TestApprovalNode:
             },
         )
 
-        await ext._run_approval(_state_with_calls(_call()))
+        await _approve(ext, _state_with_calls(_call()))
 
         assert mock_interrupt.call_args[0][0]["questions"][0]["question"] == "Send it?"
 
@@ -482,7 +479,7 @@ class TestApprovalNode:
             },
         )
 
-        await ext._run_approval(_state_with_calls(_call()))
+        await _approve(ext, _state_with_calls(_call()))
 
         assert mock_interrupt.call_args[0][0]["questions"][0]["question"] == "Email a@b.com?"
 
@@ -492,45 +489,161 @@ class TestApprovalNode:
         mock_interrupt.return_value = {"answers": {"0": "Approve"}}
         ext = HITLExtension(interrupt_on={"long_tool_name_here": True})
 
-        await ext._run_approval(_state_with_calls(_call(name="long_tool_name_here", args={})))
+        await _approve(ext, _state_with_calls(_call(name="long_tool_name_here", args={})))
 
         q = mock_interrupt.call_args[0][0]["questions"][0]
         assert len(q["header"]) <= 12
 
+    @pytest.mark.asyncio
+    @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
+    async def test_async_when_false_lets_the_call_run(self, mock_interrupt):
+        async def never(call, state):
+            return False
+
+        ext = HITLExtension(
+            interrupt_on={"send_email": {"options": ["approve", "reject"], "when": never}}
+        )
+
+        assert await _approve(ext, _state_with_calls(_call())) is None
+        mock_interrupt.assert_not_called()
+
+    @pytest.mark.asyncio
+    @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
+    async def test_when_receives_the_call_and_state(self, mock_interrupt):
+        mock_interrupt.return_value = {"answers": {"0": "Approve"}}
+        seen = []
+
+        def held(call, state):
+            seen.append((call["id"], len(state["messages"])))
+            return True
+
+        ext = HITLExtension(
+            interrupt_on={"send_email": {"options": ["approve", "reject"], "when": held}}
+        )
+
+        await _approve(ext, _state_with_calls(_call()))
+
+        assert seen == [("call_1", 1)]
+        mock_interrupt.assert_called_once()
+
+    @pytest.mark.asyncio
+    @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
+    async def test_redact_hides_args_from_the_question_only(self, mock_interrupt):
+        mock_interrupt.return_value = {
+            "answers": {"0": {"type": "edit", "args": {"to": "x", "body": "secret"}}}
+        }
+        ext = HITLExtension(
+            interrupt_on={
+                "send_email": InterruptConfig(
+                    options=["approve", "edit", "reject"],
+                    redact=lambda args: {k: v for k, v in args.items() if k != "body"},
+                )
+            }
+        )
+
+        await _approve(ext, _state_with_calls(_call(args={"to": "a", "body": "secret"})))
+
+        q = mock_interrupt.call_args[0][0]["questions"][0]
+        assert q["context"]["args"] == {"to": "a"}
+        assert "secret" not in q["question"]
+
+
+class TestQuestionContext:
+    @pytest.mark.asyncio
+    @patch("langchain_agentkit.extensions.hitl.extension.interrupt")
+    async def test_context_callable_is_merged_into_the_question(self, mock_interrupt):
+        mock_interrupt.return_value = {"answers": {"0": "Approve"}}
+        ext = HITLExtension(
+            interrupt_on={
+                "send_email": InterruptConfig(
+                    options=["approve", "reject"],
+                    context=lambda call: {"kind": "connect", "toolkit": "gmail"},
+                )
+            }
+        )
+
+        await _approve(ext, _state_with_calls(_call()))
+
+        context = mock_interrupt.call_args[0][0]["questions"][0]["context"]
+        assert context["kind"] == "connect"
+        assert context["toolkit"] == "gmail"
+        assert context["tool"] == "send_email"
+
 
 # ------------------------------------------------------------------
-# graph_modifier — pre-tools gate wiring
+# Graph wiring — the before_tools node
 # ------------------------------------------------------------------
 
 
-class TestGraphModifier:
-    def test_registers_gate_node_when_gating(self):
-        from langgraph.graph import StateGraph
+class TestGraphWiring:
+    @pytest.mark.asyncio
+    async def test_gating_adds_the_before_tools_node(self):
+        compiled = await _hitl_agent(HITLExtension(interrupt_on={"send_email": True}))
+        assert "before_tools" in compiled.get_graph().nodes
 
-        from langchain_agentkit.composition.state import AgentKitState
+    @pytest.mark.asyncio
+    async def test_rejected_call_never_executes_and_approved_call_does(self):
+        from langchain_core.messages import HumanMessage
+        from langgraph.checkpoint.memory import InMemorySaver
+        from langgraph.types import Command
 
-        ext = HITLExtension(interrupt_on={"send_email": True})
-        wf = StateGraph(AgentKitState)
-        wf.add_node("agent", lambda s: s)
+        sent: list[str] = []
+        ext = HITLExtension(interrupt_on={"send_email": {"options": ["approve", "reject"]}})
+        compiled = await _hitl_agent(ext, sent=sent, checkpointer=InMemorySaver())
+        config = {"configurable": {"thread_id": "t"}}
 
-        ext.graph_modifier(wf, "agent")
+        await compiled.ainvoke({"messages": [HumanMessage(content="go")]}, config)
+        result = await compiled.ainvoke(
+            Command(resume={"answers": {"0": "Approve", "1": "Reject"}}), config
+        )
 
-        assert "hitl_approval" in wf.nodes
-        assert wf._agentkit_pretools_gate == "hitl_approval"
+        assert sent == ["a"]
+        tool_messages = [m for m in result["messages"] if isinstance(m, ToolMessage)]
+        assert sorted(m.tool_call_id for m in tool_messages) == ["call_a", "call_b"]
+        rejected = next(m for m in tool_messages if m.tool_call_id == "call_b")
+        assert rejected.artifact == {"decision": {"type": "reject"}}
 
-    def test_no_gate_node_when_not_gating(self):
-        from langgraph.graph import StateGraph
 
-        from langchain_agentkit.composition.state import AgentKitState
+async def _hitl_agent(ext, *, sent=None, checkpointer=None):
+    from langchain_core.messages import AIMessage
+    from langchain_core.tools import tool
 
-        ext = HITLExtension()  # AskUser only, no interrupt_on
-        wf = StateGraph(AgentKitState)
-        wf.add_node("agent", lambda s: s)
+    from langchain_agentkit import Agent
 
-        ext.graph_modifier(wf, "agent")
+    sink = sent if sent is not None else []
 
-        assert "hitl_approval" not in wf.nodes
-        assert getattr(wf, "_agentkit_pretools_gate", None) is None
+    @tool
+    def send_email(to: str) -> str:
+        """Send an email."""
+        sink.append(to)
+        return "sent"
+
+    llm = MagicMock()
+    llm.bind_tools = MagicMock(return_value=llm)
+
+    class Mailer(Agent):
+        model = llm
+        tools = [send_email]
+        extensions = [ext]
+
+        async def handler(state, *, llm):  # noqa: N805
+            if any(isinstance(m, ToolMessage) for m in state["messages"]):
+                return {"messages": [AIMessage(content="done")], "sender": "mailer"}
+            return {
+                "messages": [
+                    AIMessage(
+                        content="",
+                        tool_calls=[
+                            {"id": "call_a", "name": "send_email", "args": {"to": "a"}},
+                            {"id": "call_b", "name": "send_email", "args": {"to": "b"}},
+                        ],
+                    )
+                ],
+                "sender": "mailer",
+            }
+
+    kwargs = {"checkpointer": checkpointer} if checkpointer is not None else {}
+    return await Mailer().compile(**kwargs)
 
 
 # ------------------------------------------------------------------

@@ -8,10 +8,10 @@ from unittest.mock import MagicMock
 import pytest
 from langchain_core.messages import AIMessage, HumanMessage
 from langchain_core.tools import tool
+from langgraph.checkpoint.memory import InMemorySaver
 
 from langchain_agentkit import Agent
 from langchain_agentkit.extensions.turn_budget import TurnBudgetExtension, TurnBudgetState
-from langchain_agentkit.extensions.turn_budget.state import _accumulate
 
 
 def _make_llm() -> MagicMock:
@@ -35,20 +35,16 @@ class TestConstruction:
         assert TurnBudgetExtension(max_turns=3).state_schema is TurnBudgetState
 
 
-class TestReducer:
-    def test_treats_unset_as_zero(self):
-        assert _accumulate(None, 1) == 1
-
-    def test_sums_increments(self):
-        assert _accumulate(2, 1) == 3
-
-    def test_handles_unset_increment(self):
-        assert _accumulate(1, None) == 1
-
-
 class TestHookDiscovery:
     def test_after_model_discovered_as_named_hook(self):
         assert ("after", "model") in TurnBudgetExtension._get_named_hooks()
+
+    def test_before_run_discovered_as_named_hook(self):
+        assert ("before", "run") in TurnBudgetExtension._get_named_hooks()
+
+    async def test_before_run_resets_the_budget(self):
+        ext = TurnBudgetExtension(max_turns=3)
+        assert await ext.before_run(state={"budget": 2}, runtime=None) == {"budget": 0}
 
 
 class TestReminder:
@@ -59,7 +55,7 @@ class TestReminder:
             "There are a total of 7 turns available. Provide a final answer "
             "within that budget, ideally as early as possible."
         )
-        assert ext.prompt({"_turn_budget_used": 6})["prompt"] == (
+        assert ext.prompt({"budget": 6})["prompt"] == (
             "There are a total of 7 turns available. Provide a final answer "
             "within that budget, ideally as early as possible."
         )
@@ -71,12 +67,12 @@ class TestReminder:
 
     def test_singular_turn_remaining(self):
         ext = TurnBudgetExtension(max_turns=3)
-        reminder = ext.prompt({"_turn_budget_used": 1})["reminder"]
+        reminder = ext.prompt({"budget": 1})["reminder"]
         assert reminder == "There is 1 turn left before you must provide a final answer."
 
     def test_final_turn_switches_to_wrap_up(self):
         ext = TurnBudgetExtension(max_turns=3)
-        reminder = ext.prompt({"_turn_budget_used": 2})["reminder"]
+        reminder = ext.prompt({"budget": 2})["reminder"]
         assert reminder == "This is your last turn — you must provide a final answer now."
 
     def test_max_turns_one_is_immediately_final(self):
@@ -88,16 +84,12 @@ class TestReminder:
 class TestAfterModelGate:
     async def test_increments_on_non_final_turn(self):
         ext = TurnBudgetExtension(max_turns=3)
-        assert await ext.after_model(state={}, runtime=None) == {"_turn_budget_used": 1}
-        assert await ext.after_model(state={"_turn_budget_used": 1}, runtime=None) == {
-            "_turn_budget_used": 1
-        }
+        assert await ext.after_model(state={}, runtime=None) == {"budget": 1}
+        assert await ext.after_model(state={"budget": 1}, runtime=None) == {"budget": 2}
 
     async def test_ends_loop_on_final_turn(self):
         ext = TurnBudgetExtension(max_turns=3)
-        assert await ext.after_model(state={"_turn_budget_used": 2}, runtime=None) == {
-            "jump_to": "end"
-        }
+        assert await ext.after_model(state={"budget": 2}, runtime=None) == {"jump_to": "end"}
 
     async def test_max_turns_one_ends_after_first_turn(self):
         ext = TurnBudgetExtension(max_turns=1)
@@ -107,8 +99,8 @@ class TestAfterModelGate:
         """jump_to and the counter must never share one dict (builder drops siblings)."""
         ext = TurnBudgetExtension(max_turns=2)
         for used in range(5):
-            result = await ext.after_model(state={"_turn_budget_used": used}, runtime=None)
-            assert not ("jump_to" in result and "_turn_budget_used" in result)
+            result = await ext.after_model(state={"budget": used}, runtime=None)
+            assert not ("jump_to" in result and "budget" in result)
 
 
 class TestGraphIntegration:
@@ -152,8 +144,8 @@ class TestGraphIntegration:
         # Exactly max_turns model calls — would hit GraphRecursionError (default
         # limit 25) if the budget had not stopped the loop gracefully first.
         assert calls["n"] == 3
-        # Incremented on turns 1 and 2; the final turn ends without incrementing.
-        assert result["_turn_budget_used"] == 2
+        assert "budget" not in result
+        assert compiled.get_graph().nodes.keys() >= {"_run_entry", "_run_exit"}
 
     async def test_early_finish_does_not_trip_budget(self):
         """A response with no tool calls ends the loop before the budget fires."""
@@ -178,3 +170,63 @@ class TestGraphIntegration:
 
         assert calls["n"] == 1
         assert result["messages"][-1].content == "done"
+
+
+class TestBudgetPerRun:
+    """The budget belongs to one run, not to the thread."""
+
+    async def test_second_run_on_same_thread_gets_a_fresh_budget(self):
+        calls = {"n": 0}
+
+        @tool
+        def noop(x: str) -> str:
+            """Echo helper."""
+            return "ok"
+
+        class LoopingAgent(Agent):
+            model = _make_llm()
+            tools = [noop]
+            extensions = [TurnBudgetExtension(max_turns=2)]
+
+            async def handler(state, *, llm):
+                calls["n"] += 1
+                return {
+                    "messages": [
+                        AIMessage(
+                            content="",
+                            tool_calls=[
+                                {
+                                    "id": f"c{calls['n']}",
+                                    "name": "noop",
+                                    "args": {"x": "a"},
+                                    "type": "tool_call",
+                                }
+                            ],
+                        )
+                    ],
+                    "sender": "looping_agent",
+                }
+
+        compiled = await LoopingAgent().compile(checkpointer=InMemorySaver())
+        config = {"configurable": {"thread_id": "t"}}
+        await compiled.ainvoke({"messages": [HumanMessage(content="one")]}, config)
+        await compiled.ainvoke({"messages": [HumanMessage(content="two")]}, config)
+
+        assert calls["n"] == 4
+
+    async def test_budget_is_not_a_public_input(self):
+        @tool
+        def noop(x: str) -> str:
+            """Echo helper."""
+            return "ok"
+
+        class QuickAgent(Agent):
+            model = _make_llm()
+            tools = [noop]
+            extensions = [TurnBudgetExtension(max_turns=2)]
+
+            async def handler(state, *, llm):
+                return {"messages": [AIMessage(content="done")], "sender": "quick_agent"}
+
+        compiled = await QuickAgent().compile()
+        assert "budget" not in compiled.get_input_jsonschema()["properties"]

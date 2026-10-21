@@ -371,16 +371,28 @@ def build_graph(  # noqa: C901
         tool_node = ToolNode(all_tools, awrap_tool_call=_hooked_wrap_tool_call)
         workflow.add_node("tools", tool_node)
 
-        # Optional pre-tools gate node (e.g. HITL approval). An extension's
-        # ``graph_modifier`` may insert a node and register its name on the
-        # workflow via ``_agentkit_pretools_gate``. The agent→tools transition
-        # is then routed agent→gate→tools so the gate can ``interrupt()`` in
-        # its own node — which is replay-safe (the model call lives in a
-        # different super-step and is not re-run on resume) — before any tool
-        # executes. Mirrors the ``has_router`` post-tools seam below.
-        pretools_gate = getattr(workflow, "_agentkit_pretools_gate", None)
-        if pretools_gate is not None and pretools_gate not in workflow.nodes:
-            pretools_gate = None
+        # ``before_tools`` hooks run once per tool step in their own node, between
+        # the agent and the ToolNode, so a hook may ``interrupt()`` replay-safely
+        # (the model call sits in an earlier super-step) and answer calls with
+        # ToolMessages before any tool executes.
+        pretools_gate = "before_tools" if hook_runner.has_before_tools_hooks else None
+        if pretools_gate:
+
+            async def _before_tools_node(
+                state: dict[str, Any], config: RunnableConfig, **kwargs: Any
+            ) -> dict[str, Any]:
+                runtime = _make_runtime(state, config, **kwargs)
+                updates = await hook_runner.run_before("tools", state=state, runtime=runtime)
+                result: dict[str, Any] = {}
+                for update in updates:
+                    for key, value in update.items():
+                        if key == "messages":
+                            result["messages"] = [*result.get("messages", []), *value]
+                        elif key != "jump_to":
+                            result[key] = value
+                return result
+
+            workflow.add_node(pretools_gate, _before_tools_node)  # type: ignore[type-var]
         tools_target = pretools_gate or "tools"
 
         def _should_continue(state: dict[str, Any]) -> str:

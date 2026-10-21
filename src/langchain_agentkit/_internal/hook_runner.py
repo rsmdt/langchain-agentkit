@@ -85,6 +85,11 @@ class HookRunner:
             or self._error_hooks
         )
 
+    @property
+    def has_before_tools_hooks(self) -> bool:
+        """True if any extension registered a ``before_tools`` hook."""
+        return bool(self._hooks.get(("before", "tools")))
+
     @staticmethod
     def _validate_jump_to(result: dict[str, Any]) -> None:
         """Validate jump_to target if present in a hook result."""
