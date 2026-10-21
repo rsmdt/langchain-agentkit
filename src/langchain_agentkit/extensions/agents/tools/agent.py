@@ -8,12 +8,16 @@ out of the box.
 from __future__ import annotations
 
 import asyncio
+import hashlib
 import logging
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Any
 
-from langchain_core.messages import HumanMessage, ToolMessage
+from langchain_core.messages import BaseMessage, HumanMessage, ToolMessage
+from langchain_core.runnables.config import var_child_runnable_config
 from langchain_core.tools import InjectedToolCallId, StructuredTool, ToolException
-from langgraph.errors import GraphRecursionError
+from langgraph.constants import CONFIG_KEY_CHECKPOINTER
+from langgraph.errors import GraphBubbleUp, GraphRecursionError
 from langgraph.graph import END
 from langgraph.prebuilt import InjectedState, ToolNode
 from langgraph.types import Command
@@ -58,6 +62,14 @@ class _AgentInputBase(BaseModel):
             "context — by default the agent has no access to your conversation history."
         ),
     )
+    resume: str | None = Field(
+        default=None,
+        description=(
+            "Agent id from an earlier result of this tool. Continues that agent's "
+            "conversation with this message instead of starting a new one; `agent` "
+            "names the same agent as before."
+        ),
+    )
     state: Annotated[dict[str, Any], InjectedState]
     tool_call_id: Annotated[str, InjectedToolCallId]
 
@@ -86,12 +98,83 @@ class _AgentDynamicInput(_AgentInputBase):
 # ---------------------------------------------------------------------------
 
 
+_DELEGATED_TASK_PREAMBLE = (
+    "[Task from the agent that delegates work to you. It is not a message from the user.]\n\n"
+)
+
+
 def _build_scoped_state(message: str, sender: str = "parent") -> dict[str, Any]:
     """Build an isolated state with only the delegation message."""
     return {
-        "messages": [HumanMessage(content=message)],
+        "messages": [HumanMessage(content=_DELEGATED_TASK_PREAMBLE + message, name=sender)],
         "sender": sender,
     }
+
+
+@dataclass(frozen=True)
+class _ChildThread:
+    agent_id: str | None = None
+    config: dict[str, Any] | None = None
+    resumed: bool = False
+
+
+_NO_THREAD = _ChildThread()
+
+
+def _child_config(agent_key: str, agent_id: str) -> dict[str, Any] | None:
+    parent = var_child_runnable_config.get() or {}
+    configurable = parent.get("configurable") or {}
+    if configurable.get(CONFIG_KEY_CHECKPOINTER) is None:
+        return None
+    digest = hashlib.sha256(f"{agent_key}\0{agent_id}".encode()).hexdigest()[:32]
+    return {"configurable": {**configurable, "checkpoint_ns": f"agent_{digest}"}}
+
+
+async def _has_conversation(config: dict[str, Any]) -> bool:
+    configurable = config["configurable"]
+    lookup = {
+        "configurable": {
+            "thread_id": configurable.get("thread_id"),
+            "checkpoint_ns": configurable["checkpoint_ns"],
+        }
+    }
+    return await configurable[CONFIG_KEY_CHECKPOINTER].aget_tuple(lookup) is not None
+
+
+async def _resolve_child_thread(
+    agent_key: str, tool_call_id: str, resume: str | None
+) -> _ChildThread:
+    agent_id = resume or hashlib.sha256(tool_call_id.encode()).hexdigest()[:12]
+    config = _child_config(agent_key, agent_id)
+    if resume is None:
+        return _ChildThread(agent_id if config else None, config)
+    if config is None or not await _has_conversation(config):
+        raise ToolException(
+            f"There is no earlier conversation with agent id '{resume}' for this agent."
+        )
+    return _ChildThread(resume, config, resumed=True)
+
+
+def _append_text(content: Any, text: str) -> Any:
+    if isinstance(content, str):
+        return content + text
+    return [*content, {"type": "text", "text": text}]
+
+
+def _with_agent_id(
+    messages: list[BaseMessage], tool_call_id: str, agent_id: str, ctx: Any
+) -> list[BaseMessage]:
+    return [
+        m.model_copy(
+            update={
+                "content": _append_text(m.content, f"\n\n[agent id: {agent_id}]"),
+                "response_metadata": {**m.response_metadata, ctx.tag("subagent_id"): agent_id},
+            }
+        )
+        if isinstance(m, ToolMessage) and m.tool_call_id == tool_call_id
+        else m
+        for m in messages
+    ]
 
 
 def _default_strategy_context() -> Any:
@@ -210,6 +293,7 @@ async def _run_delegation(
     strategy_context: Any = None,
     agent_config: Any = None,
     max_turns: int | None = None,
+    child: _ChildThread = _NO_THREAD,
 ) -> Any:
     """Invoke a compiled graph, shape the result via ``output_strategy``.
 
@@ -220,7 +304,9 @@ async def _run_delegation(
     a soft ``TurnBudgetExtension`` never reaches here — it ends gracefully.
     """
     try:
-        result = await asyncio.wait_for(compiled.ainvoke(scoped_state), timeout=timeout)
+        result = await asyncio.wait_for(
+            compiled.ainvoke(scoped_state, child.config), timeout=timeout
+        )
     except TimeoutError:
         return Command(
             update={
@@ -251,6 +337,8 @@ async def _run_delegation(
                 ],
             }
         )
+    except GraphBubbleUp:
+        raise
     except Exception:
         _logger.exception("Delegation to '%s' failed", agent)
         return Command(
@@ -280,6 +368,8 @@ async def _run_delegation(
     )
 
     messages = strategy(subagent_output, ctx)
+    if child.agent_id is not None:
+        messages = _with_agent_id(messages, tool_call_id, child.agent_id, ctx)
     return Command(update={"messages": messages})
 
 
@@ -294,6 +384,7 @@ async def _agent_tool(
     state: dict[str, Any],
     tool_call_id: str,
     name: str | None = None,
+    resume: str | None = None,
     *,
     agents_by_name: dict[str, Any],
     compiled_cache: dict[str, Any],
@@ -315,6 +406,7 @@ async def _agent_tool(
     agent_ref = agent if isinstance(agent, dict) else agent.model_dump()
 
     if "id" in agent_ref:
+        child = await _resolve_child_thread(f"id:{agent_ref['id']}", tool_call_id, resume)
         return await _delegate_predefined(
             agent_id=agent_ref["id"],
             message=message,
@@ -331,6 +423,7 @@ async def _agent_tool(
             parent_hard=parent_hard,
             parent_soft=parent_soft,
             parent_messages=list(state.get("messages") or []),
+            child=child,
         )
 
     if "prompt" in agent_ref:
@@ -339,6 +432,7 @@ async def _agent_tool(
                 "Dynamic agents are not enabled. "
                 "Set ephemeral=True on AgentsExtension to allow custom agents."
             )
+        child = await _resolve_child_thread(f"prompt:{agent_ref['prompt']}", tool_call_id, resume)
         return await _delegate_dynamic(
             prompt=agent_ref["prompt"],
             message=message,
@@ -347,6 +441,7 @@ async def _agent_tool(
             tool_call_id=tool_call_id,
             output_strategy=output_strategy,
             strategy_context=strategy_context,
+            child=child,
         )
 
     raise ToolException(
@@ -371,6 +466,7 @@ async def _delegate_predefined(
     parent_hard: int | None = None,
     parent_soft: int | None = None,
     parent_messages: list[Any] | None = None,
+    child: _ChildThread = _NO_THREAD,
 ) -> Any:
     """Delegate a task to a named pre-defined agent."""
     target = resolve_agent_by_name(agent_id, agents_by_name)
@@ -393,6 +489,7 @@ async def _delegate_predefined(
             parent_hard=parent_hard,
             parent_soft=parent_soft,
             parent_messages=parent_messages,
+            child=child,
         )
 
     compiled = _compile_or_resolve(target, compiled_cache, parent_tools_getter, parent_hard)
@@ -407,6 +504,7 @@ async def _delegate_predefined(
         output_strategy=output_strategy,
         strategy_context=strategy_context,
         agent_config=None,
+        child=child,
     )
 
 
@@ -424,6 +522,7 @@ async def _delegate_agent_config(
     parent_hard: int | None = None,
     parent_soft: int | None = None,
     parent_messages: list[Any] | None = None,
+    child: _ChildThread = _NO_THREAD,
 ) -> Any:
     """Delegate to an AgentConfig — resolve model, tools, skills, max_turns."""
     if agent_config.model and model_resolver:
@@ -471,7 +570,7 @@ async def _delegate_agent_config(
     except Exception as exc:
         raise ToolException(f"Failed to create agent '{agent_name}': {exc}") from exc
 
-    if forked:
+    if forked and not child.resumed:
         scoped_state = build_forked_state(
             parent_messages or [],
             message,
@@ -490,6 +589,7 @@ async def _delegate_agent_config(
         strategy_context=strategy_context,
         agent_config=agent_config,
         max_turns=hard_max_turns,
+        child=child,
     )
 
 
@@ -501,6 +601,7 @@ async def _delegate_dynamic(
     tool_call_id: str,
     output_strategy: Any = None,
     strategy_context: Any = None,
+    child: _ChildThread = _NO_THREAD,
 ) -> Any:
     """Delegate a task to a dynamically created reasoning agent."""
     if not prompt or not prompt.strip():
@@ -532,6 +633,7 @@ async def _delegate_dynamic(
         output_strategy=output_strategy,
         strategy_context=strategy_context,
         agent_config=None,
+        child=child,
     )
 
 
@@ -540,7 +642,7 @@ async def _delegate_dynamic(
 # ---------------------------------------------------------------------------
 
 
-_AGENT_DESCRIPTION = """Delegate a self-contained task to an agent and wait for its result. Use for focused, isolated work, or to fan out several independent tasks at once — issue multiple calls in one turn and they run concurrently, each agent working alone with no hand-offs between them. By default the agent sees only the message you send it, none of your conversation."""
+_AGENT_DESCRIPTION = """Delegate a self-contained task to an agent and wait for its result. Use for focused, isolated work, or to fan out several independent tasks at once — issue multiple calls in one turn and they run concurrently, each agent working alone with no hand-offs between them. By default the agent sees only the message you send it, none of your conversation. The result is the agent's report of its work."""
 
 
 # ---------------------------------------------------------------------------

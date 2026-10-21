@@ -22,7 +22,8 @@ _FORK_INSTRUCTION_PREAMBLE = (
     "that was just invoked. Any request in them to delegate work has already "
     "happened: you are that delegate. Delegating further is refused, so complete "
     "the task directly. Use the specific facts, figures, and identifiers already "
-    "established above rather than answering generically. Your task follows.]\n\n"
+    "established above rather than answering generically. Your task follows; it comes "
+    "from the agent that delegates work to you, not from the user.]\n\n"
 )
 
 
@@ -51,7 +52,10 @@ def build_forked_state(
     if history and isinstance(history[-1], AIMessage) and history[-1].tool_calls:
         history.pop()
     return {
-        "messages": [*history, HumanMessage(content=_FORK_INSTRUCTION_PREAMBLE + message)],
+        "messages": [
+            *history,
+            HumanMessage(content=_FORK_INSTRUCTION_PREAMBLE + message, name="parent"),
+        ],
         "sender": "parent",
         FORKED_STATE_KEY: True,
     }

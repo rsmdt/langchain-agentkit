@@ -74,7 +74,9 @@ class TestTeammateLoopBasics:
         assert len(capture) == 2
         human, ai = capture
         assert isinstance(human, HumanMessage)
-        assert human.content == "research X"
+        assert human.content.endswith("research X")
+        assert human.content != "research X"
+        assert human.name == "lead"
         assert is_team_tagged(human)
         assert human.additional_kwargs[TEAM_KEY]["member"] == "r1"
 
@@ -141,7 +143,7 @@ class TestTeammateLoopBasics:
         assert len(invoked_msgs) == 3
         assert invoked_msgs[0] is prior_human
         assert invoked_msgs[1] is prior_ai
-        assert invoked_msgs[2].content == "continue"
+        assert invoked_msgs[2].content.endswith("continue")
 
         # Buffer only has what was produced THIS turn (the loop doesn't
         # re-capture initial_history).

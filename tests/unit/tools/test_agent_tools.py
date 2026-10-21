@@ -68,7 +68,13 @@ class TestBuildScopedState:
         state = _build_scoped_state("do something")
 
         assert len(state["messages"]) == 1
-        assert state["messages"][0].content == "do something"
+        assert state["messages"][0].content.endswith("do something")
+
+    def test_instruction_is_attributed_to_the_delegating_agent(self):
+        message = _build_scoped_state("do something", sender="lead")["messages"][0]
+
+        assert message.name == "lead"
+        assert message.content != "do something"
 
     def test_sets_sender_to_parent_by_default(self):
         state = _build_scoped_state("task")

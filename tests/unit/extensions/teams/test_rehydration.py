@@ -280,12 +280,12 @@ class TestRehydrationWithTaggedHistory:
             assert len(seen_histories["r1"]) == 3
             assert seen_histories["r1"][0] is r1_human
             assert seen_histories["r1"][1] is r1_ai
-            assert seen_histories["r1"][2].content == "continue"
+            assert seen_histories["r1"][2].content.endswith("continue")
 
             # r2's invocation saw its one prior message + new one (2 total).
             assert len(seen_histories["r2"]) == 2
             assert seen_histories["r2"][0] is r2_human
-            assert seen_histories["r2"][1].content == "continue"
+            assert seen_histories["r2"][1].content.endswith("continue")
         finally:
             await _shutdown_extension(ext)
 

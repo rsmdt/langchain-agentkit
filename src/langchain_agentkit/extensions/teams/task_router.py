@@ -24,6 +24,7 @@ from langchain_agentkit.extensions.tasks.core import (
     compute_blocks,
     filter_resolved_blockers,
 )
+from langchain_agentkit.extensions.teams.bus import frame_team_message
 from langchain_agentkit.extensions.teams.task_proxy import TASK_OP_TYPE
 
 if TYPE_CHECKING:
@@ -91,7 +92,9 @@ async def classify_and_process(
             if parsed.get("op") == "update":
                 await _notify_assignment(bus, result, old_owner, m.sender, m.timestamp)
         else:
-            human_messages.append(HumanMessage(content=m.content))
+            human_messages.append(
+                HumanMessage(content=frame_team_message(m.sender, m.content), name=m.sender)
+            )
 
     update: dict[str, Any] = {}
     if human_messages:

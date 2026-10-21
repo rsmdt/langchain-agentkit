@@ -76,7 +76,9 @@ async def test_isolated_agent_sees_only_the_delegated_message():
 
     seen = model.calls[0]
     assert [type(m) for m in seen] == [SystemMessage, HumanMessage]
-    assert seen[1].content == "summarize the account"
+    assert seen[1].content.endswith("summarize the account")
+    assert seen[1].content != "summarize the account"
+    assert seen[1].name == "parent"
 
 
 @pytest.mark.asyncio
@@ -93,6 +95,7 @@ async def test_fork_inherits_visible_history_and_receives_framed_instruction():
     assert not any(getattr(m, "tool_calls", None) for m in seen)
     assert seen[3].content.endswith("summarize the account")
     assert seen[3].content != "summarize the account"
+    assert seen[3].name == "parent"
     tool_msg = next(m for m in messages if isinstance(m, ToolMessage))
     assert tool_msg.status == "success"
     assert tool_msg.content == "done"

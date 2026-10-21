@@ -155,6 +155,11 @@ def task_status(task: asyncio.Task[str]) -> str:
         return "failed"
 
 
+def frame_team_message(sender: str, content: str) -> str:
+    role = "the lead of your agent team" if sender == "lead" else "a member of your agent team"
+    return f"[Message from {sender}, {role}. It is not a message from the user.]\n\n{content}"
+
+
 def _is_shutdown_request(content: str) -> bool:
     """Check if a message content is a shutdown request.
 
@@ -213,7 +218,9 @@ async def teammate_loop(  # noqa: C901
         # Construct the teammate's view of the incoming instruction and
         # append it to both the local history and the shared capture
         # buffer (so it lands in persisted state after the next flush).
-        incoming = HumanMessage(content=msg.content)
+        incoming = HumanMessage(
+            content=frame_team_message(msg.sender, msg.content), name=msg.sender
+        )
         tag_message(incoming, member_name)
         history.append(incoming)
         if buffer is not None:
