@@ -28,6 +28,7 @@ Composable extension framework for LangGraph agents.
   - [FilesystemExtension](#filesystemextension)
   - [WebSearchExtension](#websearchextension)
   - [HistoryExtension](#historyextension)
+  - [MemoryExtension](#memoryextension)
   - [HITLExtension](#hitlextension)
   - [TeamExtension](#teamextension)
   - [RubricExtension](#rubricextension)
@@ -188,7 +189,7 @@ extensions = [
     TasksExtension(),
     FilesystemExtension(),
     WebSearchExtension(),
-    HistoryExtension(strategy="count", max_messages=50),
+    HistoryExtension(strategy=CountStrategy(max_messages=50)),
     HITLExtension(interrupt_on={"send_email": True}),
     AgentsExtension(agents=[researcher, coder]),
     TeamExtension(agents=[researcher, coder]),
@@ -215,8 +216,7 @@ extensions = [
     # --- Hook-only layer (order shapes wrap onion, not prompt) ---
     ResilienceExtension(),                          # outermost wrap_tool — catches unhandled tool errors
     HITLExtension(interrupt_on={"send_email": True}),
-    HistoryExtension(strategy="count", max_messages=50),
-    ContextCompactionExtension(keep_recent=5),
+    HistoryExtension(strategy=CompactionStrategy()),
     MessagePersistenceExtension(persist=write_to_db),
 ]
 ```
@@ -238,16 +238,15 @@ Rationale for each slot:
 | 9 | `AgentsExtension` | Delegation to specialists; placed last among tool blocks so the agent has full context of its own capabilities before deciding to hand off. |
 | 10 | `ResilienceExtension` | `wrap_tool` safety net — declared outermost so it wraps every other tool-layer hook (including HITL). Converts any unhandled tool exception into a synthetic error `ToolMessage`, preserving the `AIMessage`↔`ToolMessage` pairing invariant and keeping the ReAct loop alive. |
 | 11 | `HITLExtension` | `wrap_tool` approval gate — sits inside resilience so approvals apply to real tool invocations, but a raising approval flow still can't orphan a tool call. |
-| 12 | `HistoryExtension` | `wrap_model` message truncation; runs before compaction so truncation decides *which* messages survive, then compaction redacts within the survivors. |
-| 13 | `ContextCompactionExtension` | `wrap_model` eviction of old tool results, composing inside the history window. |
-| 14 | `MessagePersistenceExtension` | `before_run`/`after_run` — declared last so its snapshot captures state produced by all prior before_run hooks, and its after_run (which runs in reverse order) fires first to persist the full turn delta. |
+| 12 | `HistoryExtension` | `wrap_model` history rewrite (truncation, compaction or handoff); also retries once on a context-overflow error with a smaller history. |
+| 13 | `MessagePersistenceExtension` | `before_run`/`after_run` — declared last so its snapshot captures state produced by all prior before_run hooks, and its after_run (which runs in reverse order) fires first to persist the full turn delta. |
 
 Notes:
 
 - **Dependencies are auto-resolved.** Missing dependencies are prepended automatically — e.g. omitting `TasksExtension` while using `TeamExtension` still produces a valid stack.
-- **`preset="full"` seeds the first two slots.** Passing `preset="full"` to `AgentKit(...)` prepends `CoreBehaviorExtension` and `TasksExtension` ahead of any user-declared extensions.
-- **Every extension listed is opt-in.** Include only what your agent needs. Hook-layer extensions (`HITL`, `History`, `ContextCompaction`, `MessagePersistence`) pay off in different scenarios: use `ContextCompaction` for sessions with many tool calls, `History` when raw message count grows faster than tool results, `HITL` when specific tools need approval, and `MessagePersistence` when turns must be mirrored to an external store.
-- **Wrap-hook ordering is an onion.** First declaration = outermost layer. `ResilienceExtension` must stay ahead of any other `wrap_tool` extension so it can catch exceptions raised inside them; if you need compaction to run before truncation (redact first, then drop), swap slots 12 and 13.
+- **`preset="full"` seeds the first two slots.** Passing `preset="full"` to `AgentKit(...)` prepends `CoreBehaviorExtension` and `TasksExtension` ahead of any user-declared extensions. Passing your own instance of a seeded type replaces the seeded one in its slot.
+- **Every extension listed is opt-in.** Include only what your agent needs. Hook-layer extensions (`HITL`, `History`, `MessagePersistence`) pay off in different scenarios: use `History` for long sessions, `HITL` when specific tools need approval, and `MessagePersistence` when turns must be mirrored to an external store.
+- **Wrap-hook ordering is an onion.** First declaration = outermost layer. `ResilienceExtension` must stay ahead of any other `wrap_tool` extension so it can catch exceptions raised inside them. It also repairs tool calls left without a result, including calls whose arguments were malformed or truncated.
 
 ### SkillsExtension
 
@@ -277,6 +276,14 @@ Always provides exactly one tool: `Skill`. Filesystem tools (Read, Write, etc.) 
 | Tool | Description |
 |------|-------------|
 | `Skill(skill_name)` | Load a skill's prompt content |
+
+**Pinned skills** — an application can load skills deterministically instead of waiting for the model to call `Skill`. Name them in the `pinned_skills` state key; before the next model call each skill's content is added to the conversation once and the key is cleared:
+
+```python
+await graph.ainvoke({"messages": [HumanMessage("Size this market")], "pinned_skills": ["market-sizing"]})
+```
+
+Unknown names are logged and skipped. Descriptions longer than the roster cap log a warning at discovery.
 
 Skill directories follow the [AgentSkills.io](https://agentskills.io/specification) format:
 
@@ -327,6 +334,7 @@ AgentConfig(
     tools=["WebSearch", "Read"],     # filtered from parent's tools
     skills=["api-conventions"],      # preloaded into prompt at delegation time
     max_turns=10,                    # hard recursion ceiling; unset → inherit parent's budget
+    mode="isolated",                 # "isolated" (default) or "fork"
 )
 ```
 
@@ -351,6 +359,27 @@ You are a research assistant.
 {"agent": {"prompt": "You are a legal expert..."}, "message": "Analyze this contract"}
 ```
 
+Unknown argument keys are rejected with a tool error that names the key, so a task placed under an invented key never reaches the subagent as an empty request.
+
+**Context modes:**
+
+| `mode` | The subagent starts with |
+|---|---|
+| `isolated` (default) | Only the delegated message |
+| `fork` | The parent's conversation so far, plus the delegated instruction. A fork cannot delegate again. |
+
+**Resuming a subagent** — each result carries an agent id. Passing it back continues that subagent's conversation with its full history:
+
+```json
+{"agent": {"id": "researcher"}, "resume": "<agent id>", "message": "Now check the 2025 figures"}
+```
+
+Child conversations are saved through the parent's checkpointer, scoped to the parent thread, so one conversation cannot resume another's children. Without a checkpointer, results carry no id and `resume` returns an error.
+
+**Approvals inside subagents** — an `interrupt()` raised in a subagent (for example by a `HITLExtension` on the subagent) surfaces at the parent graph. Resuming the parent with `Command(resume=...)` finishes the subagent.
+
+**Provenance** — the task a subagent receives names the delegating agent, and the `Agent` tool result is the subagent's report, so neither is mistaken for a message from the user.
+
 **Key features:**
 - `description` — used in the prompt roster so the LLM knows what each specialist does
 - `tools="inherit"` — subagent receives the parent's tools at delegation time
@@ -368,11 +397,11 @@ See [`examples/delegation.py`](examples/delegation.py) for a complete example.
 
 ### TasksExtension
 
-Task management for complex multi-step objectives. The agent creates, tracks, and completes tasks with dependency ordering.
+Task tracking for complex multi-step objectives. The agent creates, tracks, and completes tasks with dependency ordering. Tasks are a passive todo list; they do not execute work.
 
 ```python
 ext = TasksExtension()
-ext.tools  # [TaskCreate, TaskUpdate, TaskList, TaskGet, TaskStop]
+ext.tools  # [TaskCreate, TaskUpdate, TaskList, TaskGet]
 ```
 
 **Tools:**
@@ -383,7 +412,6 @@ ext.tools  # [TaskCreate, TaskUpdate, TaskList, TaskGet, TaskStop]
 | `TaskUpdate` | Update status, owner, metadata, or dependencies |
 | `TaskList` | List all non-deleted tasks with status and dependencies |
 | `TaskGet` | Get full task details including computed `blocks` |
-| `TaskStop` | Stop a running task |
 
 Tasks support `blocked_by` dependencies, `owner` assignment, and arbitrary `metadata`. Parallel `TaskCreate` calls are handled by a merge-by-ID reducer.
 
@@ -405,12 +433,14 @@ ext = FilesystemExtension(root="./workspace")
 
 | Tool | Description |
 |------|-------------|
-| `Read(file_path)` | Read file with line numbers, offset/limit pagination |
+| `Read(file_path)` | Read a file with line numbers and offset/limit pagination; reports the total line count and the offset to continue from. Images and PDFs come back as content blocks the model can see. |
 | `Write(file_path, content)` | Create or overwrite a file |
 | `Edit(file_path, old_string, new_string)` | Exact string replacement |
-| `Glob(pattern)` | Find files by pattern (supports `*`, `**`, `?`) |
+| `Glob(pattern)` | Find files by pattern (supports `*`, `**`, `?`). A pattern without `/` matches file names at any depth. |
 | `Grep(pattern)` | Search file contents by regex |
 | `Bash(command)` | Execute shell commands (when backend supports `execute()`) |
+
+Glob and Grep stop at a result cap and tell the model when results are partial; search failures are reported instead of looking like "no matches". Writes and edits to the same file within one step run one after another. When the active model's profile says it cannot accept images or PDFs, those blocks are replaced with a short placeholder for that request only; saved state keeps the originals.
 
 **Alternative backends:** `FilesystemExtension` accepts any object satisfying `FilesystemProtocol`. The framework ships four optional remote/sandboxed/unified-VFS backends alongside the default `OSBackend` — see the [FilesystemExtension Backends](#filesystemextension-backends) section for the full catalog and runnable examples.
 
@@ -475,25 +505,71 @@ ext = WebSearchExtension(fetch=True)
 
 ### HistoryExtension
 
-Manage conversation history to keep the LLM context window lean. Truncated messages are removed from graph state via `ReplaceMessages` so the checkpointer stays compact.
+Manage conversation history to keep the LLM context window lean. Rewritten history replaces graph state via `ReplaceMessages` so the checkpointer stays compact.
 
 ```python
-from langchain_agentkit import HistoryExtension
+from langchain_agentkit import (
+    CompactionStrategy,
+    CountStrategy,
+    HandoffStrategy,
+    HistoryExtension,
+    TokenStrategy,
+)
 
 # Keep the last 50 messages
-ext = HistoryExtension(strategy="count", max_messages=50)
+ext = HistoryExtension(strategy=CountStrategy(max_messages=50))
 
 # Keep messages within a token budget
-ext = HistoryExtension(strategy="tokens", max_tokens=4000)
+ext = HistoryExtension(strategy=TokenStrategy(max_tokens=4000))
 
-# Custom token counter
-ext = HistoryExtension(strategy="tokens", max_tokens=4000, token_counter=my_fn)
+# Summarize older history when the context window fills up
+ext = HistoryExtension(strategy=CompactionStrategy(reserve_tokens=16_384))
 
-# Custom strategy — any object with transform(messages) -> messages
-ext = HistoryExtension(strategy=MySummarizationStrategy())
+# Replace older history with a brief written toward the current request
+ext = HistoryExtension(strategy=HandoffStrategy(reserve_tokens=16_384))
+
+# Custom strategy — any object with async transform(messages, *, runtime)
+ext = HistoryExtension(strategy=MyStrategy())
 ```
 
-Both built-in strategies preserve a leading `SystemMessage` when truncating. Dropped messages are bulk-replaced in graph state using LangGraph's `REMOVE_ALL_MESSAGES` sentinel (wrapped in `ReplaceMessages` for convenience).
+| Strategy | What it keeps |
+|---|---|
+| `CountStrategy` / `TokenStrategy` | The most recent messages within the limit |
+| `CompactionStrategy` | A running summary of older history plus the recent messages |
+| `HandoffStrategy` | A fresh brief (facts, decisions, current state, open items, relevant files) conditioned on the latest user request, plus that request verbatim |
+
+All built-in strategies preserve a leading `SystemMessage`. Compaction and handoff derive their previous summary from the conversation itself, so one strategy instance is safe to share across threads and subagents.
+
+**Overflow recovery** — when the model call raises `ContextOverflowError`, a strategy that implements `compact()` (compaction and handoff do) shrinks the history and the call is retried once, only if the new request is smaller. Otherwise the original error propagates.
+
+### MemoryExtension
+
+Persistent memory across sessions. The extension frames the content; a strategy decides where it comes from.
+
+```python
+from langchain_agentkit import CuratedMemory, MemoryExtension, RecalledMemory
+
+# An operator-authored MEMORY.md, always in the system prompt (default)
+ext = MemoryExtension()  # ~/.agents/memory/<project-key>/MEMORY.md
+ext = MemoryExtension(strategy=CuratedMemory(path="./memory", project_discovery=False))
+
+# A store the agent writes and searches itself (needs the [memory] extra)
+ext = MemoryExtension(strategy=RecalledMemory(namespace=("memories", "{user_id}"), auto_recall=3))
+```
+
+Declare the extension twice to combine both: a curated document that is always present, alongside a store the agent queries on demand.
+
+**`RecalledMemory`** is backed by the LangGraph store passed to `compile(store=...)`:
+
+- The agent records and searches memories through tools; `auto_recall=K` adds the top `K` hits for the latest request to each user turn.
+- `extract=True` runs a background reflector that writes memories from the conversation after a lull.
+- To review the agent's own writes, gate its memory tool with `HITLExtension(interrupt_on={"manage_memory": True})`.
+- To review background extraction, set `staging_namespace`. Extracted memories land there, invisible to recall, until you call `approve_staged(key)` or `reject_staged(key)`; `list_staged()` shows what is pending.
+- `consolidate(source=..., target=...)` merges duplicates and resolves contradictions into a separate namespace, leaving the source untouched so the result can be reviewed before it is swapped in. Run it from your own scheduler.
+
+```bash
+pip install 'langchain-agentkit[memory]'
+```
 
 ### HITLExtension
 
@@ -524,7 +600,7 @@ hitl = HITLExtension(interrupt_on={"send_email": True}, tools=[])
 hitl = HITLExtension(tools=[my_custom_tool])
 ```
 
-Both use the same interrupt payload (`Question` objects) and resume format.
+Both use the same interrupt payload (`Question` objects) and resume format. Approval requests raised inside a subagent surface at the parent graph and resume the same way.
 Requires a checkpointer. Answers are keyed by each question's position in the
 interrupt `questions` array (as a string), so resume with
 `Command(resume={"answers": {"0": "Approve"}})`. For tool approval, `"Approve"`
@@ -546,7 +622,9 @@ class Lead(Agent):
 graph = Lead().compile()
 ```
 
-**How it works:** Teammates run as `asyncio.Task`s with their own checkpointers (conversation history persists across messages). A **Router Node** in the graph checks for teammate messages after each tool execution — when a teammate sends a result, the lead is automatically re-invoked with the message.
+**How it works:** Teammates run as `asyncio.Task`s with their own checkpointers (conversation history persists across messages). A **Router Node** in the graph checks for teammate messages after each tool execution — when a teammate sends a result, the lead is automatically re-invoked with the message. Messages between the lead and teammates name their sender and are marked as not coming from the user.
+
+Teammates run outside the lead's graph step, so an approval request raised inside a teammate does not reach the lead; it is reported back as an error message.
 
 **Tools:**
 
@@ -628,6 +706,8 @@ from langchain_agentkit.backends.daytona import DaytonaBackend     # cloud sandb
 
 ext = FilesystemExtension(backend=...)
 ```
+
+`glob()` and `grep()` return `GlobResult` / `GrepResult` with `truncated` and `error_message`, and every backend applies the same glob rules. Remote backends run searches with `python3` inside the sandbox.
 
 Each example under [`examples/<backend>/`](examples/) ships a runnable end-to-end agent against that backend; see the per-example README for upstream links, prerequisites, and the recommended composition pattern.
 
