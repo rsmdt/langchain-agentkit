@@ -16,7 +16,7 @@ shell vocabulary are more useful than per-service SDKs or MCP servers.
 ## What this example shows
 
 - Constructing a `Workspace` with **multiple resources mounted at different
-  prefixes**: `DiskResource` (read-only) at `/.agentkit` and `RAMResource`
+  prefixes**: `DiskVFS` (read-only) at `/.agentkit` and `RAMVFS`
   (writable) at `/workspace`. The agent reads its config directly through
   Mirage's filesystem abstraction — no `read_tree` upload step.
 - Mount-mode declarations (`MountMode.READ` / `MountMode.WRITE`) granted per
@@ -37,6 +37,6 @@ export OPENAI_API_KEY=...
 python examples/mirage/agent.py
 ```
 
-To extend this with remote resources, swap `RAMResource()` / `DiskResource(...)`
-for an `S3Resource`, `SlackResource`, `GitHubResource`, etc. — the
+To extend this with remote resources, swap `RAMVFS()` / `DiskVFS(...)`
+for an `S3VFS`, `SlackVFS`, `GitHubVFS`, etc. — the
 `MirageBackend` adapter and the agent prompt don't change.

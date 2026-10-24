@@ -56,7 +56,7 @@ bubblewrap = [
     "pyseccomp>=0.1.2; sys_platform == 'linux'",
 ]
 mirage = [
-    "mirage-ai>=0.0.2a0,<0.1",
+    "mirage-ai>=0.0.7,<0.1",
 ]
 
 [project.urls]

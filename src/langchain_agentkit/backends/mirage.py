@@ -2,8 +2,8 @@
 
 Implements ``FilesystemProtocol`` and ``SandboxProtocol`` over a
 pre-constructed :class:`mirage.Workspace`. File operations route
-through the public ``ws.ops`` property; shell execution goes through
-``ws.execute()`` (tree-sitter-bash parsed, in-process). Mirage's
+through the public ``ws.vfs`` property; shell execution goes through
+``ws.shell()`` (tree-sitter-bash parsed, in-process). Mirage's
 killer feature — pipelines that span multiple mounts (S3, Slack,
 GitHub, GDrive, …) — is preserved by claiming ``SandboxProtocol`` so
 the framework registers the Bash tool.
@@ -21,7 +21,7 @@ to), pass the ``Workspace`` in fully constructed, and
 ``await ws.close()`` when done. This backend is a thin protocol
 adapter, not a workspace manager.
 
-Shell-execution caveat: Mirage's ``execute()`` is bash-grammar parsed
+Shell-execution caveat: Mirage's ``shell()`` is bash-grammar parsed
 but runs a curated subset of POSIX tools in-process. ``available_tools``
 in the :class:`SandboxEnvironment` reports the actual command vocabulary
 exposed to the LLM (typically dozens of names plus any resource-specific
@@ -31,10 +31,10 @@ commands). Builtins like ``exit`` and external binaries (``make``,
 
 Usage::
 
-    from mirage import MountMode, RAMResource, Workspace
+    from mirage import RAMVFS, MountMode, Workspace
     from langchain_agentkit.backends.mirage import MirageBackend
 
-    ws = Workspace({"/": (RAMResource(), MountMode.WRITE)})
+    ws = Workspace({"/": (RAMVFS(), MountMode.WRITE)})
     backend = MirageBackend(ws)
 
     result = await backend.read("/notes.md")
@@ -215,7 +215,7 @@ class MirageBackend:
     async def _ensure_parents(self, path: str) -> None:
         """Create parent directories of ``path`` (mkdir -p semantics).
 
-        Mirage's ``ws.ops.mkdir`` is single-level — calling it on
+        Mirage's ``ws.vfs.mkdir`` is single-level — calling it on
         ``/a/b/c`` when ``/a`` doesn't exist raises ``FileNotFoundError``.
         We walk the path components from root toward target, creating
         each in turn and tolerating ``FileExistsError`` for components
@@ -229,9 +229,9 @@ class MirageBackend:
         for part in parts:
             current = f"{current}/{part}"
             with contextlib.suppress(FileExistsError):
-                await self._workspace.ops.mkdir(current)
+                await self._workspace.vfs.mkdir(current)
 
-    # --- FilesystemProtocol: file ops via ws.ops ---
+    # --- FilesystemProtocol: file ops via ws.vfs ---
 
     async def read_bytes(self, path: str) -> ReadBytesResult:
         try:
@@ -239,7 +239,7 @@ class MirageBackend:
         except PermissionError as exc:
             return ReadBytesResult(error="permission_denied", error_message=str(exc))
         try:
-            content = await self._workspace.ops.read(real_path)
+            content = await self._workspace.vfs.read(real_path)
         except Exception as exc:  # noqa: BLE001
             return ReadBytesResult(error=_map_exc(exc), error_message=str(exc))
         return ReadBytesResult(content=content)
@@ -247,7 +247,7 @@ class MirageBackend:
     async def read(self, path: str, offset: int = 0, limit: int = 2000) -> ReadResult:
         """Read a text file with line-based slicing.
 
-        Mirage's ``ws.ops.read`` returns raw ``bytes``; AgentKit's
+        Mirage's ``ws.vfs.read`` returns raw ``bytes``; AgentKit's
         protocol contract is *line*-based offset/limit (see
         :meth:`OSBackend.read`), so we read the whole file, decode UTF-8,
         split on line boundaries (preserving newlines), and slice the
@@ -260,7 +260,7 @@ class MirageBackend:
         except PermissionError as exc:
             return ReadResult(error="permission_denied", error_message=str(exc))
         try:
-            raw = await self._workspace.ops.read(real_path)
+            raw = await self._workspace.vfs.read(real_path)
         except Exception as exc:  # noqa: BLE001
             return ReadResult(error=_map_exc(exc), error_message=str(exc))
         try:
@@ -284,7 +284,7 @@ class MirageBackend:
         parent = posixpath.dirname(real_path)
         try:
             await self._ensure_parents(parent)
-            await self._workspace.ops.write(real_path, raw)
+            await self._workspace.vfs.write(real_path, raw)
         except Exception as exc:  # noqa: BLE001
             return WriteResult(error=_map_exc(exc), error_message=str(exc))
         return WriteResult(path=path, bytes_written=len(raw))
@@ -311,7 +311,7 @@ class MirageBackend:
         except PermissionError as exc:
             return EditResult(error="permission_denied", error_message=str(exc))
         try:
-            raw = await self._workspace.ops.read(real_path)
+            raw = await self._workspace.vfs.read(real_path, raw=True)
         except Exception as exc:  # noqa: BLE001
             return EditResult(error=_map_exc(exc), error_message=str(exc))
         try:
@@ -346,7 +346,7 @@ class MirageBackend:
         )
         replacements = occurrences if replace_all else 1
         try:
-            await self._workspace.ops.write(real_path, new_content.encode("utf-8"))
+            await self._workspace.vfs.write(real_path, new_content.encode("utf-8"))
         except Exception as exc:  # noqa: BLE001
             return EditResult(error=_map_exc(exc), error_message=str(exc))
         return EditResult(path=path, replacements=replacements)
@@ -388,7 +388,7 @@ class MirageBackend:
         """Search file contents for ``pattern`` (a Python regex).
 
         Candidate files come from the same ``find`` listing as
-        :meth:`glob`; each is read through ``ws.ops`` and matched line
+        :meth:`glob`; each is read through ``ws.vfs`` and matched line
         by line, so regex dialect and include-glob semantics match the
         other backends. Files that are not valid UTF-8 are skipped.
         """
@@ -408,7 +408,7 @@ class MirageBackend:
                 continue
             virtual_path = self._to_virtual(real_path)
             try:
-                text = (await self._workspace.ops.read(real_path)).decode("utf-8")
+                text = (await self._workspace.vfs.read(real_path)).decode("utf-8")
             except UnicodeDecodeError:
                 continue
             except Exception as exc:  # noqa: BLE001
@@ -427,7 +427,7 @@ class MirageBackend:
         return GrepResult(matches=matches, error_message=summarize_search_errors(errors))
 
     async def _list_files(self, real_root: str) -> tuple[list[str], list[str]]:
-        io = await self._workspace.execute(f"find {shell_quote(real_root)} -type f")
+        io = await self._workspace.shell(f"find {shell_quote(real_root)} -type f")
         output = await io.stdout_str()
         stderr = (await io.stderr_str()).strip()
         errors = [line for line in stderr.splitlines() if line.strip()]
@@ -494,7 +494,7 @@ class MirageBackend:
         try:
             try:
                 io = await asyncio.wait_for(
-                    self._workspace.execute(command, cwd=cwd, cancel=cancel),
+                    self._workspace.shell(command, cwd=cwd, cancel=cancel),
                     timeout=effective_timeout,
                 )
             except TimeoutError:
@@ -567,7 +567,7 @@ class MirageBackend:
     # --- FilesystemProtocol: bulk transfer (host-side) ---
     #
     # Mirage has no native bulk-transfer primitive at the workspace
-    # level. We loop over ``ws.ops.read``/``write`` and aggregate per-
+    # level. We loop over ``ws.vfs.read``/``write`` and aggregate per-
     # file results — same shape as :meth:`OSBackend.upload` /
     # :meth:`OSBackend.download`. Sequential is fine here: typical
     # seeding flows (``read_tree``-style) move tens of files, not
@@ -590,7 +590,7 @@ class MirageBackend:
                 continue
             try:
                 await self._ensure_parents(posixpath.dirname(real_path))
-                await self._workspace.ops.write(real_path, content)
+                await self._workspace.vfs.write(real_path, content)
             except Exception as exc:  # noqa: BLE001
                 results.append(
                     FileUploadResult(
@@ -618,7 +618,7 @@ class MirageBackend:
                 )
                 continue
             try:
-                content = await self._workspace.ops.read(real_path)
+                content = await self._workspace.vfs.read(real_path)
             except Exception as exc:  # noqa: BLE001
                 results.append(
                     FileDownloadResult(

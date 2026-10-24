@@ -14,7 +14,7 @@ every available backend:
 - ``agentfs`` — only when the agentfs-sdk is installed (no env vars
   required; uses a temp .db file)
 - ``mirage`` — only when the mirage-ai SDK is installed (no env vars
-  required; uses an in-memory ``RAMResource`` mounted at ``/``)
+  required; uses an in-memory ``RAMVFS`` mounted at ``/``)
 """
 
 from __future__ import annotations
@@ -127,7 +127,7 @@ def _mirage_available() -> bool:
     """Mirage conformance runs whenever the mirage-ai SDK is importable.
 
     No env vars or external services required — the fixture mounts an
-    in-memory ``RAMResource`` at ``/``.
+    in-memory ``RAMVFS`` at ``/``.
     """
     try:
         import mirage
@@ -193,7 +193,7 @@ async def backend(request):
             yield BubblewrapBackend(tmpdir)
 
     elif request.param == "mirage":
-        from mirage import MountMode, RAMResource, Workspace
+        from mirage import RAMVFS, MountMode, Workspace
 
         from langchain_agentkit.backends.mirage import MirageBackend
 
@@ -201,7 +201,7 @@ async def backend(request):
         # writes test fixtures into / before reading them back) can
         # actually persist data. The default ``MountMode.READ`` would
         # surface ``permission_denied`` on every write.
-        ws = Workspace({"/": (RAMResource(), MountMode.WRITE)})
+        ws = Workspace({"/": (RAMVFS(), MountMode.WRITE)})
         try:
             yield MirageBackend(ws)
         finally:
@@ -477,11 +477,11 @@ async def mirage_subpath_backend():
     if not _mirage_available():
         pytest.skip("mirage-ai SDK not installed")
 
-    from mirage import MountMode, RAMResource, Workspace
+    from mirage import RAMVFS, MountMode, Workspace
 
     from langchain_agentkit.backends.mirage import MirageBackend
 
-    ws = Workspace({"/workspace": (RAMResource(), MountMode.WRITE)})
+    ws = Workspace({"/workspace": (RAMVFS(), MountMode.WRITE)})
     try:
         yield MirageBackend(ws, workdir="/workspace")
     finally:
@@ -494,11 +494,11 @@ async def mirage_root_backend():
     if not _mirage_available():
         pytest.skip("mirage-ai SDK not installed")
 
-    from mirage import MountMode, RAMResource, Workspace
+    from mirage import RAMVFS, MountMode, Workspace
 
     from langchain_agentkit.backends.mirage import MirageBackend
 
-    ws = Workspace({"/": (RAMResource(), MountMode.WRITE)})
+    ws = Workspace({"/": (RAMVFS(), MountMode.WRITE)})
     try:
         yield MirageBackend(ws, workdir="/")
     finally:

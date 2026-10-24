@@ -6,10 +6,10 @@ one filesystem; ``MirageBackend`` implements ``FilesystemProtocol`` and
 ``SandboxProtocol`` over a pre-constructed ``mirage.Workspace``. This
 example demonstrates the multi-mount pattern with two local resources:
 
-- ``/.agentkit`` — host directory mounted via ``DiskResource`` (read-only).
+- ``/.agentkit`` — host directory mounted via ``DiskVFS`` (read-only).
   No ``read_tree()`` upload needed — the agent reads config directly from
   disk through Mirage's filesystem abstraction.
-- ``/workspace`` — in-memory ``RAMResource`` for the agent's working
+- ``/workspace`` — in-memory ``RAMVFS`` for the agent's working
   files (writable).
 
 The agent has shell access via Mirage's tree-sitter-bash interpreter
@@ -33,7 +33,7 @@ from pathlib import Path
 
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
-from mirage import DiskResource, MountMode, RAMResource, Workspace
+from mirage import RAMVFS, DiskVFS, MountMode, Workspace
 
 from langchain_agentkit import (
     Agent,
@@ -75,8 +75,8 @@ async def main() -> None:
 
     ws = Workspace(
         {
-            ROOT: (DiskResource(root=str(host_agentkit)), MountMode.READ),
-            WORKSPACE: (RAMResource(), MountMode.WRITE),
+            ROOT: (DiskVFS(root=str(host_agentkit)), MountMode.READ),
+            WORKSPACE: (RAMVFS(), MountMode.WRITE),
         }
     )
 

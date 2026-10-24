@@ -12,7 +12,7 @@ Behavior the integration matrix can't reach cleanly:
 
 Protocol-level conformance is exercised in
 ``tests/integration/test_backend_protocol.py`` against a real
-``RAMResource`` mount.
+``RAMVFS`` mount.
 """
 
 from __future__ import annotations
@@ -267,7 +267,7 @@ class _FakeWorkspace:
     the Mirage SDK — a real workspace would slow tests down without
     adding coverage. Integration tests in
     ``tests/integration/test_backend_protocol.py`` validate the SDK-bound
-    paths against an actual ``RAMResource`` mount.
+    paths against an actual ``RAMVFS`` mount.
     """
 
 
@@ -283,9 +283,9 @@ class _ListingWorkspace:
         self.last_cmd: str | None = None
         self.files = dict(files or {})
         self._io = _StaticIO(stdout, stderr, exit_code)
-        self.ops = _FakeOps(self.files)
+        self.vfs = _FakeVFS(self.files)
 
-    async def execute(self, cmd: str) -> _StaticIO:
+    async def shell(self, cmd: str) -> _StaticIO:
         self.last_cmd = cmd
         return self._io
 
@@ -303,11 +303,11 @@ class _StaticIO:
         return self._stderr
 
 
-class _FakeOps:
+class _FakeVFS:
     def __init__(self, files: dict[str, bytes]) -> None:
         self._files = files
 
-    async def read(self, path: str) -> bytes:
+    async def read(self, path: str, raw: bool = False) -> bytes:
         if path not in self._files:
             raise PermissionError(f"denied: {path}")
         return self._files[path]
