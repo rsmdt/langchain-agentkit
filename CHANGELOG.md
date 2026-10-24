@@ -9,6 +9,13 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.36.0] — 2026-10-24
+
+### Changed
+
+- **BREAKING**: the `mirage` extra requires `mirage-ai>=0.0.7`. `MirageBackend` uses the workspace's `vfs` and `shell()` API, and the docs and example use the renamed classes (`RAMVFS`, `DiskVFS`, `S3VFS`, …).
+- `MirageBackend.edit()` reads the stored bytes rather than a rendered form before writing back.
+
 ## [0.35.0] — 2026-10-21
 
 ### Added

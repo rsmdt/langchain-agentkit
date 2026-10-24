@@ -1240,7 +1240,7 @@ wheels = [
 
 [[package]]
 name = "langchain-agentkit"
-version = "0.35.0"
+version = "0.36.0"
 source = { editable = "." }
 dependencies = [
     { name = "langchain-core" },
