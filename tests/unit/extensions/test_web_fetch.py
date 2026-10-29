@@ -1,4 +1,4 @@
-"""Tests for WebFetch — SSRF guard, conversion, bounding, and folding into WebSearchExtension.
+"""Tests for WebFetch — SSRF guard, conversion, bounding, and folding into WebExtension.
 
 The SSRF guard is the security surface, so it is tested exhaustively against a
 mocked resolver (no network). Transport is kept thin; the HTML-conversion path
@@ -9,13 +9,16 @@ from unittest.mock import patch
 
 import pytest
 
-from langchain_agentkit.extensions.web_search import WebSearchExtension
-from langchain_agentkit.extensions.web_search.tools import web_fetch
-from langchain_agentkit.extensions.web_search.tools.web_fetch import (
+from langchain_agentkit.extensions.web import WebExtension
+from langchain_agentkit.extensions.web.tools import web_fetch
+from langchain_agentkit.extensions.web.tools.web_fetch import (
     BlockedURLError,
+    CloudflareChallengeError,
     FetchError,
+    UnsupportedContentTypeError,
     _bound_tokens,
     _canonical_ip,
+    _convert,
     _fetch,
     _is_public,
     _resolve_and_validate,
@@ -105,7 +108,7 @@ class TestResolveAndValidate:
 
 class TestFetchGuardRejectsBadSchemes:
     async def test_non_http_scheme_blocked(self):
-        tool = WebSearchExtension(fetch=True).tools[1]
+        tool = WebExtension().tools[0]
         with pytest.raises(BlockedURLError):
             await tool.ainvoke(
                 {
@@ -117,7 +120,7 @@ class TestFetchGuardRejectsBadSchemes:
             )
 
     async def test_private_target_blocked_end_to_end(self):
-        tool = WebSearchExtension(fetch=True).tools[1]
+        tool = WebExtension().tools[0]
         with (
             patch("socket.getaddrinfo", return_value=_addrinfo("127.0.0.1")),
             pytest.raises(BlockedURLError),
@@ -205,6 +208,73 @@ class TestFetchTransport:
             _, _, body = _fetch("https://example.com/big", timeout=5, max_bytes=100)
         assert len(body) == 100
 
+    @pytest.mark.parametrize(
+        ("format", "preferred"),
+        [
+            ("markdown", "text/markdown;q=1.0"),
+            ("text", "text/plain;q=1.0"),
+            ("html", "text/html;q=1.0"),
+        ],
+    )
+    def test_accept_header_prefers_requested_format(self, format, preferred):
+        resp = _FakeResponse(200, b"ok", {"Content-Type": "text/plain"})
+        with patch.object(web_fetch, "_request", return_value=resp) as req:
+            _fetch("https://example.com", timeout=5, max_bytes=100, format=format)
+        assert req.call_args.args[2]["Accept"].startswith(preferred)
+
+    def test_cloudflare_challenge_retries_with_agent_user_agent(self):
+        challenge = _FakeResponse(403, headers={"cf-mitigated": "challenge"})
+        ok = _FakeResponse(200, b"through", {"Content-Type": "text/plain"})
+        with patch.object(web_fetch, "_request", side_effect=[challenge, ok]) as req:
+            _, _, body = _fetch("https://example.com", timeout=5, max_bytes=100)
+        assert body == b"through"
+        first_ua, second_ua = (call.args[2]["User-Agent"] for call in req.call_args_list)
+        assert first_ua.startswith("Mozilla/5.0")
+        assert second_ua == "langchain-agentkit-webfetch"
+
+    def test_persistent_cloudflare_challenge_raises(self):
+        challenge = _FakeResponse(403, headers={"cf-mitigated": "challenge"})
+        with (
+            patch.object(web_fetch, "_request", return_value=challenge),
+            pytest.raises(CloudflareChallengeError),
+        ):
+            _fetch("https://example.com", timeout=5, max_bytes=100)
+
+    def test_plain_403_is_not_retried(self):
+        forbidden = _FakeResponse(403)
+        with (
+            patch.object(web_fetch, "_request", return_value=forbidden) as req,
+            pytest.raises(FetchError, match="HTTP 403"),
+        ):
+            _fetch("https://example.com", timeout=5, max_bytes=100)
+        req.assert_called_once()
+
+    @pytest.mark.parametrize("content_type", ["image/png", "application/pdf", "application/zip"])
+    def test_non_textual_content_type_rejected_before_read(self, content_type):
+        resp = _FakeResponse(200, b"\x89PNG", {"Content-Type": content_type})
+        with (
+            patch.object(web_fetch, "_request", return_value=resp),
+            pytest.raises(UnsupportedContentTypeError, match=content_type),
+        ):
+            _fetch("https://example.com/file", timeout=5, max_bytes=100)
+        assert resp._pos == 0
+
+    @pytest.mark.parametrize(
+        "content_type",
+        [
+            "",
+            "text/csv",
+            "application/json; charset=utf-8",
+            "application/ld+json",
+            "application/rss+xml",
+        ],
+    )
+    def test_textual_content_types_allowed(self, content_type):
+        resp = _FakeResponse(200, b"data", {"Content-Type": content_type})
+        with patch.object(web_fetch, "_request", return_value=resp):
+            _, _, body = _fetch("https://example.com", timeout=5, max_bytes=100)
+        assert body == b"data"
+
 
 class TestBoundTokens:
     def test_under_budget_untouched(self):
@@ -241,23 +311,77 @@ class TestToMarkdown:
             _to_markdown(b"<html><h1>x</h1></html>", "text/html")
 
 
-class TestFoldIntoWebSearchExtension:
-    def test_search_only_by_default(self):
-        ext = WebSearchExtension()
-        assert [t.name for t in ext.tools] == ["WebSearch"]
+class TestConvert:
+    _PAGE = (
+        b"<html><head><style>p{color:red}</style><script>track()</script></head>"
+        b"<body><h1>Title</h1><noscript><img src=x>enable js</noscript>"
+        b"<p>Body text.</p></body></html>"
+    )
 
-    def test_fetch_true_adds_webfetch(self):
-        ext = WebSearchExtension(fetch=True)
-        assert [t.name for t in ext.tools] == ["WebSearch", "WebFetch"]
+    def test_text_format_drops_markup_and_non_content(self):
+        out = _convert(self._PAGE, "text/html", "text")
+        assert "Title" in out
+        assert "Body text." in out
+        assert "<" not in out
+        assert "track()" not in out
+        assert "color:red" not in out
+        assert "enable js" not in out
+
+    def test_text_format_breaks_lines_between_blocks(self):
+        page = b"<title>Tab</title><h1>Head</h1><p>One<br>Two</p><ul><li>a</li><li>b</li></ul>"
+        assert _convert(page, "text/html", "text") == "Head\nOne\nTwo\na\nb"
+
+    def test_markdown_format_drops_title_and_uses_atx_headings(self):
+        pytest.importorskip("markdownify")
+        page = b"<html><head><title>Tab</title></head><body><h1>Head</h1><p>Body.</p></body></html>"
+        out = _convert(page, "text/html", "markdown")
+        assert out.startswith("# Head")
+        assert "Tab" not in out
+        assert "<p>" not in out
+
+    def test_html_format_returns_raw_body(self):
+        assert _convert(self._PAGE, "text/html", "html") == self._PAGE.decode()
+
+    def test_markdown_format_converts_html(self):
+        pytest.importorskip("markdownify")
+        out = _convert(self._PAGE, "text/html", "markdown")
+        assert "Title" in out
+        assert "<h1>" not in out
+
+    @pytest.mark.parametrize("format", ["markdown", "text", "html"])
+    def test_non_html_passes_through(self, format):
+        assert _convert(b"# already markdown", "text/markdown", format) == "# already markdown"
+
+
+class TestWebFetchTool:
+    async def test_tool_returns_requested_format_and_artifact(self):
+        tool = WebExtension().tools[0]
+        resp = _FakeResponse(200, b"<p>Hello</p>", {"Content-Type": "text/html"})
+        with patch.object(web_fetch, "_request", return_value=resp):
+            message = await tool.ainvoke(
+                {
+                    "name": "WebFetch",
+                    "args": {"url": "https://example.com", "format": "text"},
+                    "id": "1",
+                    "type": "tool_call",
+                }
+            )
+        assert message.content == "Hello"
+        assert message.artifact[0]["format"] == "text"
+        assert message.artifact[0]["url"] == "https://example.com"
+
+
+class TestWebExtensionFetch:
+    def test_fetch_only_without_providers(self):
+        assert [t.name for t in WebExtension().tools] == ["WebFetch"]
 
     def test_fetch_tool_advertises_content_and_artifact(self):
-        tool = WebSearchExtension(fetch=True).tools[1]
-        assert tool.response_format == "content_and_artifact"
+        assert WebExtension().tools[0].response_format == "content_and_artifact"
 
-    def test_fetch_true_without_extra_raises_at_construction(self):
-        # Fail fast: a kit asking for fetch without the extra is misconfigured now.
+    def test_missing_web_extra_raises_at_construction(self):
+        # Fail fast: a kit without the extra is misconfigured now, not at first fetch.
         with (
             patch("importlib.util.find_spec", return_value=None),
             pytest.raises(ImportError, match="langchain-agentkit\\[web\\]"),
         ):
-            WebSearchExtension(fetch=True)
+            WebExtension()

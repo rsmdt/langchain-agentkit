@@ -26,7 +26,7 @@ Composable extension framework for LangGraph agents.
   - [AgentsExtension](#agentsextension)
   - [TasksExtension](#tasksextension)
   - [FilesystemExtension](#filesystemextension)
-  - [WebSearchExtension](#websearchextension)
+  - [WebExtension](#webextension)
   - [HistoryExtension](#historyextension)
   - [MemoryExtension](#memoryextension)
   - [HITLExtension](#hitlextension)
@@ -188,7 +188,7 @@ extensions = [
     SkillsExtension(skills="skills/"),
     TasksExtension(),
     FilesystemExtension(),
-    WebSearchExtension(),
+    WebExtension(),
     HistoryExtension(strategy=CountStrategy(max_messages=50)),
     HITLExtension(interrupt_on={"send_email": True}),
     AgentsExtension(agents=[researcher, coder]),
@@ -209,7 +209,7 @@ extensions = [
     FilesystemExtension(root="..."),                # workspace root + file tools
     SkillsExtension(skills="skills/"),              # progressive-disclosure skill catalog
     TasksExtension(),                               # task tracking
-    WebSearchExtension(),                           # external research tool
+    WebExtension(providers=[...]),                  # external research tools
     TeamExtension(agents=[...]),                    # peer-to-peer coordination
     AgentsExtension(agents=[...]),                  # delegate-to-specialist tool
 
@@ -233,7 +233,7 @@ Rationale for each slot:
 | 4 | `FilesystemExtension` | Workspace-root guidance anchors later filesystem-adjacent tools. |
 | 5 | `SkillsExtension` | Progressive-disclosure skill catalog; read before any task or coordination layer so the agent knows what capabilities it has. |
 | 6 | `TasksExtension` | Task tracking is a coordination primitive consumed by teams/agents — must appear before them. |
-| 7 | `WebSearchExtension` | Leaf research tool; grouped with other first-party tool blocks, before coordination layers. |
+| 7 | `WebExtension` | Leaf research tool; grouped with other first-party tool blocks, before coordination layers. |
 | 8 | `TeamExtension` | Peer coordination; depends on `TasksExtension` (auto-prepended if omitted). |
 | 9 | `AgentsExtension` | Delegation to specialists; placed last among tool blocks so the agent has full context of its own capabilities before deciding to hand off. |
 | 10 | `ResilienceExtension` | `wrap_tool` safety net — declared outermost so it wraps every other tool-layer hook (including HITL). Converts any unhandled tool exception into a synthetic error `ToolMessage`, preserving the `AIMessage`↔`ToolMessage` pairing invariant and keeping the ReAct loop alive. |
@@ -444,34 +444,35 @@ Glob and Grep stop at a result cap and tell the model when results are partial; 
 
 **Alternative backends:** `FilesystemExtension` accepts any object satisfying `FilesystemProtocol`. The framework ships four optional remote/sandboxed/unified-VFS backends alongside the default `OSBackend` — see the [FilesystemExtension Backends](#filesystemextension-backends) section for the full catalog and runnable examples.
 
-### WebSearchExtension
+### WebExtension
 
-Web search returning typed `SearchResult` records. Providers are queried in
-fallback order by default — the first to return results wins — so with a single
-provider there is no duplication. Set `fan_out=True` to query every provider
-concurrently and merge, dedupe, and rank the results. Ships with two built-in
-providers (no API key needed):
+The web capability: a `WebFetch` tool that reads one URL, plus a `WebSearch`
+tool when you pass search `providers`. Without providers only `WebFetch` is
+exposed. Both need the `web` extra (`pip install langchain-agentkit[web]`).
 
 ```python
-from langchain_agentkit import WebSearchExtension, DuckDuckGoSearchProvider
+from langchain_agentkit import WebExtension, DuckDuckGoSearchProvider
 
-# Zero config (defaults to DuckDuckGo)
-ext = WebSearchExtension()
+# WebFetch only
+ext = WebExtension()
 
-# DuckDuckGo HTML mode — broader general-web coverage
-ext = WebSearchExtension(providers=[DuckDuckGoSearchProvider(use_html=True)])
+# WebSearch (DuckDuckGo HTML mode, no API key) + WebFetch
+ext = WebExtension(providers=[DuckDuckGoSearchProvider(use_html=True)])
 
 # Multiple providers, queried concurrently and merged
 from langchain_agentkit import QwantSearchProvider
 
-ext = WebSearchExtension(
+ext = WebExtension(
     providers=[DuckDuckGoSearchProvider(), QwantSearchProvider()],
     fan_out=True,
 )
 ```
 
-A provider is any `SearchProvider` returning `list[SearchResult]`. To use a
-backend (Tavily, Exa, Brave, …), subclass and map its response:
+`WebSearch` returns typed `SearchResult` records. Providers are queried in
+fallback order by default — the first to return results wins. Set
+`fan_out=True` to query every provider concurrently and merge, dedupe, and rank
+the results. A provider is any `SearchProvider` returning `list[SearchResult]`.
+To use a backend (Tavily, Exa, Brave, …), subclass and map its response:
 
 ```python
 from langchain_agentkit import SearchProvider, SearchResult
@@ -490,18 +491,14 @@ class TavilyProvider(SearchProvider):
         ]
 ```
 
-Set `fetch=True` to add a companion `WebFetch` tool that reads one URL as
-markdown — the model searches, then reads a result. Fetch needs the `web` extra
-(`pip install langchain-agentkit[web]`) for HTML→markdown conversion, and is
-SSRF-guarded (scheme allowlist, private/loopback/metadata IP blocking with
-IPv4-mapped and 6to4 unwrapping, DNS pinning against rebinding, per-hop redirect
-re-validation). For human approval on each fetch, compose
-`HITLExtension(interrupt_on=["WebFetch"])`.
-
-```python
-# WebSearch + WebFetch (needs the [web] extra)
-ext = WebSearchExtension(fetch=True)
-```
+`WebFetch(url, format="markdown" | "text" | "html", max_content_tokens=…)` reads
+one URL. It asks for markdown first via `Accept`, converts HTML to the requested
+format (markdown by default), and truncates to a token budget. Non-text content
+types (images, PDFs, archives) are refused. A Cloudflare bot challenge is retried
+once with a plain agent User-Agent before failing. Fetch is SSRF-guarded (scheme
+allowlist, private/loopback/metadata IP blocking with IPv4-mapped and 6to4
+unwrapping, DNS pinning against rebinding, per-hop redirect re-validation). For
+human approval on each fetch, compose `HITLExtension(interrupt_on=["WebFetch"])`.
 
 ### HistoryExtension
 

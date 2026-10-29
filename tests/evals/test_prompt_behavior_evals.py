@@ -398,10 +398,10 @@ class TestAgentDelegationParallel:
 @pytest.mark.skipif(not _HAS_OPENAI, reason=SKIP_REASON)
 class TestWebSearchInvokedWithNoPromptFallback:
     def test_websearch_used(self) -> None:
-        from langchain_agentkit import WebSearchExtension
+        from langchain_agentkit import DuckDuckGoSearchProvider, WebExtension
 
         def trial() -> tuple[bool, str]:
-            kit = _make_kit(extensions=[WebSearchExtension()])
+            kit = _make_kit(extensions=[WebExtension(providers=[DuckDuckGoSearchProvider()])])
             msg = _run(_invoke_once(kit, "What's the weather in Tokyo right now?"))
             names = _tool_names(msg)
             if "WebSearch" in names:
@@ -1177,13 +1177,14 @@ def _recommended_kit(root: Path) -> Any:
     """
     from langchain_agentkit import (
         AgentsExtension,
+        DuckDuckGoSearchProvider,
         FilesystemExtension,
         HITLExtension,
         ResilienceExtension,
         SkillsExtension,
         TasksExtension,
         TeamExtension,
-        WebSearchExtension,
+        WebExtension,
     )
     from langchain_agentkit.extensions.agents import AgentConfig
     from langchain_agentkit.extensions.agents.types import _AgentConfigProxy
@@ -1217,7 +1218,7 @@ def _recommended_kit(root: Path) -> Any:
             FilesystemExtension(root=str(root)),
             SkillsExtension(skills=[skill]),
             TasksExtension(),
-            WebSearchExtension(),
+            WebExtension(providers=[DuckDuckGoSearchProvider()]),
             TeamExtension(agents=[_AgentConfigProxy(cfg)]),
             AgentsExtension(agents=[cfg], default_conciseness=True),
             # Resilience composes outermost in the tool-hook chain, so it must

@@ -21,7 +21,7 @@ from typing import Any, Literal, override
 from langchain_core.tools import BaseTool
 from pydantic import BaseModel, ConfigDict, Field
 
-from langchain_agentkit.extensions.web_search.provider import SearchProvider, SearchResult
+from langchain_agentkit.extensions.web.provider import SearchProvider, SearchResult
 
 _WEB_SEARCH_DESCRIPTION = """Search the web for current information. Use when you need facts beyond your training or about recent events. Returns results with their source URLs."""
 

@@ -1,4 +1,4 @@
-"""Tests for WebSearchExtension."""
+"""Tests for WebExtension."""
 
 from unittest.mock import MagicMock, patch
 
@@ -6,12 +6,12 @@ import pytest
 from langchain_core.messages import ToolCall
 from langgraph.prebuilt import ToolRuntime
 
-from langchain_agentkit.extensions.web_search import (
+from langchain_agentkit.extensions.web import (
     DuckDuckGoSearchProvider,
     QwantSearchProvider,
     SearchProvider,
     SearchResult,
-    WebSearchExtension,
+    WebExtension,
 )
 
 _TEST_RUNTIME = ToolRuntime(
@@ -62,24 +62,26 @@ class TestSearchResult:
         }
 
 
-class TestWebSearchExtensionConstruction:
-    def test_empty_providers_uses_default(self):
-        mw = WebSearchExtension(providers=[])
-        assert len(mw.tools) == 1
-        assert mw.tools[0].name == "WebSearch"
+class TestWebExtensionConstruction:
+    def test_empty_providers_exposes_fetch_only(self):
+        assert [t.name for t in WebExtension(providers=[]).tools] == ["WebFetch"]
 
-    def test_none_providers_uses_default(self):
-        mw = WebSearchExtension(providers=None)
-        assert mw.tools[0].providers[0].name == "DuckDuckGoSearch"
+    def test_none_providers_exposes_fetch_only(self):
+        assert [t.name for t in WebExtension(providers=None).tools] == ["WebFetch"]
+
+    def test_providers_add_websearch_before_webfetch(self):
+        ext = WebExtension(providers=[DuckDuckGoSearchProvider()])
+        assert [t.name for t in ext.tools] == ["WebSearch", "WebFetch"]
+        assert ext.tools[0].providers[0].name == "DuckDuckGoSearch"
 
     def test_invalid_provider_type_raises_type_error(self):
         with pytest.raises(TypeError):
-            WebSearchExtension(providers=[42])  # type: ignore[list-item]
+            WebExtension(providers=[42])  # type: ignore[list-item]
 
     def test_basetool_provider_rejected(self):
         """Direct BaseTool providers are no longer accepted — providers are SearchProvider."""
         with pytest.raises(TypeError):
-            WebSearchExtension(providers=[MagicMock()])  # type: ignore[list-item]
+            WebExtension(providers=[MagicMock()])  # type: ignore[list-item]
 
 
 class TestDuckDuckGoSearchProviderStandalone:
@@ -169,25 +171,28 @@ class TestQwantSearchProviderStandalone:
 
 class TestDefaultProviderPrompt:
     def test_prompt_emits_sources_norm_when_tool_present(self):
-        mw = WebSearchExtension()
+        mw = WebExtension(providers=[_FakeProvider("x")])
         prompt = mw.prompt({}, _TEST_RUNTIME, tools=frozenset({"WebSearch"}))
         assert prompt is not None
         assert "Sources" in prompt
 
     def test_prompt_emits_sources_norm_outside_composed_kit(self):
         """Empty tools set means standalone call — keep the norm."""
-        assert "Sources" in WebSearchExtension().prompt({}, _TEST_RUNTIME)
+        assert "Sources" in WebExtension(providers=[_FakeProvider("x")]).prompt({}, _TEST_RUNTIME)
 
     def test_prompt_suppressed_when_tool_shadowed(self):
         """When WebSearch is composed away (shadowed), the norm is not contributed."""
-        mw = WebSearchExtension()
+        mw = WebExtension(providers=[_FakeProvider("x")])
         assert mw.prompt({}, _TEST_RUNTIME, tools=frozenset({"OtherTool"})) is None
+
+    def test_prompt_suppressed_without_providers(self):
+        assert WebExtension().prompt({}, _TEST_RUNTIME) is None
 
 
 class TestFallbackMode:
     async def test_single_provider_returns_records(self):
         p = _FakeProvider("solo", [_result("https://a"), _result("https://b")])
-        tool = WebSearchExtension(providers=[p]).tools[0]
+        tool = WebExtension(providers=[p]).tools[0]
 
         msg = await tool.ainvoke(_tool_call())
 
@@ -198,7 +203,7 @@ class TestFallbackMode:
     async def test_first_nonempty_provider_wins(self):
         empty = _FakeProvider("empty", [])
         full = _FakeProvider("full", [_result("https://a")])
-        tool = WebSearchExtension(providers=[empty, full]).tools[0]
+        tool = WebExtension(providers=[empty, full]).tools[0]
 
         msg = await tool.ainvoke(_tool_call())
 
@@ -210,13 +215,13 @@ class TestFallbackMode:
         """Terminal failure propagates so ResilienceExtension can handle it."""
         a = _FakeProvider("a", error=RuntimeError("a failed"))
         b = _FakeProvider("b", error=RuntimeError("b failed"))
-        tool = WebSearchExtension(providers=[a, b]).tools[0]
+        tool = WebExtension(providers=[a, b]).tools[0]
 
         with pytest.raises(RuntimeError):
             await tool.ainvoke(_tool_call())
 
     async def test_empty_results_render_no_results_message(self):
-        tool = WebSearchExtension(providers=[_FakeProvider("empty", [])]).tools[0]
+        tool = WebExtension(providers=[_FakeProvider("empty", [])]).tools[0]
         msg = await tool.ainvoke(_tool_call())
         assert msg.content == "No results found."
         assert msg.artifact == []
@@ -226,7 +231,7 @@ class TestFanOutMode:
     async def test_merges_and_dedupes_by_url(self):
         a = _FakeProvider("a", [_result("https://dup"), _result("https://a-only")])
         b = _FakeProvider("b", [_result("https://dup"), _result("https://b-only")])
-        tool = WebSearchExtension(providers=[a, b], fan_out=True).tools[0]
+        tool = WebExtension(providers=[a, b], fan_out=True).tools[0]
 
         msg = await tool.ainvoke(_tool_call())
 
@@ -237,7 +242,7 @@ class TestFanOutMode:
     async def test_ranks_by_score_descending(self):
         a = _FakeProvider("a", [SearchResult(url="https://low", score=0.1)])
         b = _FakeProvider("b", [SearchResult(url="https://high", score=0.9)])
-        tool = WebSearchExtension(providers=[a, b], fan_out=True).tools[0]
+        tool = WebExtension(providers=[a, b], fan_out=True).tools[0]
 
         msg = await tool.ainvoke(_tool_call())
 
@@ -246,7 +251,7 @@ class TestFanOutMode:
     async def test_partial_failure_still_returns(self):
         good = _FakeProvider("good", [_result("https://a")])
         bad = _FakeProvider("bad", error=RuntimeError("boom"))
-        tool = WebSearchExtension(providers=[good, bad], fan_out=True).tools[0]
+        tool = WebExtension(providers=[good, bad], fan_out=True).tools[0]
 
         msg = await tool.ainvoke(_tool_call())
 
@@ -255,7 +260,7 @@ class TestFanOutMode:
     async def test_all_fail_raises(self):
         a = _FakeProvider("a", error=RuntimeError("a"))
         b = _FakeProvider("b", error=RuntimeError("b"))
-        tool = WebSearchExtension(providers=[a, b], fan_out=True).tools[0]
+        tool = WebExtension(providers=[a, b], fan_out=True).tools[0]
 
         with pytest.raises(RuntimeError):
             await tool.ainvoke(_tool_call())
@@ -263,7 +268,7 @@ class TestFanOutMode:
     async def test_max_results_caps_merged_list(self):
         a = _FakeProvider("a", [_result("https://1"), _result("https://2")])
         b = _FakeProvider("b", [_result("https://3"), _result("https://4")])
-        tool = WebSearchExtension(providers=[a, b], fan_out=True).tools[0]
+        tool = WebExtension(providers=[a, b], fan_out=True).tools[0]
 
         msg = await tool.ainvoke(_tool_call(max_results=3))
 
@@ -273,18 +278,18 @@ class TestFanOutMode:
 class TestSyncExecution:
     def test_sync_run_returns_records(self):
         p = _FakeProvider("solo", [_result("https://a")])
-        tool = WebSearchExtension(providers=[p]).tools[0]
+        tool = WebExtension(providers=[p]).tools[0]
         msg = tool.invoke(_tool_call())
         assert [r["url"] for r in msg.artifact] == ["https://a"]
 
 
 class TestExtensionProtocol:
     def test_implements_extension_protocol(self):
-        mw = WebSearchExtension(providers=[_FakeProvider("x")])
+        mw = WebExtension(providers=[_FakeProvider("x")])
         assert hasattr(mw, "tools")
         assert isinstance(mw.tools, list)
         assert callable(mw.prompt)
 
     def test_tool_advertises_content_and_artifact(self):
-        tool = WebSearchExtension(providers=[_FakeProvider("x")]).tools[0]
+        tool = WebExtension(providers=[_FakeProvider("x")]).tools[0]
         assert tool.response_format == "content_and_artifact"

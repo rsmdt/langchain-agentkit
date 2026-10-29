@@ -1,9 +1,8 @@
 # ruff: noqa: N805
-"""Web search — multi-provider search with zero config or custom providers.
+"""Web search — WebSearch over a chosen provider, plus WebFetch to read results.
 
-WebSearchExtension fans out queries to all providers in parallel.
-Works out of the box with built-in Qwant search (no API key needed).
-Add your own providers for broader coverage.
+WebExtension always exposes WebFetch; passing providers adds WebSearch.
+DuckDuckGoSearchProvider needs no API key. Add your own providers for broader coverage.
 """
 
 import asyncio
@@ -11,14 +10,14 @@ import asyncio
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 
-from langchain_agentkit import Agent, WebSearchExtension
+from langchain_agentkit import Agent, DuckDuckGoSearchProvider, WebExtension
 
-# --- Example 1: Zero config (built-in Qwant search) ---
+# --- Example 1: Keyless search (built-in DuckDuckGo provider) ---
 
 
 class QuickResearcher(Agent):
     model = ChatOpenAI(model="gpt-4o")
-    extensions = [WebSearchExtension()]
+    extensions = [WebExtension(providers=[DuckDuckGoSearchProvider(use_html=True)])]
     prompt = "You are a research assistant. Use web search to find current information."
 
     async def handler(state, *, llm, tools, prompt):
@@ -34,7 +33,7 @@ class QuickResearcher(Agent):
 #
 # class DeepResearcher(Agent):
 #     model = ChatOpenAI(model="gpt-4o")
-#     extensions = [WebSearchExtension(providers=[TavilySearch(max_results=5)])]
+#     extensions = [WebExtension(providers=[TavilySearch(max_results=5)])]
 #     prompt = "You are a research assistant."
 #
 #     async def handler(state, *, llm, tools, prompt):

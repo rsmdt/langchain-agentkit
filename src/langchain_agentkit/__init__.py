@@ -90,7 +90,7 @@ from langchain_agentkit.extensions import (
     TasksExtension,
     TeamExtension,
     TurnBudgetExtension,
-    WebSearchExtension,
+    WebExtension,
 )
 
 # Types
@@ -196,7 +196,7 @@ __all__ = [
     "TeamExtension",
     "TokenStrategy",
     "TurnBudgetExtension",
-    "WebSearchExtension",
+    "WebExtension",
     # Composability
     "AgentLike",
     "CompiledAgent",

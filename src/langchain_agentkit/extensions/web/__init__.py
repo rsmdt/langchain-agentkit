@@ -1,16 +1,16 @@
 """Web extensions — provider-backed search (typed records) and URL fetch."""
 
-from langchain_agentkit.extensions.web_search.extension import (
+from langchain_agentkit.extensions.web.extension import (
     DuckDuckGoSearchProvider,
     QwantSearchProvider,
-    WebSearchExtension,
+    WebExtension,
 )
-from langchain_agentkit.extensions.web_search.provider import SearchProvider, SearchResult
+from langchain_agentkit.extensions.web.provider import SearchProvider, SearchResult
 
 __all__ = [
     "DuckDuckGoSearchProvider",
     "QwantSearchProvider",
     "SearchProvider",
     "SearchResult",
-    "WebSearchExtension",
+    "WebExtension",
 ]

@@ -8,7 +8,7 @@ Each extension is a self-contained package under extensions/:
     from langchain_agentkit.extensions.teams import TeamExtension
     from langchain_agentkit.extensions.filesystem import FilesystemExtension
     from langchain_agentkit.extensions.hitl import HITLExtension
-    from langchain_agentkit.extensions.web_search import WebSearchExtension
+    from langchain_agentkit.extensions.web import WebExtension
 """
 
 from langchain_agentkit.extensions.agents import AgentsExtension
@@ -25,12 +25,12 @@ from langchain_agentkit.extensions.skills import SkillsExtension
 from langchain_agentkit.extensions.tasks import TasksExtension
 from langchain_agentkit.extensions.teams import TeamExtension
 from langchain_agentkit.extensions.turn_budget import TurnBudgetExtension
-from langchain_agentkit.extensions.web_search import (
+from langchain_agentkit.extensions.web import (
     DuckDuckGoSearchProvider,
     QwantSearchProvider,
     SearchProvider,
     SearchResult,
-    WebSearchExtension,
+    WebExtension,
 )
 
 __all__ = [
@@ -52,5 +52,5 @@ __all__ = [
     "TasksExtension",
     "TeamExtension",
     "TurnBudgetExtension",
-    "WebSearchExtension",
+    "WebExtension",
 ]

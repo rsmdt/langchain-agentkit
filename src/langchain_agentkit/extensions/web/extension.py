@@ -1,12 +1,12 @@
-"""WebSearchExtension — web search over a typed provider contract.
+"""WebExtension — URL fetch, plus web search over a typed provider contract.
 
 Usage::
 
-    from langchain_agentkit import WebSearchExtension, DuckDuckGoSearchProvider
+    from langchain_agentkit import WebExtension, DuckDuckGoSearchProvider
 
-    ext = WebSearchExtension()                       # built-in DuckDuckGo provider
-    ext = WebSearchExtension(providers=[my_provider])
-    ext = WebSearchExtension(providers=[a, b], fan_out=True)  # concurrent, merged
+    ext = WebExtension()                                    # WebFetch only
+    ext = WebExtension(providers=[DuckDuckGoSearchProvider()])  # WebSearch + WebFetch
+    ext = WebExtension(providers=[a, b], fan_out=True)      # concurrent, merged
 
     # A provider is any SearchProvider; use one standalone:
     provider = DuckDuckGoSearchProvider()            # instant-answer mode
@@ -24,8 +24,8 @@ from html.parser import HTMLParser
 from typing import TYPE_CHECKING, Any, override
 
 from langchain_agentkit.composition.extension import Extension
-from langchain_agentkit.extensions.web_search.provider import SearchProvider, SearchResult
-from langchain_agentkit.extensions.web_search.tools.web_search import _WebSearchTool
+from langchain_agentkit.extensions.web.provider import SearchProvider, SearchResult
+from langchain_agentkit.extensions.web.tools.web_search import _WebSearchTool
 
 if TYPE_CHECKING:
     from langchain_core.tools import BaseTool
@@ -242,40 +242,28 @@ class QwantSearchProvider(SearchProvider):
         ]
 
 
-class WebSearchExtension(Extension):
-    """Extension bundling the web capability: a ``WebSearch`` tool and, when
-    ``fetch=True``, a companion ``WebFetch`` tool that reads one URL as markdown.
+class WebExtension(Extension):
+    """Extension bundling the web capability: a ``WebFetch`` tool that reads one
+    URL, and a ``WebSearch`` tool when search providers are given.
 
-    Search discovers URLs; fetch reads one. They travel together because the
-    pair is how the model actually works: search, then read a result. Fetch is
-    opt-in because it needs the ``web`` extra
-    (``pip install langchain-agentkit[web]``) for HTML→markdown conversion,
-    while search runs on the standard library alone.
+    Search discovers URLs; fetch reads one. Fetch is always present; search
+    exists only when the caller chooses a backend via ``providers``. Both need
+    the ``web`` extra (``pip install langchain-agentkit[web]``) for
+    HTML→markdown conversion; construction raises ``ImportError`` without it.
 
-    By default the search tool queries providers in fallback order — the first
-    provider to return results wins — which with a single provider (the common
-    case) is just that provider, with no cross-provider duplication. Set
-    ``fan_out=True`` to query every provider concurrently and merge, dedupe,
-    and rank their results into one list (one backend call per provider).
+    The search tool queries providers in fallback order — the first provider to
+    return results wins. Set ``fan_out=True`` to query every provider
+    concurrently and merge, dedupe, and rank their results into one list.
 
     ``WebFetch`` is SSRF-guarded unconditionally. For human approval on each
     fetch, compose ``HITLExtension(interrupt_on=["WebFetch"])``.
 
     Args:
-        providers: List of :class:`SearchProvider` instances. When ``None`` or
-            empty, defaults to the built-in DuckDuckGo provider.
+        providers: :class:`SearchProvider` instances backing ``WebSearch``.
+            When ``None`` or empty, no ``WebSearch`` tool is exposed.
         fan_out: When True, query all providers concurrently and merge results.
             When False (default), query providers in order until one returns.
-        fetch: When True, also expose a ``WebFetch`` URL-reading tool. Requires
-            the ``web`` extra; construction raises ``ImportError`` without it.
         fetch_timeout: Per-request timeout (seconds) for ``WebFetch``, per hop.
-
-    Example::
-
-        ext = WebSearchExtension()                       # WebSearch only
-        ext = WebSearchExtension(providers=[my_provider])
-        ext = WebSearchExtension(providers=[a, b], fan_out=True)
-        ext = WebSearchExtension(fetch=True)             # WebSearch + WebFetch
     """
 
     def __init__(
@@ -283,29 +271,24 @@ class WebSearchExtension(Extension):
         *,
         providers: list[SearchProvider] | None = None,
         fan_out: bool = False,
-        fetch: bool = False,
         fetch_timeout: float = 30.0,
     ) -> None:
-        if not providers:
-            providers = [DuckDuckGoSearchProvider()]
-        self._providers = [self._resolve_provider(p) for p in providers]
-        self._tools: list[BaseTool] = [_WebSearchTool(providers=self._providers, fan_out=fan_out)]
-        if fetch:
-            self._tools.append(self._build_fetch_tool(fetch_timeout))
+        self._providers = [self._resolve_provider(p) for p in providers or []]
+        self._tools: list[BaseTool] = []
+        if self._providers:
+            self._tools.append(_WebSearchTool(providers=self._providers, fan_out=fan_out))
+        self._tools.append(self._build_fetch_tool(fetch_timeout))
 
     def _build_fetch_tool(self, timeout: float) -> BaseTool:
-        # Import lazily: the fetch tool pulls the optional `web` extra only when
-        # asked for, so a search-only kit never imports the conversion path.
         # Fail fast at construction rather than at first fetch: a kit that asks
         # for fetch without the extra is misconfigured, and should say so now.
         import importlib.util
 
-        from langchain_agentkit.extensions.web_search.tools.web_fetch import _WebFetchTool
+        from langchain_agentkit.extensions.web.tools.web_fetch import _WebFetchTool
 
         if importlib.util.find_spec("markdownify") is None:
             raise ImportError(
-                "WebSearchExtension(fetch=True) needs the 'web' extra: "
-                "pip install langchain-agentkit[web]"
+                "WebExtension needs the 'web' extra: pip install langchain-agentkit[web]"
             )
         return _WebFetchTool(timeout=timeout)
 
@@ -335,7 +318,7 @@ class WebSearchExtension(Extension):
         # so emitting this unconditionally would ship guidance for a tool that is
         # not present. Empty `tools` means "called outside a composed kit" — keep
         # the norm so standalone prompt() calls still see it.
-        if tools and "WebSearch" not in tools:
+        if not self._providers or (tools and "WebSearch" not in tools):
             return None
         return (
             'After answering, end with a "Sources:" section listing the '
