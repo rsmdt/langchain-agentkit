@@ -9,6 +9,12 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.36.1] — 2026-10-29
+
+### Changed
+
+- The `daytona` extra installs `daytona>=0.226` instead of the deprecated `daytona-sdk` alias, and `DaytonaBackend` imports `daytona`. Importing the backend no longer emits the `daytona_sdk` DeprecationWarning.
+
 ## [0.36.0] — 2026-10-24
 
 ### Changed
