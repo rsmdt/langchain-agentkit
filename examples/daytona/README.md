@@ -2,7 +2,7 @@
 
 [**Daytona**](https://www.daytona.io) is a cloud sandbox platform that gives
 each agent run an isolated container with full filesystem and shell access.
-The `daytona-sdk` Python client provisions a sandbox on demand, and
+The `daytona` Python client provisions a sandbox on demand, and
 `DaytonaBackend` adapts that sandbox to `FilesystemProtocol` + `SandboxProtocol`
 so the agent gets `Read`/`Write`/`Edit`/`Glob`/`Grep` plus `Bash`.
 

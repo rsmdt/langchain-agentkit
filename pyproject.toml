@@ -47,7 +47,7 @@ eval = [
     "langchain-openai>=0.3",
 ]
 daytona = [
-    "daytona-sdk>=0.158",
+    "daytona>=0.226",
 ]
 agentfs = [
     "agentfs-sdk>=0.6,<0.7",
@@ -123,8 +123,8 @@ mypy_path = "src"
 # both cases; when the extra is installed the module still resolves at runtime.
 [[tool.mypy.overrides]]
 module = [
-    "daytona_sdk",
-    "daytona_sdk.*",
+    "daytona",
+    "daytona.*",
     "mirage",
     "mirage.*",
     "agentfs_sdk",

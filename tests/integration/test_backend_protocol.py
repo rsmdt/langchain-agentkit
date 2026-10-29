@@ -51,13 +51,7 @@ if _ENV_FILE.exists():
 
 
 def _import_daytona():
-    """Import Daytona SDK — supports both package names."""
-    try:
-        from daytona_sdk import Daytona, DaytonaConfig  # type: ignore[import-not-found]
-
-        return Daytona, DaytonaConfig
-    except ImportError:
-        pass
+    """Import the Daytona SDK."""
     try:
         from daytona import Daytona, DaytonaConfig  # type: ignore[import-not-found]
 
@@ -72,12 +66,12 @@ def _daytona_available() -> bool:
         return False
     if not os.environ.get("DAYTONA_API_KEY"):
         return False
-    # The unit suite registers a stub `daytona_sdk` module; real conformance
+    # The unit suite registers a stub `daytona` module; real conformance
     # must only run against a genuine install.
     try:
-        import daytona_sdk
+        import daytona
 
-        if getattr(daytona_sdk, "__agentkit_test_stub__", False):
+        if getattr(daytona, "__agentkit_test_stub__", False):
             return False
     except ImportError:
         pass

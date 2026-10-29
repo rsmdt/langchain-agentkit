@@ -8,7 +8,7 @@ lives entirely in the sandbox under ``/.agentkit/``. The host-side
 approval via the DEFAULT_RULESET permission preset.
 
 Prerequisites:
-    pip install daytona-sdk langchain-openai
+    pip install daytona langchain-openai
 
 Environment:
     DAYTONA_API_KEY  — Daytona API key
@@ -25,7 +25,7 @@ import asyncio
 import os
 from pathlib import Path
 
-from daytona_sdk import Daytona, DaytonaConfig
+from daytona import Daytona, DaytonaConfig
 from langchain_core.messages import HumanMessage, SystemMessage
 from langchain_openai import ChatOpenAI
 

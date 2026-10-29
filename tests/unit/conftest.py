@@ -4,7 +4,7 @@ Stubs the optional backend SDKs the unit tests reference, so the unit suite
 never depends on them. Some backend modules hard-import their SDK at module
 load to fail-fast for real users (e.g. ``MirageBackend`` does
 ``from mirage import Workspace``; ``DaytonaBackend`` does
-``from daytona_sdk import FileUpload, FileDownloadRequest``). Their unit tests
+``from daytona import FileUpload, FileDownloadRequest``). Their unit tests
 drive the backend through in-file fakes and never touch the real SDK, but the
 module-level import would still break collection when the SDK is absent.
 
@@ -24,7 +24,7 @@ import types
 # instantiate them); behavior is exercised through in-file fakes.
 _OPTIONAL_SDK_STUBS = {
     "mirage": ("Workspace",),
-    "daytona_sdk": ("FileUpload", "FileDownloadRequest"),
+    "daytona": ("FileUpload", "FileDownloadRequest"),
 }
 
 

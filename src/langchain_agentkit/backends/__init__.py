@@ -3,7 +3,7 @@
 This namespace exposes the **capability protocols and shared types**
 only. Concrete backends live in their own submodules and are imported
 explicitly — this keeps optional-dependency gates honest (DaytonaBackend
-needs ``daytona-sdk``, future remote backends will need their own SDKs)
+needs ``daytona``, future remote backends will need their own SDKs)
 and surfaces the dependency at the import line.
 
 Usage::

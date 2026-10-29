@@ -5,14 +5,14 @@ Daytona SDK for ``execute()`` and shell commands for file operations
 (read, write, edit, glob, grep).
 
 Requires ``pip install langchain-agentkit[daytona]`` (or
-``pip install daytona-sdk`` directly). Importing this module fails with
+``pip install daytona`` directly). Importing this module fails with
 a clear ``ImportError`` if the SDK isn't installed — DaytonaBackend
 isn't re-exported from the generic ``langchain_agentkit.backends``
 namespace, so SDK-less users running OSBackend are unaffected.
 
 Usage::
 
-    from daytona_sdk import Daytona, DaytonaConfig
+    from daytona import Daytona, DaytonaConfig
     from langchain_agentkit.backends.daytona import DaytonaBackend
 
     config = DaytonaConfig(api_key="...", api_url="http://localhost:3000")
@@ -32,7 +32,7 @@ import posixpath
 import re
 from typing import TYPE_CHECKING
 
-from daytona_sdk import FileDownloadRequest, FileUpload
+from daytona import FileDownloadRequest, FileUpload
 
 from langchain_agentkit.backends.edits import edit_result_from_script, empty_old_string_result
 from langchain_agentkit.backends.execution import (
@@ -68,7 +68,7 @@ from langchain_agentkit.backends.shell import (
 )
 
 if TYPE_CHECKING:
-    from daytona_sdk import Sandbox
+    from daytona import Sandbox
 
 
 # Python program executed inside the sandbox to perform an edit.
