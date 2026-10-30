@@ -9,6 +9,25 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.37.0] — 2026-10-30
+
+### Added
+
+- `WebFetch` takes a `format` argument (`markdown`, `text`, or `html`) and sends an Accept header that asks for that format.
+- `WebFetch` retries once with a plain agent User-Agent when a site returns a Cloudflare challenge.
+- `WebFetch` rejects non-text content types before it downloads the body.
+
+### Changed
+
+- **BREAKING**: `WebSearchExtension` is renamed to `WebExtension`, and its package moves from `extensions.web_search` to `extensions.web`.
+- **BREAKING**: `WebFetch` is always available and requires the `web` extra. `WebSearch` appears only when you pass `providers`.
+- Markdown output leaves out the page `<title>` and uses ATX (`#`) headings. Text output keeps the line breaks between block elements.
+
+### Removed
+
+- **BREAKING**: The `fetch` argument is removed from the web extension.
+- **BREAKING**: `WebSearch` no longer falls back to DuckDuckGo when no provider is set.
+
 ## [0.36.1] — 2026-10-29
 
 ### Changed
