@@ -124,20 +124,15 @@ class TestDirectoryMode:
             assert len(mw.tools) == 1
             assert mw.tools[0].name == "Skill"
 
-    def test_skill_prompt_includes_base_directory_header(self):
+    def test_skill_prompt_is_the_body_without_its_directory(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             _write_skill(Path(tmpdir), "market-sizing", _SKILL_MD)
 
             mw = SkillsExtension(skills=tmpdir)
             result = mw.tools[0].invoke({"skill_name": "market-sizing"})
 
-            # The header anchors the skill's directory so the model can resolve
-            # relative reference paths, followed by a `---` separator and body.
-            expected_dir = str(Path(tmpdir) / "market-sizing")
-            assert result.startswith(
-                f'Base directory for this "market-sizing" skill: {expected_dir}\n\n---\n\n'
-            )
-            assert "# Market Sizing Methodology" in result
+            assert result.startswith("# Market Sizing Methodology")
+            assert tmpdir not in result
 
     def test_empty_directory_returns_no_configs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -276,7 +271,7 @@ class TestBackendMode:
 
             assert "Market Sizing Methodology" in result
 
-    async def test_backend_skill_prompt_includes_base_directory_header(self):
+    async def test_backend_skill_prompt_is_the_body_without_its_directory(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             from langchain_agentkit.backends.os import OSBackend
 
@@ -287,11 +282,8 @@ class TestBackendMode:
             await mw.setup()
             result = mw.tools[0].invoke({"skill_name": "market-sizing"})
 
-            # Backend skills carry a header too, anchored at the backend-relative
-            # directory (resolvable by a Read tool on the same backend).
-            assert result.startswith('Base directory for this "market-sizing" skill: ')
-            assert "\n\n---\n\n" in result
-            assert "# Market Sizing Methodology" in result
+            assert result.startswith("# Market Sizing Methodology")
+            assert "market-sizing/" not in result
 
     async def test_empty_backend_returns_no_configs(self):
         with tempfile.TemporaryDirectory() as tmpdir:
