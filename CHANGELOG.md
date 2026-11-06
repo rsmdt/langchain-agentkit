@@ -9,6 +9,12 @@ Entries are added only when a release is cut. Work in progress is not tracked he
 
 This file retains detailed entries for the last 10 minor releases plus their patch revisions. Older release notes can be found in the git history and on each version's [GitHub release page](https://github.com/rsmdt/langchain-agentkit/releases).
 
+## [0.38.0] — 2026-11-06
+
+### Removed
+
+- **BREAKING**: Skills discovered from a directory or a backend no longer start with a `Base directory for this "<name>" skill: <dir>` header. The `Skill` tool returns the skill body as written.
+
 ## [0.37.0] — 2026-10-30
 
 ### Added
