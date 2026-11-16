@@ -1334,7 +1334,7 @@ web = [
 requires-dist = [
     { name = "agentevals", marker = "extra == 'eval'", specifier = ">=0.0.9" },
     { name = "agentfs-sdk", marker = "extra == 'agentfs'", specifier = ">=0.6,<0.7" },
-    { name = "daytona", marker = "extra == 'daytona'", specifier = ">=0.226" },
+    { name = "daytona", marker = "extra == 'daytona'", specifier = ">=0.226,<1" },
     { name = "langchain-core", specifier = ">=1.2.10" },
     { name = "langchain-openai", marker = "extra == 'dev'", specifier = ">=0.3" },
     { name = "langchain-openai", marker = "extra == 'eval'", specifier = ">=0.3" },

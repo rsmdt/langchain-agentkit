@@ -47,7 +47,7 @@ eval = [
     "langchain-openai>=0.3",
 ]
 daytona = [
-    "daytona>=0.226",
+    "daytona>=0.226,<1",
 ]
 agentfs = [
     "agentfs-sdk>=0.6,<0.7",
